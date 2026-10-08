@@ -62,7 +62,7 @@ export function createSourceState(text, ranges, position, extensions = []) {
   });
 }
 
-export function createEditor(parent, {text, ranges, position, onChange, onSelect, onSave, onClose, onComment, onAgentRequest}) {
+export function createEditor(parent, {text, ranges, position, onChange, onSelect, onSave, onClose, onComment, onAgentRequest, onMoveComment}) {
   const editable = new Compartment();
   const view = new EditorView({
     parent,
@@ -75,6 +75,8 @@ export function createEditor(parent, {text, ranges, position, onChange, onSelect
           {key: 'Mod-s', run: () => {onSave(); return true;}},
           {key: 'Mod-Shift-m', run: () => {onComment(); return true;}},
           {key: 'Mod-Shift-r', run: () => {onAgentRequest(); return true;}},
+          {key: 'Mod-Shift-[', run: () => {onMoveComment(-1); return true;}},
+          {key: 'Mod-Shift-]', run: () => {onMoveComment(1); return true;}},
           {key: 'Escape', run: view => {if(!closeSearchPanel(view))onClose(); return true;}},
           ...searchKeymap, ...historyKeymap, ...defaultKeymap
         ]),

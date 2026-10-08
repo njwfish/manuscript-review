@@ -66,6 +66,97 @@ class ManuscriptTests(ReviewFixture):
         self.assertEqual({path: Path(path).read_bytes() for path in files}, files)
         self.assertEqual(self.session.report()['history'][0]['id'], entry['id'])
 
+    def test_imported_feedback_keeps_exact_unicode_anchors_and_is_idempotent(self):
+        before = self.session.store.read()
+        files = {path: path.read_bytes() for path in self.repo.glob('*.tex')}
+        head, index = git(self.repo, 'rev-parse', 'HEAD'), git(self.repo, 'ls-files', '--stage')
+        rows = [{'file': 'unicode.tex', 'quote': 'Repeated sentence.', 'line': 5, 'text': 'R1: Explain this occurrence.'},
+                {'file': 'main.tex', 'quote': 'We score', 'text': 'R2: Identify the measured observations.'}]
+        result = self.session.import_annotations(rows, before['revision'])
+        entries = result['history']
+        self.assertEqual(self.library.listing()[0]['comments'], 2)
+        self.assertEqual([entry['author'] for entry in entries], ['agent', 'agent'])
+        self.assertEqual([entry['kind'] for entry in entries], ['source', 'source'])
+        self.assertEqual(entries[0]['line'], 5)
+        for entry in entries:
+            text = read_blob(self.repo, entry['anchor']['revision'], entry['file'])
+            self.assertEqual(text[entry['anchor']['start']:entry['anchor']['end']], entry['before'])
+        saved = self.session.store.path.read_bytes()
+        repeated = self.session.import_annotations(rows + rows, result['revision'])
+        self.assertEqual(repeated, result)
+        self.assertEqual(self.session.store.path.read_bytes(), saved)
+        self.assertEqual(self.session.snapshot['files'], [])
+        self.assertEqual(git(self.repo, 'rev-parse', 'HEAD'), head)
+        self.assertEqual(git(self.repo, 'ls-files', '--stage'), index)
+        self.assertEqual({path: path.read_bytes() for path in files}, files)
+
+    def test_unrelated_file_revision_does_not_duplicate_imported_feedback_or_erase_replies(self):
+        rows = [{'file': 'main.tex', 'quote': 'We score', 'text': 'R1: Clarify this verb.'}]
+        entry = self.session.import_annotations(rows, 0)['history'][0]
+        self.session.import_responses([{'id': entry['id'], 'text': 'We retained this wording.'}], 1)
+        self.save_file('An introduction.\r\n\r\n' + self.source('unicode.tex')['text'], 'unicode.tex')
+        record = self.session.store.read()
+        result = self.session.import_annotations(rows, record['revision'])
+        self.assertEqual(result['history'], record['history'])
+        self.assertEqual(result['revision'], record['revision'])
+        self.assertEqual(result['history'][0]['anchor'], entry['anchor'])
+        self.assertEqual(result['history'][0]['replies'][0]['text'], 'We retained this wording.')
+        start = self.library.begin(self.identifier)
+        path = self.repo / 'unicode.tex'
+        path.write_bytes(b'Another introduction.\r\n\r\n' + path.read_bytes())
+        self.library.prepare({'repo': str(self.repo), 'previous': self.identifier, 'proposed': 'working',
+                              'starting_version': start['starting_version'], 'expected_revision': start['revision'],
+                              'require_changes': True}, 'finish')
+        next_result = self.library.jobs['finish']
+        self.assertEqual(next_result['status'], 'ready', next_result)
+        revised = ReviewSession(self.library.directory(next_result['review']))
+        before = revised.store.path.read_bytes()
+        imported = revised.import_annotations(rows, revised.store.read()['revision'])
+        self.assertEqual(len(imported['history']), 1)
+        self.assertEqual(revised.store.path.read_bytes(), before)
+
+    def test_invalid_or_ambiguous_annotation_batch_and_stale_import_preserve_review(self):
+        from manuscript_review.storage import StaleReview
+        row = {'file': 'main.tex', 'quote': 'We score', 'text': 'A valid point.'}
+        before = self.session.store.path.read_bytes()
+        revision = self.session.store.read()['revision']
+        for invalid in ({'file': 'unicode.tex', 'quote': 'Repeated sentence.', 'text': 'Ambiguous.'},
+                        {**row, 'quote': 'Absent quote'}, {**row, 'line': True},
+                        {**row, 'text': ' '}, {**row, 'unknown': 'value'}):
+            with self.assertRaises(ValueError):
+                self.session.import_annotations([row, invalid], revision)
+            self.assertEqual(self.session.store.path.read_bytes(), before)
+        self.session.import_annotations([row], revision)
+        saved = self.session.store.path.read_bytes()
+        with self.assertRaises(StaleReview):
+            self.session.import_annotations([row], revision)
+        self.assertEqual(self.session.store.path.read_bytes(), saved)
+
+    def test_imported_feedback_follows_revision_and_response_without_duplicate_explanations(self):
+        entry = self.session.import_annotations([{'file': 'main.tex', 'quote': 'We score',
+                                                  'text': 'R1: Clarify this verb.'}], 0)['history'][0]
+        before = self.session.store.read()
+        start = self.library.begin(self.identifier)
+        path = self.repo / 'main.tex'
+        path.write_bytes(path.read_bytes().replace(b'We score', b'We measure', 1))
+        self.library.prepare({'repo': str(self.repo), 'previous': self.identifier, 'proposed': 'working',
+                              'starting_version': start['starting_version'], 'expected_revision': start['revision'],
+                              'require_changes': True}, 'finish')
+        result = self.library.jobs['finish']
+        self.assertEqual(result['status'], 'ready', result)
+        revised = ReviewSession(self.library.directory(result['review']))
+        record = revised.store.read()
+        revised.import_responses([{'id': entry['id'], 'text': 'Changed only score to measure to clarify R1.'}], record['revision'])
+        note = revised.report()['history'][0]
+        self.assertEqual(note['id'], entry['id'])
+        self.assertEqual(note['anchor'], entry['anchor'])
+        self.assertEqual(note['comment'], entry['comment'])
+        self.assertTrue(note['target'])
+        self.assertEqual(len(revised.report()['history']), 1)
+        self.assertEqual(len(note['replies']), 1)
+        self.assertEqual(revised.store.read()['baseline'], before['baseline'])
+        self.assertEqual(self.session.store.read(), before)
+
     def test_open_subdirectory_resumes_authored_changes_and_comments(self):
         self.save_file(self.source()['text'].replace('We score', 'We carefully score', 1))
         self.note('We carefully score', 'Keep the author wording.')

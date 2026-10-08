@@ -29,6 +29,13 @@ def main():
     listing.add_argument('--repo', type=Path)
     feedback = commands.add_parser('feedback', help='Read choices, notes, and earlier replies.')
     feedback.add_argument('--review', required=True)
+    source = commands.add_parser('source', help='Read selected file text and retained drafts for exact annotation.')
+    source.add_argument('--review', required=True)
+    source.add_argument('--file', required=True)
+    annotate = commands.add_parser('annotate', help='Anchor reviewer feedback to exact manuscript quotes.')
+    annotate.add_argument('--review', required=True)
+    annotate.add_argument('--revision', required=True, type=int)
+    annotate.add_argument('--annotations', required=True, type=Path)
     respond = commands.add_parser('respond', help='Append replies using discussion IDs from feedback.')
     respond.add_argument('--review', required=True)
     respond.add_argument('--revision', required=True, type=int)
@@ -82,9 +89,14 @@ def main():
             if result['status'] == 'error':
                 raise ValueError(result['error'])
             result['path'] = str(library.directory(result['review']) / 'review.json')
+        elif args.command == 'source':
+            result = ReviewSession(library.directory(args.review)).editor(args.file)
         else:
             session = ReviewSession(library.directory(args.review))
-            if args.command == 'respond':
+            if args.command == 'annotate':
+                records = json.loads(args.annotations.read_text())
+                session.import_annotations(records, args.revision)
+            elif args.command == 'respond':
                 records = json.loads(args.responses.read_text())
                 session.import_responses(records, args.revision)
             elif args.command == 'explain':

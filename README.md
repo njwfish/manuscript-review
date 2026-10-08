@@ -36,7 +36,7 @@ Click proposed text, click a proposed LaTeX preview, or press **E** to edit the 
 
 **Manuscript** in the comparison selector shows all supported source files, including unchanged ones. Select text and choose **Comment selection**, or press **⌘/Ctrl+Shift+M**; without a selection, it comments on the current line. The marked text opens its discussion in the right sidebar. Comments save automatically, retain their original source context, and carry into later rounds. After an agent replies, the field creates a follow-up while preserving the exchange. **⌘/Ctrl+Shift+R** copies an agent request while the editor has focus.
 
-Discussion appears in a collapsible right sidebar. Press **C** to comment on an edit, or **Shift+C** for a passage note; the selector changes the scope. Selecting a highlighted change in the editor brings its discussion alongside the source. Earlier feedback and replies appear above the comment field. **Q** searches all comments and responses. Replies append, so each revision pass retains the exchange.
+Discussion appears in a collapsible right sidebar. Press **C** to comment on an edit, or **Shift+C** for a passage note; the selector changes the scope. Selecting a highlighted change in the editor brings its discussion alongside the source. Earlier feedback and replies appear above the comment field. Use the sidebar arrows or **⌘/Ctrl+Shift+[ / ]** to step through comments across files; the selector jumps directly to a comment. **View change** opens its attached diff. **Q** searches all comments and responses. Replies append, so each revision pass retains the exchange.
 
 ![Whole-manuscript source editing with comments and responses](docs/images/manuscript.png)
 
@@ -59,6 +59,7 @@ The macOS library lives in `~/Library/Application Support/Manuscript Review/`, s
 | Shift+E | Resume a saved draft |
 | C / Shift+C | Comment on edit / passage |
 | Q | Search current comments and earlier replies |
+| ⌘/Ctrl+Shift+[ / ] | Previous / next comment, including while editing |
 | R | Copy an agent request for your chat |
 | T | This round / Since baseline |
 | ⌘/Ctrl+Enter | Save source / comment; apply a completed review |
@@ -84,7 +85,7 @@ For a manuscript without a diff, read, comment, and save any manual edits, then 
 
 Replies without source changes stay in the current round. Text revisions create a new round against the previously selected draft, preserving earlier choices and the original baseline. Open the new round from the Library; **Since baseline** shows the accumulated selected changes. Agent conversation takes place in your existing chat, while the app keeps comments and responses beside their source context.
 
-For an initial referee report, ask the agent to propose surgical revisions and explain each related set of changes in a passage note. For a long report, the skill can maintain an optional feedback CSV beside the manuscript. Subsequent iterations use replies to your comments.
+For an initial referee report, ask the agent to anchor its actionable points as comments before editing. You can work through these comments yourself or ask the agent to prepare surgical revisions and respond on each comment. The next round shows the changes with the original feedback and responses. For a long report, the skill can maintain an optional feedback CSV beside the manuscript.
 
 ## Development
 

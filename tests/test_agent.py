@@ -65,6 +65,21 @@ class AgentTests(ReviewFixture):
         self.assertTrue(note['discussion_id'].startswith('discussion-'))
         self.assertEqual(self.store.path.read_bytes(), before)
 
+    def test_source_and_annotate_commands_preserve_choices_and_return_stable_discussion_ids(self):
+        source = self.command('source', '--review', self.identifier, '--file', 'main.tex')
+        self.assertIn('measured leaves', source['text'])
+        records = self.root / 'annotations.json'
+        records.write_text(json.dumps([{'file': 'main.tex', 'quote': 'measured leaves', 'text': 'R1: Identify which cells enter the loss.'}]))
+        before = self.store.read()
+        result = self.command('annotate', '--review', self.identifier, '--revision', str(source['revision']), '--annotations', str(records))
+        self.assertEqual(result['history'][0]['before'], 'measured leaves')
+        self.assertEqual(result['history'][0]['author'], 'agent')
+        for key in ('snapshot', 'result', 'baseline', 'decisions', 'comments', 'drafts'):
+            self.assertEqual(self.store.read()[key], before[key])
+        repeated = self.command('annotate', '--review', self.identifier, '--revision', str(result['revision']), '--annotations', str(records))
+        self.assertEqual(repeated['history'], result['history'])
+        self.assertEqual(repeated['revision'], result['revision'])
+
     def test_reply_seals_only_its_current_note_and_preserves_every_other_choice(self):
         feedback = self.command('feedback', '--review', self.identifier)
         note = next(n for n in feedback['comments'] if n['id'] == self.first['edits'][0]['id'])

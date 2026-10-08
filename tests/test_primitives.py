@@ -86,6 +86,27 @@ assert.deepEqual(feedbackForPassage(history,hunk).map(e=>e.id),['one','two','thr
         subprocess.run(['node', '--input-type=module', '-e', script, module], check=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client-model tests.')
+    def test_comment_navigation_groups_followups_orders_files_and_keeps_answered_feedback(self):
+        module = (Path(__file__).parents[1] / 'manuscript_review/review_model.js').as_uri()
+        script = """import assert from 'node:assert/strict';
+const {commentThreads,commentShortcut}=await import(process.argv[1]);
+const data={files:[{path:'a.tex',hunks:[{id:'passage',line:10,before:'original',after:'proposed',edits:[]}]}],history:[
+ {id:'first',origin_id:'first',file:'b.tex',line:3,comment:'Initial feedback',replies:[{text:'Response'}]},
+ {id:'second',origin_id:'second',file:'a.tex',line:5,comment:'Another question',replies:[]},
+ {id:'followup',origin_id:'first',file:'b.tex',line:20,comment:'Follow-up',replies:[]},
+ {id:'blank',origin_id:'blank',file:'a.tex',line:1,comment:' ',replies:[]}]};
+assert.deepEqual(commentThreads(data,{passage:'Current passage note'}).map(e=>[e.id,e.line]),[['second',5],['passage',10],['followup',3]]);
+assert.equal(data.history[2].line,20);assert.equal(data.history[0].replies.length,1);
+for(const code of ['BracketLeft','BracketRight']){
+ const event={code,metaKey:true,ctrlKey:false,shiftKey:true,altKey:false,repeat:false};
+ assert.equal(commentShortcut(event),code==='BracketLeft'?-1:1);
+ assert.equal(commentShortcut({...event,metaKey:false,ctrlKey:true}),code==='BracketLeft'?-1:1);
+ for(const changed of [{metaKey:false},{shiftKey:false},{altKey:true},{repeat:true}])assert.equal(commentShortcut({...event,...changed}),0);
+}
+assert.equal(commentShortcut({code:'KeyA',metaKey:true,shiftKey:true}),0);"""
+        subprocess.run(['node', '--input-type=module', '-e', script, module], check=True)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client-model tests.')
     def test_library_groups_rounds_by_manuscript_and_completion_includes_supporting_files(self):
         module = (Path(__file__).parents[1] / 'manuscript_review/review_model.js').as_uri()
         script = """import assert from 'node:assert/strict';

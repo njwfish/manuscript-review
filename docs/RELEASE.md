@@ -1,10 +1,14 @@
+Step through manuscript comments with the sidebar arrows or **⌘/Ctrl+Shift+[ / ]**, including while editing. The selector jumps across files, and **View change** returns to the attached diff. Follow-ups remain one thread; comments on removed files stay readable in All feedback. Pending comments and drafts save before navigation.
+
+The bundled agent skill can now ingest a referee report as comments anchored to exact source quotes before editing. Agents revise the manuscript in a new round and respond to those original comments, keeping the feedback and explanation beside the resulting changes. The optional feedback CSV stays with the manuscript project.
+
 The source editor now uses restrained LaTeX syntax highlighting: commands and math delimiters in a muted blue, with comments and braces in gray. Review additions and deletions retain their green and red highlights.
 
 **PDF pages** shows the original and proposed manuscript pages with the current edit highlighted. Prose can be highlighted at word level; equations and ambiguous text use their source-linked region. The exact source change remains below the pages. **D / F** moves through edits, **V** switches to word changes, and **PageUp / PageDown** scrolls the PDF panes. Zoom keeps the highlighted area visible.
 
 Selecting text in the source editor reveals a small **Comment** button beside the selection. It opens the existing sidebar and preserves the selected quote. **⌘/Ctrl+Shift+M** still works.
 
-Version 0.11 and 0.12 libraries use the same record format and require no migration.
+Version 0.11 through 0.13 libraries use the same record format and require no migration.
 
 Click proposed text or a proposed LaTeX preview to edit the full file at that passage. The monospace editor occupies the review surface, with change highlights, undo/redo, find, and discussion in a collapsible sidebar. Save writes only manual changes and refreshes the word diff; unrelated decisions and discussion survive. Escape retains a file draft.
 

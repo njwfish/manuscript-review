@@ -24,11 +24,11 @@ Use the review ID named by the user or identify it from its repository and basel
 
 Follow the manuscript repository's writing instructions and the user's requested editing scope. Treat existing prose as settled wording. A writing guide alone does not authorize rewriting it. Change only what the author’s feedback requires, preserving surrounding words and sentence structure wherever possible; broader rewriting requires explicit scope from the author. Let the user save or discard any active file draft before making changes to its working file. A request to inspect feedback does not authorize manuscript revisions or review decisions.
 
-When first integrating external feedback, such as a referee report, give the author enough context to judge the proposed changes. Each explanation becomes an ordinary agent-authored discussion entry. Use one short explanation per passage to connect the feedback to the change and explain the reason for it; target an edit only when it has a separate reason. Group related changes under one explanation and keep it proportional to the issue. During later iterations, reply to the author's comments using the response workflow below; do not add another set of explanations for the same feedback.
+When first integrating external feedback, such as a referee report, read [Initial feedback](references/initial-feedback.md). Anchor each actionable point to a relevant manuscript quote before editing. Use the existing comment and response pattern: preserve the feedback in the comment, then reply after revising to explain what changed or why the wording was retained. Group requests that share a passage and reason; keep independent requests separate. Later iterations respond to these comments without importing the same feedback again.
 
 For an external review with enough issues to need an inventory, read [Feedback ledger](references/feedback-ledger.md). Maintain that CSV beside the manuscript's review materials, reusing an existing ledger. A short review or a few app comments can stay entirely in the discussion.
 
-If no review exists yet, read [First comparison](references/first-comparison.md) to preserve the starting draft and create the initial comparison after editing. For an existing review, pin the actual working input before editing:
+If no review exists yet, use `open --repo /absolute/path/to/manuscript` before annotating or editing. For a comparison of changes already made outside the app, read [First comparison](references/first-comparison.md). Pin the actual working input before editing:
 
 ```sh
 "/path/to/skill/scripts/review-agent" begin --review REVIEW_ID
@@ -51,22 +51,6 @@ Edit the working files within the requested scope and run the manuscript’s rel
 
 Finish returns the new review ID, record path, and edit count. Verify that the new round contains the intended changes. It compares the pinned starting draft to your revised working files, preserves the original baseline and earlier round, and attaches earlier discussion where possible. Git commits during the pass do not move these endpoints. A source-changing pass with no reviewable edits is refused; investigate the comparison rather than treating it as complete. For replies without source changes, keep the existing round. Finish queues LaTeX previews for the app to build when opened. Do not apply pending choices unless the user asks for that.
 
-For the initial integration of external feedback, add the explanations after creating the comparison or finishing the revision pass. Write a JSON array in a temporary file, using `passage_id` from the new round's feedback output by default, or an edit's `id` for a separate reason:
-
-```json
-[
-  {"id": "passage-…", "text": "R2: The reviewer asked which observations enter this loss. The added sentence identifies measured leaves, matching the experiments."}
-]
-```
-
-```sh
-"/path/to/skill/scripts/review-agent" explain --review NEW_REVIEW_ID --revision NEW_SAVED_REVISION --explanations /absolute/path/to/explanations.json
-```
-
-Use feedback IDs such as `R2` when a ledger exists, or identify the reviewer point in the note itself. Explain imports into the existing discussion, preserving the author's notes and choices. It returns the saved revision and discussion IDs; use these for subsequent commands and ledger links. Reimporting the same explanation is harmless. A stale revision requires rereading feedback before retrying. Current explanations appear beside their passage; earlier ones remain in discussion history.
-
-For a deferred or declined request with no relevant target in the diff, record the disposition in the ledger's `response`, or in the author summary if no ledger exists. Do not create an artificial manuscript edit to attach a note.
-
 Write replies as a JSON array in a temporary file:
 
 ```json
@@ -87,7 +71,7 @@ If a feedback ledger exists, update its affected rows after the pass using the s
 
 ## Show the result
 
-Open the installed **Manuscript Review.app** with the available app tool, or run the source checkout's `.venv/bin/manuscript-review --review REVIEW_ID`. Use the Library to open a new round; **This round** shows the latest pass and **Since baseline** shows accumulated selected changes. **T** switches between them. Reload an already-open review after importing explanations or replies. Use **C** for the attached discussion and **Q** to search current comments and saved exchanges, including notes whose edits disappeared. **Copy agent request**, or **R**, gives the author a prompt to paste into their agent’s chat; the app itself retains only comments and responses. The README lists editing and decision shortcuts.
+Open the installed **Manuscript Review.app** with the available app tool, or run the source checkout's `.venv/bin/manuscript-review --review REVIEW_ID`. Use the Library to open a new round; **This round** shows the latest pass and **Since baseline** shows accumulated selected changes. **T** switches between them. Reload an already-open review after importing comments or replies. Use **C** for the attached discussion and **Q** to search current comments and saved exchanges, including notes whose edits disappeared. **Copy agent request**, or **R**, gives the author a prompt to paste into their agent’s chat; the app itself retains only comments and responses. The README lists editing and decision shortcuts.
 
 To read and comment on an entire manuscript without requiring changes, use **Library → Open manuscript**, or:
 
@@ -95,7 +79,7 @@ To read and comment on an entire manuscript without requiring changes, use **Lib
 "/path/to/skill/scripts/review-agent" open --repo /absolute/path/to/manuscript
 ```
 
-Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. **Manuscript** in the comparison selector opens all supported text sources. The author selects text and presses **⌘/Ctrl+Shift+M** to comment, saves manual edits, then uses **Copy agent request** or **⌘/Ctrl+Shift+R** from the editor. Source comments use the same begin, finish, and respond operations above.
+Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. **Manuscript** in the comparison selector opens all supported text sources. The author selects text and presses **⌘/Ctrl+Shift+M** to comment, saves manual edits, then uses **Copy agent request** or **⌘/Ctrl+Shift+R** from the editor. Use the discussion arrows or **⌘/Ctrl+Shift+[ / ]** to step through comments across files. **View change** opens the attached diff. Source comments use the same begin, finish, and respond operations above.
 
 To start a comparison, use **Library → Compare versions**: choose a local folder or clone a GitHub repository into a chosen folder, then select commits or saved checkpoints from the two version dropdowns. **Fetch latest commits** updates remote history without changing working files.
 

@@ -115,7 +115,9 @@ h1{font-size:13px;font-weight:600;letter-spacing:-.1px;margin:0 2px 0 6px}
 .wide.has-discussion .shell{grid-template-columns:minmax(0,1fr) 300px}
 #discussion{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));overflow:auto;border-left:1px solid var(--line);background:var(--bg);padding:18px}
 .discussion-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
-.discussion-head select{background:transparent;border:0;box-shadow:none;font-size:12px;padding:2px 0}
+.discussion-head select{min-width:0;max-width:100%;flex:1;background:transparent;border:0;box-shadow:none;font-size:12px;padding:2px 0}
+.comment-navigation{display:flex;align-items:center;gap:4px;margin:-6px 0 14px;color:var(--faint);font-size:11px}
+.comment-navigation span{flex:1}
 #discussion textarea{width:100%;min-height:110px;resize:vertical}
 .editing-file main{max-width:none;padding:18px 24px}
 .editing-file .contextbar{margin-bottom:10px}
@@ -298,14 +300,14 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <div id="retained-drafts" class="dialog-section" hidden></div>
  <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button></div>
  <div class="dialog-section"><h3>Share your review</h3><div class="dialog-actions"><button id="copy-request-more">Copy agent request</button><button id="choices">Export feedback</button><button id="export">Export selected patch</button></div></div>
- <div class="dialog-section"><h3>Discussion</h3><div class="dialog-actions"><button id="show-feedback">All feedback</button><button id="import-responses">Import responses</button><input id="response-file" type="file" accept=".json,application/json" hidden></div><p id="response-error" class="error" role="status"></p></div>
+ <div class="dialog-section"><h3>Discussion</h3><div class="dialog-actions"><button id="review-comments">Review comments</button><button id="show-feedback">All feedback</button><button id="import-responses">Import responses</button><input id="response-file" type="file" accept=".json,application/json" hidden></div><p id="response-error" class="error" role="status"></p></div>
  <div class="dialog-section"><h3>Whole passage (Shift+A / S / U)</h3><div class="dialog-actions" id="passage-actions"></div></div>
  <div class="dialog-section"><h3>Whole file (Ctrl+A / S / U)</h3><div class="dialog-actions" id="file-actions"></div></div>
  <div id="snapshot"></div><p>Choices and comments save locally. Apply writes your choices to the manuscript; undecided edits retain the proposed wording.</p>
 </dialog>
 <dialog id="feedback">
  <div class="dialog-head"><h2>All feedback</h2><button id="copy-request-feedback">Copy agent request</button><button id="close-feedback" class="quiet">Close</button></div>
- <input id="feedback-search" type="search" aria-label="Search feedback" placeholder="Search comments and responses…"><p id="feedback-count" class="muted"></p>
+ <input id="feedback-search" type="search" aria-label="Search feedback" placeholder="Search comments and responses…"><div id="feedback-count" class="muted"></div>
  <div id="feedback-list"></div>
 </dialog>
 <dialog id="shortcuts">
@@ -323,6 +325,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <tr><th>⌘/Ctrl+Shift+R</th><td>Copy an agent request from the editor</td></tr>
  <tr><th>C / Shift+C</th><td>Discussion for edit / passage</td></tr>
  <tr><th>Q</th><td>All saved feedback and responses</td></tr>
+ <tr><th>⌘/Ctrl+Shift+[ / ]</th><td>Previous / next comment</td></tr>
  <tr><th>R</th><td>Copy an agent request to paste into your chat</td></tr>
  <tr><th>Ctrl+Enter / ⌘+Enter</th><td>Save source / comment; apply completed review</td></tr>
  <tr><th>⌘/Ctrl+S, ⌘/Ctrl+F</th><td>Save or find while editing source</td></tr>

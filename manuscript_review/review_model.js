@@ -44,6 +44,21 @@ export function currentFeedback(data,comments){
  return notes;
 }
 
+export function commentThreads(data,comments){
+ const threads=new Map();
+ for(const entry of [...data.history,...currentFeedback(data,comments)]){
+  if(!entry.comment.trim())continue;
+  const origin=entry.origin_id||entry.id,previous=threads.get(origin);
+  threads.set(origin,{...entry,origin_id:origin,line:previous?.line??entry.line});
+ }
+ return [...threads.values()].sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line);
+}
+
+export function commentShortcut(event){
+ if(!(event.metaKey||event.ctrlKey)||!event.shiftKey||event.altKey||event.repeat)return 0;
+ return {BracketLeft:-1,BracketRight:1}[event.code]||0;
+}
+
 export function sourceRange(file,edit,view,decisions){
  if(view==='before')return edit.base_span;
  if(view==='after')return edit.proposal_span;

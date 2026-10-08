@@ -125,7 +125,7 @@ class Library:
                 done = sum(choices.get(g['id'], 'pending') != 'pending' for g in edits)
                 results.append({**metadata, 'total': len(edits), 'done': done, 'applied': is_applied(record),
                                 'comments': sum(bool(text.strip()) for text in record['comments'].values()) + sum(
-                                    entry['kind'] == 'source' and entry['author'] == 'user' and not entry['replies']
+                                    entry['kind'] == 'source' and not entry['replies']
                                     and bool(entry['comment'].strip()) for entry in record['history']),
                                 'drafts': len(record['drafts']),
                                 'files': len(snapshot['files']), 'skipped': snapshot.get('skipped', [])})

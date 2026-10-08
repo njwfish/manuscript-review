@@ -6,6 +6,95 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_comment_navigation_saves_pending_input_and_preserves_it_on_failure(self):
+        script = r"""import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';import vm from 'node:vm';
+import {currentFeedback,commentThreads,feedbackForPassage} from './manuscript_review/review_model.js';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
+const navigation=app.slice(app.indexOf('function commentNavigation'),app.indexOf('function renderDiscussion'));
+const selection=app.slice(app.indexOf('function sourceNoteTarget'),app.indexOf('function commentSelection'));
+const opener=app.slice(app.indexOf('async function openEditor'),app.indexOf('async function loadEditor'));
+const closer=app.slice(app.indexOf('function closeEditor'),app.indexOf('async function saveFile'));
+for(const fail of [false,true,'missing','new']){
+ const requests=[],elements=new Map(),visited=[];
+ const context={currentFeedback,commentThreads,feedbackForPassage,setTimeout,clearTimeout,
+ reviewProgress:()=>({total:0,complete:true}),updateProgress:()=>{},renderDiscussion:()=>{},
+ document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',children:[],querySelector:()=>null,close(){this.open=false;}});return elements.get(id);},body:{classList:{contains:()=>false,remove:()=>{}}}},
+ fetch:async(path,options)=>{const request=JSON.parse(options.body);requests.push([path,request]);
+  if(path==='/draft'&&fail===true)return {ok:false,json:async()=>({error:'Disk error'})};
+  return {ok:true,json:async()=>({revision:requests.length,...(path==='/note'?{entry:{id:fail==='new'?'new':'first',origin_id:fail==='new'?'new':'first',author:'user',kind:'source',file:'a.tex',line:fail==='new'?2:1,comment:request.comment,replies:[]}}:{})})};},
+ visited,showFeedback:()=>{context.document.getElementById('feedback').open=true;}};
+ vm.createContext(context);vm.runInContext(beginning+navigation+selection+opener+closer+`
+ data={token:'test',revision:0,scope:'manuscript',files:[{path:'a.tex',hunks:[],edits:[]},{path:'b.tex',hunks:[],edits:[]}],history:[
+  {id:'first',origin_id:'first',author:'user',kind:'source',file:'a.tex',line:1,comment:'Original comment',replies:[]},
+  {id:'second',origin_id:'second',author:'agent',kind:'source',file:'b.tex',line:2,comment:'Imported feedback',replies:[{text:'Response'}]}]};
+ const createFileEditor=path=>({range:id=>({start:0,end:5}),selection:()=>({start:0,end:5}),text:()=>path==='a.tex'?'Draft words':'Other words',position:()=>0,
+  goTo:id=>visited.push([path,id]),focus:()=>{},addNote:()=>{},destroy:()=>{}});
+ editorFile='a.tex';editorSource='a'.repeat(40);fileEditor=createFileEditor('a.tex');
+ noteTarget={id:'first',marker:'first',file:'a.tex',comment:'Original comment'};
+ setNoteText(noteTarget,'Keep my latest comment');
+ drafts={'a.tex':{file:'a.tex',source:editorSource,text:'Draft words'}};retainDraft('a.tex',drafts['a.tex']);
+ async function switchScope(scope){data.scope=scope;}
+ async function loadEditor(){await Promise.resolve();editorFile=currentFile().path;editorSource='a'.repeat(40);fileEditor=createFileEditor(editorFile);}
+ function render(){if(!fileEditor)openEditor();}
+ function focusSelection(){}
+ `,context);
+ if(fail==='missing')vm.runInContext("data.history[1].file='absent.tex';data.history.push({...data.history[1],id:'third',origin_id:'third',file:'b.tex'});",context);
+ if(fail==='new')vm.runInContext("delete noteTarget.id;noteTarget.marker='note-new';",context);
+ await vm.runInContext(fail==='new'?"moveComment(1)":"showComment('second')",context);
+ assert.equal(requests.find(([path])=>path==='/note')[1].comment,'Keep my latest comment');
+ assert.equal(requests.find(([path])=>path==='/draft')[1].draft.text,'Draft words');
+ assert.ok(requests.every(([path])=>path!=='/file'&&path!=='/apply'));
+ assert.equal(vm.runInContext("drafts['a.tex'].text",context),'Draft words');
+ if(fail==='missing'){assert.equal(vm.runInContext('commentId',context),'second');assert.equal(elements.get('feedback').open,true);await vm.runInContext('moveComment(1)',context);assert.equal(vm.runInContext('noteTarget.parent',context),'third');}
+ else if(fail===true){assert.equal(vm.runInContext('editorFile',context),'a.tex');assert.equal(vm.runInContext('draftChanges.size',context),1);assert.equal(visited.length,0);}
+ else{assert.equal(vm.runInContext('editorFile',context),'b.tex');assert.equal(vm.runInContext('noteTarget.parent',context),'second');assert.equal(vm.runInContext('commentId',context),'second');assert.ok(visited.some(([path,id])=>path==='b.tex'&&id==='second'));assert.equal(vm.runInContext('draftChanges.size',context),0);
+  vm.runInContext(`data.scope='round';data.files[1].hunks=[{id:'target',edits:[{id:'change'}]}];locations=[[1,0,0]];
+   render=()=>{};let opened;function openComment(passage){opened=passage;}`,context);
+  await vm.runInContext("showRevision({...data.history.find(entry=>entry.id==='second'),target:{id:'target',kind:'passage'}})",context);
+  assert.equal(vm.runInContext('fileEditor',context),null);assert.equal(vm.runInContext('opened',context),true);assert.equal(vm.runInContext('commentId',context),'second');
+ }
+ vm.runInContext('clearTimeout(uiTimer);clearTimeout(noteTimer);clearTimeout(draftTimer);',context);
+}
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_comment_save_refreshes_navigation_without_replacing_the_focused_field(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+import {currentFeedback,commentThreads,feedbackForPassage} from './manuscript_review/review_model.js';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
+const navigation=app.slice(app.indexOf('function commentNavigation'),app.indexOf('function renderDiscussion'));
+const selector=app.slice(app.indexOf('function sourceCommentSelector'),app.indexOf('function renderSelection'));
+const replaced=new Map(),textarea={value:'Author is still typing'};
+class Element{constructor(tag){this.tag=tag;this.children=[];}append(...items){this.children.push(...items);}setAttribute(){}addEventListener(){}replaceWith(next){replaced.set(this,next);}}
+const oldSelector=new Element('select'),oldNavigation=new Element('div'),host={querySelector:query=>query.startsWith('select')?oldSelector:oldNavigation};
+const context={currentFeedback,commentThreads,feedbackForPassage,setTimeout,clearTimeout,document:{activeElement:textarea,createElement:tag=>new Element(tag),getElementById:()=>host}};
+vm.createContext(context);vm.runInContext(beginning+navigation+selector+`
+ data={files:[],history:[{id:'one',origin_id:'one',file:'main.tex',line:1,before:'First',comment:'First comment'},
+ {id:'two',origin_id:'two',file:'main.tex',line:2,before:'Second',comment:'Just saved'}]};editorFile='main.tex';noteTarget={id:'two'};
+ refreshCommentNavigation();`,context);
+assert.equal(replaced.get(oldSelector).children.length,3);assert.equal(replaced.get(oldSelector).value,'two');
+assert.equal(replaced.get(oldNavigation).children[0].textContent,'2 of 2');
+assert.equal(replaced.get(oldNavigation).children[1].disabled,false);assert.equal(replaced.get(oldNavigation).children[2].disabled,true);
+assert.equal(context.document.activeElement,textarea);assert.equal(textarea.value,'Author is still typing');
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_busy_render_does_not_prevent_the_editor_from_opening_when_loading_finishes(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const opener=app.slice(app.indexOf('async function openEditor'),app.indexOf('async function loadEditor'));
+const context={};vm.createContext(context);vm.runInContext(`let editing=true,openingEditor=null,fileEditor=null,loads=0;
+const data={scope:'manuscript'},currentFile=()=>({path:'main.tex'}),readOnly=()=>false;
+async function loadEditor(){loads++;fileEditor={};}
+`+opener,context);
+await vm.runInContext('openEditor()',context);assert.equal(vm.runInContext('loads',context),0);
+vm.runInContext('editing=false',context);await vm.runInContext('openEditor()',context);assert.equal(vm.runInContext('loads',context),1);
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
     def test_clearing_a_comment_during_creation_deletes_the_saved_note(self):
         script = r"""import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';import vm from 'node:vm';
@@ -13,7 +102,7 @@ const app=readFileSync('manuscript_review/app.js','utf8');
 const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
 const requests=[],elements=new Map();let acknowledge;
 const context={reviewProgress:()=>({total:0,complete:true}),updateProgress:()=>{},setTimeout,clearTimeout,
-document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:''});return elements.get(id);},body:{classList:{contains:()=>false}}},
+document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',children:[],querySelector:()=>null,close(){this.open=false;}});return elements.get(id);},body:{classList:{contains:()=>false}}},
 fetch:async(path,options)=>{const request=JSON.parse(options.body);requests.push([path,request]);
  if(path==='/note'&&!request.id)await new Promise(resolve=>acknowledge=resolve);
  return {ok:true,json:async()=>({revision:requests.length,entry:{id:'saved-note',file:'main.tex',comment:request.comment}})};}};
@@ -63,8 +152,8 @@ const app=readFileSync('manuscript_review/app.js','utf8');
 const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
 const flush=app.slice(app.indexOf('window.flushReview='),app.indexOf("$('library').addEventListener"));
 const requests=[],elements=new Map();let fail=true;
-const context={window:{},reviewProgress:()=>({total:0,complete:true}),document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',hidden:true});return elements.get(id);},body:{classList:{contains:()=>false}}},setTimeout,clearTimeout,
-fetch:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);if(path==='/draft'&&fail)return {ok:false,json:async()=>({error:'Transient disk error'})};return {ok:true,json:async()=>({revision:0})};}};
+const context={window:{},reviewProgress:()=>({total:0,complete:true}),document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',children:[],querySelector:()=>null,close(){this.open=false;},hidden:true});return elements.get(id);},body:{classList:{contains:()=>false}}},setTimeout,clearTimeout,
+fetch:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);if(path==='/draft'&&fail===true)return {ok:false,json:async()=>({error:'Transient disk error'})};return {ok:true,json:async()=>({revision:0})};}};
 vm.createContext(context);vm.runInContext(beginning+'\n'+flush+`
 data={token:'test',revision:0,scope:'round',files:[],history:[]};drafts={passage:{file:'passage',source:'a'.repeat(40),text:'Unsaved manuscript words'}};
 draftChanges.set('passage',drafts.passage);`,context);

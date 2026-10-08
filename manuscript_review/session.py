@@ -168,42 +168,94 @@ class ReviewSession:
             else:
                 if not comment.strip():
                     return {'revision': record['revision'], 'entry': None, 'message': 'Comment cleared.'}
-                path, text, source = request['file'], request['text'], request['source']
-                file = document_file(record, path)
-                draft = record['drafts'].get(path)
-                if (not isinstance(text, str) or len(text) > 1_000_000
-                        or source != (draft['source'] if draft else record['result'])):
-                    self.store.backup_request(request)
-                    raise ValueError('The manuscript changed. Your comment is retained; reload before continuing.')
-                start, end = source_point(text, request['start']), source_point(text, request['end'])
-                if end < start:
-                    raise ValueError('Invalid comment selection.')
-                snapshot = record['snapshot']
-                pinned = source_version(snapshot['repo'], record['result'], {path: text},
-                                        'refs/manuscript-review/' + record['metadata']['id'] + '/notes',
-                                        'Manuscript Review comment source')
                 identifier = stable_id('discussion', [record['metadata']['id'], secrets.token_hex(16)])
-                parent = next((entry for entry in record['history'] if entry['id'] == request.get('parent')), None)
-                if request.get('parent') and (parent is None or parent['file'] != path):
-                    raise ValueError('The original comment is not in this file.')
-                breaks = list(re.finditer(r'\r?\n\r?\n', text))
-                left = max((match.end() for match in breaks if match.end() <= start), default=0)
-                right = min((match.start() for match in breaks if match.start() >= end), default=len(text))
-                entry = {'id': identifier, 'author': 'user', 'origin_id': parent['origin_id'] if parent else identifier,
-                         'origin_review': str(self.directory), 'created': datetime.now(timezone.utc).isoformat(),
-                         'round_id': round_id(snapshot), 'base': snapshot['base'], 'source_proposed': pinned,
-                         'kind': 'source', 'file': path, 'line': text[:start].count('\n') + 1, 'passage': None,
-                         'decision': 'settled', 'before': text[start:end], 'proposed': text[start:end],
-                         'context_before': text[left:right], 'context_proposed': text[left:right], 'comment': comment,
-                         'anchor': {'revision': pinned, 'start': start, 'end': end}, 'target': None, 'replies': []}
-                mapped = SourceMap(text, file['before'] or '').project(SourceSpan(start, end))
-                attachment = {**entry, 'anchor': {'revision': snapshot['base'], 'start': mapped.start, 'end': mapped.end}}
-                attach(attachment, file)
-                entry['target'] = attachment['target']
+                entry = self._source_note(record, request, 'user', identifier)
                 record['history'].append(entry)
             record['revision'] += 1
             self.store.commit(record)
             return {'revision': record['revision'], 'entry': entry, 'message': 'Comment saved.'}
+
+    def _source_note(self, record, request, author, identifier):
+        """Capture source context once for editor comments and imported feedback."""
+        path, text, source = request['file'], request['text'], request['source']
+        file = document_file(record, path)
+        draft = record['drafts'].get(path)
+        if (not isinstance(text, str) or len(text) > 1_000_000
+                or source != (draft['source'] if draft else record['result'])):
+            self.store.backup_request(request)
+            raise ValueError('The manuscript changed. Your comment is retained; reload before continuing.')
+        start, end = source_point(text, request['start']), source_point(text, request['end'])
+        if end < start:
+            raise ValueError('Invalid comment selection.')
+        parent = next((entry for entry in record['history'] if entry['id'] == request.get('parent')), None)
+        if request.get('parent') and (parent is None or parent['file'] != path):
+            raise ValueError('The original comment is not in this file.')
+        snapshot = record['snapshot']
+        pinned = source_version(snapshot['repo'], record['result'], {path: text},
+                                'refs/manuscript-review/' + record['metadata']['id'] + '/notes',
+                                'Manuscript Review comment source')
+        breaks = list(re.finditer(r'\r?\n\r?\n', text))
+        left = max((match.end() for match in breaks if match.end() <= start), default=0)
+        right = min((match.start() for match in breaks if match.start() >= end), default=len(text))
+        entry = {'id': identifier, 'author': author, 'origin_id': parent['origin_id'] if parent else identifier,
+                 'origin_review': str(self.directory), 'created': datetime.now(timezone.utc).isoformat(),
+                 'round_id': round_id(snapshot), 'base': snapshot['base'], 'source_proposed': pinned,
+                 'kind': 'source', 'file': path, 'line': text[:start].count('\n') + 1, 'passage': None,
+                 'decision': 'settled', 'before': text[start:end], 'proposed': text[start:end],
+                 'context_before': text[left:right], 'context_proposed': text[left:right], 'comment': request['comment'],
+                 'anchor': {'revision': pinned, 'start': start, 'end': end}, 'target': None, 'replies': []}
+        mapped = SourceMap(text, file['before'] or '').project(SourceSpan(start, end))
+        attachment = {**entry, 'anchor': {'revision': snapshot['base'], 'start': mapped.start, 'end': mapped.end}}
+        attach(attachment, file)
+        entry['target'] = attachment['target']
+        return entry
+
+    def import_annotations(self, records, revision):
+        """Anchor external feedback to exact quotes without changing the manuscript."""
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision({'revision': revision, 'annotations': records}, record)
+            if not isinstance(records, list):
+                raise ValueError('Annotations must be a list of {file, quote, text} records, with an optional line.')
+            requests = []
+            sources = {}
+            for row in records:
+                if (not isinstance(row, dict) or not {'file', 'quote', 'text'} <= row.keys()
+                        or row.keys() - {'file', 'quote', 'text', 'line'}
+                        or not all(isinstance(row[key], str) and row[key].strip() for key in ('file', 'quote', 'text'))
+                        or len(row['text']) > 20_000
+                        or ('line' in row and (type(row['line']) is not int or row['line'] < 1))):
+                    raise ValueError('Each annotation needs a file, exact quote, and text; line must be a positive integer.')
+                path = row['file']
+                if path not in sources:
+                    file = document_file(record, path)
+                    draft = record['drafts'].get(path)
+                    sources[path] = (draft['text'], draft['source']) if draft else (selected_content(file, record['decisions']) or '', record['result'])
+                text, source = sources[path]
+                if len(text) > 1_000_000:
+                    raise ValueError('Comments support source files of at most 1,000,000 characters.')
+                matches = [match.start() for match in re.finditer('(?=' + re.escape(row['quote']) + ')', text)]
+                if 'line' in row:
+                    lines = [0, *[match.end() for match in re.finditer('\n', text)], len(text) + 1]
+                    line = row['line']
+                    matches = [start for start in matches if line < len(lines) and lines[line-1] <= start < lines[line]]
+                if len(matches) != 1:
+                    raise ValueError(f'{path}: the quote must match exactly once. Include more context or its starting line.')
+                start, end = matches[0], matches[0] + len(row['quote'])
+                offset = lambda point: len(text[:point].encode('utf-16-le')) // 2
+                identifier = stable_id('discussion', [record['baseline'], 'agent', path, text, str(start), str(end), row['text']])
+                requests.append((identifier, {'file': path, 'source': source, 'text': text,
+                                              'start': offset(start), 'end': offset(end), 'comment': row['text']}))
+            count = len(record['history'])
+            existing = {entry['id'] for entry in record['history']}
+            for identifier, request in requests:
+                if identifier not in existing:
+                    record['history'].append(self._source_note(record, request, 'agent', identifier))
+                    existing.add(identifier)
+            if len(record['history']) > count:
+                record['revision'] += 1
+                self.store.commit(record)
+            return {'history': record['history'], 'revision': record['revision']}
 
     def save_draft(self, request):
         with self.store.transaction():
