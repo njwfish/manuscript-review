@@ -8,13 +8,26 @@ from unittest.mock import patch
 
 from manuscript_review.anchors import SourceMap, SourceSpan
 from manuscript_review.comparison import compare, enrich_snapshot
-from manuscript_review.editing import project_source
+from manuscript_review.editing import project_source, working_passage_range
 from manuscript_review.session import ReviewSession
 from manuscript_review.storage import FileLock
 from manuscript_review.history import add_responses
 
 
 class PrimitiveTests(unittest.TestCase):
+    def test_repeated_passages_map_to_their_own_working_source_after_partial_application(self):
+        before = 'We score all nodes in the fitted model.'
+        after = 'We score measured leaves in the fitted model.'
+        proposal = '\n\n'.join([after] * 5)
+        file = enrich_snapshot({'files': [compare('main.tex', '\n\n'.join([before] * 5), proposal)]})['files'][0]
+        self.assertEqual(len(file['hunks']), 5)
+        for choices in range(32):
+            paragraphs = [before if choices & (1 << index) else after for index in range(5)]
+            working = '\n\n'.join(paragraphs)
+            for index, passage in enumerate(file['hunks']):
+                start, end = working_passage_range(file, passage, working)
+                self.assertEqual(working[start:end], paragraphs[index])
+
     def test_distributed_changes_in_a_long_manuscript_remain_separate_words(self):
         source = ''.join(f'We count observation {i} and compare its measured lineage with the remaining cells.\n' for i in range(1000))
         proposed = source.replace('observation 0 ', 'patient 0 ').replace('observation 999 ', 'patient 999 ')

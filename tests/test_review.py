@@ -101,7 +101,7 @@ class ReviewTests(ReviewFixture):
         self.session.update('save', self.request(decisions=decision, comments=notes))
         text = 'We score measured cells and their sisters.\n% Author note'
         result = self.session.update('passage', self.request(passage_id=first['id'], text=text))
-        expected = text + '\n\nWe retain the explanation.\n\n\\[E=1\\]\n'
+        expected = text + '\n\nWe expand the explanation.\n\n\\[E=1\\]\n'
         self.assertEqual((self.repo / 'main.tex').read_text(), expected)
         current = self.session.store.read()
         self.assertEqual(current['decisions'][second['edits'][0]['id']], 'reject')
@@ -113,6 +113,42 @@ class ReviewTests(ReviewFixture):
         self.assertNotIn('measured leaves', self.session.selected_patch())
         self.assertTrue(current['history'][0]['target'])
         self.assertEqual(ReviewSession(self.directory).view()['revision'], result['revision'])
+        self.assertFalse(result['data']['applied'])
+        self.session.update('apply', self.request())
+        self.assertEqual((self.repo / 'main.tex').read_text(), expected.replace('expand', 'retain'))
+
+    def test_passage_save_preserves_working_source_after_choices_change(self):
+        file = self.file()
+        first, second, third = file['hunks']
+        rejected = {g['id']: 'reject' for f in self.session.snapshot['files'] for g in f['edits']}
+        self.session.update('apply', self.request(decisions=rejected))
+        source = (self.repo / 'main.tex').read_text()
+        outside = {second['edits'][0]['id']: 'accept', third['edits'][0]['id']: 'accept'}
+        self.session.update('save', self.request(decisions={**rejected, **outside}))
+        text = 'We score the author’s chosen cells.'
+        saved = self.session.update('passage', self.request(passage_id=first['id'], text=text))
+        self.assertEqual((self.repo / 'main.tex').read_text(), source.replace(first['before'], text))
+        self.assertFalse(saved['data']['applied'])
+        self.assertEqual({key: self.session.store.read()['decisions'][key] for key in outside}, outside)
+        self.assertFalse((self.repo / 'empty.txt').exists())
+        self.assertTrue((self.repo / 'deleted.txt').exists())
+        self.session.update('apply', self.request())
+        self.assertIn('We expand the explanation.', (self.repo / 'main.tex').read_text())
+        self.assertIn('E=1', (self.repo / 'main.tex').read_text())
+
+    def test_passage_save_leaves_unrelated_pending_changes_out_of_source(self):
+        file = self.file()
+        first, second, third = file['hunks']
+        rejected = {g['id']: 'reject' for f in self.session.snapshot['files'] for g in f['edits']}
+        self.session.update('apply', self.request(decisions=rejected))
+        source = (self.repo / 'main.tex').read_text()
+        self.session.update('save', self.request(decisions={}))
+        text = 'We score selected observations.'
+        self.session.update('passage', self.request(passage_id=first['id'], text=text))
+        self.assertEqual((self.repo / 'main.tex').read_text(), source.replace(first['before'], text))
+        current = self.session.store.read()
+        self.assertNotIn(second['edits'][0]['id'], current['decisions'])
+        self.assertNotIn(third['edits'][0]['id'], current['decisions'])
 
     def test_edit_again_and_return_passage_to_baseline_keeps_discussion(self):
         first = self.file()['hunks'][0]

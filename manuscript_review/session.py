@@ -1,7 +1,7 @@
 """Review operations share one transaction boundary and one source projection."""
 import copy
 import json
-from .application import apply_record, is_applied
+from .application import apply_record, write_passage, is_applied
 from .comparison import compare, enrich_snapshot, make_patch, validate_decisions, build_snapshot
 from .feedback import feedback_report, validate_comments
 from .history import add_explanations, add_responses, build_history, round_id
@@ -184,10 +184,14 @@ class ReviewSession:
                 return {'revision': record['revision'], 'applied': is_applied(record),
                         'message': message}
             try:
-                return self.revise_passage(previous, record, request)
+                result = self.revise_passage(previous, record, request)
             except Exception:
                 self.store.backup_request(request)
                 raise
+        # Library context reads this record through another store. Fetch it only
+        # after releasing the write transaction, as with an ordinary view request.
+        view = self.view()
+        return {**result, 'revision': view['revision'], 'data': view}
 
     def revise_passage(self, previous, record, request):
         text = request['text']
@@ -239,9 +243,9 @@ class ReviewSession:
                                   proposal_label='Your revision · ' + current['proposed'][:7])
         record['drafts'].pop(passage['id'], None)
         self.store.archive(previous)
-        apply_record(self.store, previous, record, only_file=file['path'])
+        write_passage(self.store, previous, record, file, passage, text)
         self.previews.queue()
-        return {'revision': record['revision'], 'data': self.view(),
+        return {'revision': record['revision'],
                 'message': f'Saved passage to {file["path"]} and refreshed its word changes.'}
 
     def resume_previews(self):

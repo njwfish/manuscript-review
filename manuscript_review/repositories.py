@@ -5,11 +5,22 @@ import subprocess
 import tempfile
 from pathlib import Path
 from .comparison import git
+from .setup import git_available
+
+
+def require_git():
+    if not git_available():
+        raise ValueError('Install Git to compare manuscript versions. Open Setup for the installation guide.')
 
 
 def inspect_repo(path):
+    require_git()
     candidate = Path(path).expanduser().resolve()
     repo = Path(git(candidate, 'rev-parse', '--show-toplevel').decode().strip())
+    head_check = subprocess.run(['git', '-C', str(repo), 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
+    if head_check.returncode:
+        raise ValueError('This Git repository has no commits yet. Make an initial commit, then show its versions.')
+    head = head_check.stdout.strip()
     references = []
     for line in git(repo, 'for-each-ref', '--format=%(refname:short)%00%(objectname)%00%(subject)', 'refs/heads', 'refs/remotes', 'refs/tags').decode().splitlines():
         name, _, subject = line.split('\0', 2)
@@ -27,7 +38,6 @@ def inspect_repo(path):
         if file.is_file() and not file.is_symlink() and '\\documentclass' in file.read_text(errors='replace'):
             entries.append(filename)
     entries.sort(key=lambda p: (p not in ('main.tex', 'paper.tex', 'manuscript.tex'), len(p), p))
-    head = git(repo, 'rev-parse', 'HEAD').decode().strip()
     fields = git(repo, 'log', 'HEAD', '--branches', '--remotes', '--tags', '--date-order', '-n', '200', '-z',
                  '--format=%H%x00%h%x00%cs%x00%s%x00%D').decode().split('\0')
     commits = [dict(zip(('revision', 'short', 'date', 'subject', 'refs'), fields[i:i+5]))
@@ -72,6 +82,7 @@ def working_snapshot(repo, parent=None):
 
 
 def find_repositories(path):
+    require_git()
     path = Path(path).expanduser().resolve()
     if not path.is_dir():
         raise ValueError('Choose an existing manuscript folder.')
@@ -95,6 +106,7 @@ def find_repositories(path):
 
 
 def clone_repository(url, directory):
+    require_git()
     url = url.strip()
     match = re.fullmatch(r'(?:https://github\.com/|git@github\.com:)([\w.-]+)/([\w.-]+?)(?:\.git)?/?', url.strip())
     if not match or any(part in ('.', '..') for part in match.groups()):
@@ -115,6 +127,7 @@ def clone_repository(url, directory):
 
 
 def fetch_repository(repo):
+    require_git()
     result = subprocess.run(['git', '-C', str(repo), 'fetch', 'origin'], capture_output=True, text=True,
                             env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'}, timeout=300)
     if result.returncode:

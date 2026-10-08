@@ -4,6 +4,8 @@
 
 Download the app ZIP from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** into **Applications**. Open the app to start reviewing. The app supports Apple Silicon Macs running macOS 13 or later and includes its Python runtime.
 
+**Library → Setup** checks Git and preview tools and installs the bundled agent skill. In the macOS app, **⌘+,** also opens Setup.
+
 Git must be installed. Apple's Command Line Tools provide it:
 
 ```sh
@@ -26,7 +28,9 @@ To update, quit the app and replace it with the new release. Your review library
 
 The skill gives an agent the commands and review cycle needed to read your comments, append responses, and create another round. It requires an agent with local filesystem and shell access on the same machine as your manuscript and review library.
 
-For Codex, link the bundled skill into its [personal skills directory](https://developers.openai.com/codex/skills):
+Open **Library → Setup** and click **Install skill** beside Codex or Claude Code. The app links its bundled skill into the agent’s personal skills directory, preserving any existing skill. Start a new agent session after installing.
+
+For manual setup with Codex, link the bundled skill into its [personal skills directory](https://developers.openai.com/codex/skills):
 
 ```sh
 mkdir -p ~/.agents/skills

@@ -2,7 +2,7 @@
 import hashlib
 from pathlib import Path
 from .comparison import git
-from .editing import selected_content
+from .editing import selected_content, working_passage_range
 from .storage import FileLock
 
 
@@ -22,14 +22,56 @@ def repository_lock(repo):
     return FileLock((common if common.is_absolute() else Path(repo) / common) / 'manuscript-review.lock')
 
 
-def apply_record(store, previous, record, only_file=None):
+def check_checkout(store, previous, repo):
+    if git(repo, 'rev-parse', 'HEAD').decode().strip() != previous['snapshot']['source_head']:
+        raise ValueError('HEAD changed since this review. Open New round in the Library to compare the current manuscript.')
+    if git(repo, 'diff', '--cached', '--name-only').strip():
+        raise ValueError('Resolve staged changes before saving to the manuscript.')
+    store.recover()
+
+
+def checked_content(previous, repo, path, initial):
+    destination = repo / path
+    if destination.is_symlink() or not destination.resolve().is_relative_to(repo):
+        raise ValueError('Unsafe manuscript path: ' + path)
+    current = destination.read_bytes().decode() if destination.exists() else None
+    expected = previous['applied'].get(path, digest(initial))
+    if digest(current) != expected:
+        raise ValueError(f'{path} was edited outside this review. Your draft is retained; update the comparison first.')
+    return current
+
+
+def commit_sources(store, previous, record, changes):
+    plan = []
+    for path, before, after in changes:
+        record['applied'][path] = digest(after)
+        if before != after:
+            plan.append({'path': path, 'before': before, 'after': after})
+    if plan:
+        store.archive(previous)
+    store.commit(record, plan)
+    return len(plan)
+
+
+def write_passage(store, previous, record, file, passage, text):
+    """Replace one passage in the checked working file, leaving its surroundings intact."""
+    repo = Path(previous['snapshot']['repo']).resolve()
+    with repository_lock(repo):
+        check_checkout(store, previous, repo)
+        current = checked_content(previous, repo, file['path'], file['after'])
+        start, end = working_passage_range(file, passage, current or '')
+        content = (current or '')[:start] + text + (current or '')[end:]
+        return commit_sources(store, previous, record, [(file['path'], current, content)])
+
+
+def apply_record(store, previous, record):
     snapshot, repo = previous['snapshot'], Path(previous['snapshot']['repo']).resolve()
     with repository_lock(repo):
         if git(repo, 'rev-parse', 'HEAD').decode().strip() != snapshot['source_head']:
             # A commit cannot prevent acknowledging a selection already on disk.
             # Any actual source write still requires the original HEAD.
             files = record['snapshot']['files']
-            if only_file is None and files and all(
+            if files and all(
                     not (repo / file['path']).is_symlink()
                     and (repo / file['path']).resolve().is_relative_to(repo)
                     and ((repo / file['path']).read_bytes().decode() if (repo / file['path']).exists() else None)
@@ -38,28 +80,14 @@ def apply_record(store, previous, record, only_file=None):
                 store.commit(record)
                 return 0
             raise ValueError('HEAD changed since this review. Open New round in the Library to compare the current manuscript.')
-        if git(repo, 'diff', '--cached', '--name-only').strip():
-            raise ValueError('Resolve staged changes before saving to the manuscript.')
-        store.recover()
+        check_checkout(store, previous, repo)
         old_files = {f['path']: f for f in snapshot['files']}
         new_files = {f['path']: f for f in record['snapshot']['files']}
-        paths = [only_file] if only_file else list(old_files.keys() | new_files.keys())
-        plan = []
-        for path in paths:
-            destination = repo / path
-            if destination.is_symlink() or not destination.resolve().is_relative_to(repo):
-                raise ValueError('Unsafe manuscript path: ' + path)
-            current = destination.read_bytes().decode() if destination.exists() else None
+        changes = []
+        for path in old_files.keys() | new_files.keys():
             before = old_files[path]['after'] if path in old_files else new_files[path]['before']
-            expected = previous['applied'].get(path, digest(before))
-            if digest(current) != expected:
-                raise ValueError(f'{path} was edited outside this review. Your draft is retained; update the comparison first.')
+            current = checked_content(previous, repo, path, before)
             content = (selected_content(new_files[path], record['decisions']) if path in new_files
                        else old_files[path]['before'])
-            record['applied'][path] = digest(content)
-            if content != current:
-                plan.append({'path': path, 'before': current, 'after': content})
-        if plan:
-            store.archive(previous)
-        store.commit(record, plan)
-    return len(plan)
+            changes.append((path, current, content))
+        return commit_sources(store, previous, record, changes)

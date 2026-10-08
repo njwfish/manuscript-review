@@ -26,11 +26,11 @@ Use **Accept** or **A** to keep an edit, **Reject** or **S** to restore this rou
 
 ## Edit and discuss
 
-Press **E** to edit the whole selected passage, starting from your current choices. **Save passage** or **⌘/Ctrl+Enter** writes your wording to the manuscript, rebuilds the word diff against this round’s starting draft, and marks your changes accepted. Saving writes the selected file, including its other decisions; undecided edits in that file retain proposed wording. Decisions elsewhere remain intact. Comments on superseded edits move into the discussion. Saving also refreshes equation highlights. **Esc** keeps your draft and returns to review; drafts survive app restarts. The draft indicator or **Shift+E** resumes a draft; **Discard draft** restores the selected wording.
+Press **E** to edit the whole selected passage, starting from your current choices. **Save passage** or **⌘/Ctrl+Enter** writes your wording to the manuscript, rebuilds the word diff against this round’s starting draft, and marks your changes accepted. Only this passage is written; the rest of the working file and its review decisions stay as they were. Comments on superseded edits move into the discussion. Saving also refreshes equation highlights. **Esc** keeps your draft and returns to review; drafts survive app restarts. The draft indicator or **Shift+E** resumes a draft; **Discard draft** restores the selected wording.
 
 Press **C** to comment on an edit, or **Shift+C** for a passage note. The **Comment on** selector changes the scope. Earlier feedback and replies appear above the follow-up field. **Q** opens current comments and earlier discussion, with search. Replies append, so another revision pass can retain the full exchange.
 
-When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard passage drafts before applying. **More → Apply choices** can also apply a partial review, retaining proposed wording for undecided edits.
+When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard passage drafts before applying. **More → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
 
 The macOS library lives in `~/Library/Application Support/Manuscript Review/`, separate from the app. Replacing the app preserves your saved reviews. [Advanced usage](docs/USAGE.md) covers exports, manual response imports, and recovery.
 
@@ -62,7 +62,7 @@ Holding a key does not repeat decisions. Shortcuts pause while typing; Tab and E
 
 ## Work with an agent
 
-Install the [manuscript-review skill](skills/manuscript-review/SKILL.md) using the [setup instructions](docs/INSTALL.md#install-the-agent-skill). The skill uses the same review operations as the app; an agent needs local filesystem and shell access to your manuscript and saved library.
+Use **Library → Setup** to check dependencies and install the [manuscript-review skill](skills/manuscript-review/SKILL.md) for Codex or Claude Code. The [installation guide](docs/INSTALL.md#install-the-agent-skill) also covers manual setup. The skill uses the same review operations as the app; an agent needs local filesystem and shell access to your manuscript and saved library.
 
 The cycle is **review → apply → ask the agent → review the next round**. When you finish deciding, use **Apply review** to write the selected wording, then **Copy agent request** or **R** and paste the prompt into your agent's chat. The prompt identifies the exact review and tells the agent to read your decisions, comments, and earlier responses. You can also request responses while decisions are still in progress.
 

@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var libraryURL: URL?
     var shuttingDown = false
     var outputBuffer = Data()
-    var pendingNewReview = false
+    var pendingLibraryButton: String?
     var quitting = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu(); appItem.submenu = appMenu
         appMenu.addItem(withTitle: "About Manuscript Review", action: #selector(about), keyEquivalent: "")
+        appMenu.addItem(withTitle: "Setup…", action: #selector(showSetup), keyEquivalent: ",")
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "Hide Manuscript Review", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(NSMenuItem.separator())
@@ -85,8 +86,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func about() {
         NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "Manuscript Review", .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "", .credits: NSAttributedString(string: "Local manuscript comparisons, word-level decisions, LaTeX previews, and review comments.")])
     }
-    @objc func showLibrary() { flushReview { saved in if saved, let url = self.libraryURL { self.webView.load(URLRequest(url: url)) } } }
-    @objc func newReview() { pendingNewReview = true; showLibrary() }
+    func openLibrary(button: String? = nil) {
+        flushReview { saved in
+            if saved, let url = self.libraryURL {
+                self.pendingLibraryButton = button
+                self.webView.load(URLRequest(url: url))
+            }
+        }
+    }
+    @objc func showLibrary() { openLibrary() }
+    @objc func newReview() { openLibrary(button: "new") }
+    @objc func showSetup() { openLibrary(button: "setup") }
     @objc func reload() { flushReview { saved in if saved { self.webView.reload() } } }
 
     func flushReview(_ completion: @escaping (Bool) -> Void) {
@@ -187,7 +197,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if pendingNewReview && webView.url == libraryURL { pendingNewReview = false; webView.evaluateJavaScript("document.getElementById('new').click();", completionHandler: nil) }
+        if let button = pendingLibraryButton, webView.url == libraryURL {
+            pendingLibraryButton = nil
+            webView.evaluateJavaScript("document.getElementById('\(button)').click();", completionHandler: nil)
+        }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }

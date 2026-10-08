@@ -8,6 +8,31 @@ const native=window.webkit?.messageHandlers?.chooseFolder;
 function message(text,error=false){$('message').textContent=text;$('message').className=error?'error':'';}
 async function post(path,value){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':token},body:JSON.stringify(value)});const result=await response.json();if(!response.ok)throw new Error(result.error);return result;}
 function action(text,fn,cls='quiet'){const b=node('button',cls,text);b.type='button';b.addEventListener('click',fn);return b;}
+async function showSetup(){
+ $('setup-message').textContent='';$('setup-message').className='form-error';$('setup-dialog').showModal();
+ try{await loadSetup();}catch(error){$('setup-message').textContent=error.message;}
+}
+async function loadSetup(){
+ const response=await fetch('/setup');if(!response.ok)throw new Error('Could not check setup.');const info=await response.json();
+ const row=(name,state)=>{const item=node('div','setup-row'),label=node('div','setup-label');label.append(node('div','setup-name',name),node('div','setup-state',state));item.append(label);return item;};
+ const missing=Object.entries(info.preview_tools).filter(([name,path])=>!path).map(([name])=>name);
+ const git=row('Git',info.git?'Ready':'Install Git to compare manuscript versions');
+ const previews=row('Equation and algorithm previews',missing.length?'Optional · missing '+missing.join(', '):'Ready');
+ $('setup-tools').replaceChildren(git,previews);
+ $('setup-agents').replaceChildren(...info.agents.map(agent=>{
+  const item=row(agent.name,agent.installed?'Skill installed':agent.occupied?'Existing path needs attention':'Skill not installed');
+  const location=node('details');location.append(node('summary','','Skill location'),node('code','',agent.path));item.firstChild.append(location);
+  if(!agent.occupied){const install=action('Install skill',async()=>{
+   install.disabled=true;$('setup-message').textContent='';
+   try{const result=await post('/install-skill',{agent:agent.id});await loadSetup();$('setup-message').className='form-error';$('setup-message').textContent=result.message;}
+   catch(error){$('setup-message').className='form-error error';$('setup-message').textContent=error.message;install.disabled=false;}
+  });install.disabled=!info.skill_available;item.append(install);}
+  return item;
+ }));
+ if(!info.skill_available){$('setup-message').className='form-error error';$('setup-message').textContent='The bundled skill is unavailable. Install from the app release or a source checkout.';}
+}
+$('setup').addEventListener('click',showSetup);
+window.showSetup=showSetup;
 function sourceMode(github){
  $('local-source').hidden=github;$('github-source').hidden=!github;$('repo').required=!github;
  $('local-mode').setAttribute('aria-pressed',!github);$('github-mode').setAttribute('aria-pressed',github);
@@ -66,7 +91,7 @@ async function refresh(){
  const expanded=new Set([...document.querySelectorAll('.review-history[open]')].map(history=>history.dataset.repo));
  $('reviews').replaceChildren(...manuscriptReviews(data.reviews).map(reviewCard));
  document.querySelectorAll('.review-history').forEach(history=>{history.open=expanded.has(history.dataset.repo);});
- if(!data.reviews.length){const empty=node('div','empty');empty.append(node('h3','','Start with a manuscript'),node('p','','Choose a folder or a GitHub repository, then pick two versions.'),action('Open manuscript',()=>create(),'primary'));$('reviews').append(empty);}
+ if(!data.reviews.length){const empty=node('div','empty');empty.append(node('h3','','Start with a manuscript'),node('p','','Choose a folder or a GitHub repository, then pick two versions.'),action('Compare versions',()=>create(),'primary'));$('reviews').append(empty);}
  if(data.reviews.some(r=>['queued','rendering'].includes(r.preview_status))&&!polling){polling=true;setTimeout(async()=>{polling=false;try{await refresh();}catch(error){message(error.message,true);}},2500);}
 }
 function versionChoices(){
@@ -99,7 +124,7 @@ async function inspect(){
   inspected=info.repo;repositoryInfo=info;$('fetch').hidden=!info.has_origin;$('repo').value=info.repo;$('commit-filter').value='';$('base').replaceChildren();$('proposed').replaceChildren();versionChoices();$('repo-choice-field').hidden=true;
   $('entry').replaceChildren(...[...info.entries,''].map(entry=>{const o=node('option','',entry||'Word changes only');o.value=entry;return o;}));
   $('versions').hidden=false;$('create-submit').hidden=false;$('base').disabled=$('proposed').disabled=false;$('base').focus();
- }catch(error){$('create-error').textContent=error.message;}finally{$('inspect').disabled=false;$('inspect').textContent='Load history';}
+ }catch(error){$('create-error').textContent=error.message;}finally{$('inspect').disabled=false;$('inspect').textContent='Show versions';}
 }
 $('new').addEventListener('click',()=>create());$('inspect').addEventListener('click',inspect);
 $('local-mode').addEventListener('click',()=>sourceMode(false));$('github-mode').addEventListener('click',()=>sourceMode(true));

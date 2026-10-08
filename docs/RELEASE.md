@@ -1,16 +1,20 @@
-The first public release includes word-level manuscript comparisons, typeset LaTeX
-previews with changed terms highlighted, keyboard review, whole-passage editing,
-and saved comments with agent responses. Review rounds preserve an original baseline
-so you can inspect both the latest pass and accumulated changes.
+Saving a passage now writes only that passage, preserving the rest of the working
+file and its review decisions. The word diff and discussion still update immediately.
+This release also fixes passage saves that could stall in reviews opened from the Library.
 
-Download the app ZIP, unzip it, and move the app to **Applications**.
-The app includes its Python runtime and agent skill. Follow the repository's
-[installation guide](https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md)
-to install Git, optional LaTeX preview tools, and the skill for Codex or Claude Code.
+**Library → Setup** checks Git and optional equation-preview tools and installs the
+bundled skill for Codex or Claude Code. Existing skill paths are preserved. The macOS
+app also opens Setup with **⌘+,**.
 
-This build supports Apple Silicon Macs on macOS 13 or later. It is locally signed
-and has not been notarized. macOS and Linux users can also run the browser interface
-from source with Python 3.12 or later.
+Review explanations now appear before decision controls. When every edit has a decision,
+**Review complete** stands out in the header and the status line shows the apply shortcut.
+Comparison and apply labels are consistent.
 
-Existing schema-5 review libraries need no migration from 0.7.0. Reviews and manuscript
-files stay outside the app bundle, so replacing the app preserves them.
+Quit the app before replacing it with this release. Existing schema-5 libraries need
+no migration from 0.8.0; saved reviews and manuscripts stay outside the app bundle.
+Download the app ZIP and move the app to **Applications**. See the
+[installation guide](https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md).
+
+The app supports Apple Silicon Macs on macOS 13 or later. It is locally signed and
+has not been notarized. The browser interface runs from source on macOS and Linux
+with Git and Python 3.12 or later.

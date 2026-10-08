@@ -24,6 +24,7 @@ from .session import ReviewSession
 from .application import is_applied
 from .editing import selected_content
 from .http import LocalHandler
+from .setup import setup_status, install_skill
 
 def default_home():
     if sys.platform == 'darwin':
@@ -304,6 +305,8 @@ def create_library_server(library, port=0):
                 return self.response(Path(__file__).with_name(name).read_bytes(), 'text/html' if name.endswith('.html') else 'text/javascript')
             if self.path == '/library-data':
                 return self.response({'token': library.token, 'reviews': library.listing()})
+            if self.path == '/setup':
+                return self.response(setup_status())
             if self.path.startswith('/jobs/'):
                 return self.response(library.jobs.get(self.path[6:], {'status': 'error', 'error': 'Preparation not found.'}))
             return self.response({'error': 'Not found.'}, status=404)
@@ -329,6 +332,8 @@ def create_library_server(library, port=0):
                     result = {'job': library.start({**metadata, 'proposed': 'working', 'previous': request['id']})}
                 elif self.path == '/import':
                     result = {'review': library.import_review(request['source'])}
+                elif self.path == '/install-skill':
+                    result = install_skill(request['agent'])
                 else:
                     raise ValueError('Unknown action.')
                 self.response(result)

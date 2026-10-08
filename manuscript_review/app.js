@@ -16,12 +16,12 @@ const currentHunk=()=>currentFile()?.hunks[passage];
 const currentEdit=()=>currentHunk()?.edits[edit];
 const selectedFeedback=()=>feedbackForPassage(data?.history||[],currentHunk()).filter(entry=>commentScope==='passage'||entry.target?.id===currentHunk()?.id||entry.target?.id===currentEdit()?.id);
 const selectedExplanations=()=>explanationsForEdit(data?.history||[],currentHunk(),currentEdit(),data?.round_id);
-const commentAction=()=>comments[currentEdit()?.id]?.trim()||comments[currentHunk()?.id]?.trim()?'Commented':selectedFeedback().length?'Discussion':'Comment';
 const needsMath=g=>g?.math||/\\(?:frac|sum|sqrt|int|prod|mathop)\b|\\begin\{(?:equation|align|algorithm)|\\\[/.test(g?.new||'');
 const shownView=h=>['auto','diff','rendered'].includes(view)?(overrides[h.id]||(view==='auto'?(needsMath(currentEdit())?'rendered':'diff'):view)):view;
 const niceName=path=>path.split('/').pop().replace(/\.[^.]+$/,'').replace(/[_-]/g,' ').replace(/^./,c=>c.toUpperCase());
 function status(message,error=false){$('status')&&($('status').textContent=message);if($('status'))$('status').className=error?'error':'';}
 function resultStatus(result,fallback){status(result.message||fallback);}
+const savedMessage=()=>data.files?.length&&reviewProgress(data.files,decisions).complete&&!data.applied?'Review complete · ⌘/Ctrl+Enter applies':'Saved locally';
 const currentUI=()=>{positions[data?.scope||'round']={active,passage,edit,view,overrides};return {scope:data?.scope||'round',positions,previewZoom,wide:document.body.classList.contains('wide')};};
 function remember(){
  const ui=currentUI();
@@ -46,7 +46,7 @@ function saveDrafts(){
 function save(){
  if(readOnly())return;
  clearTimeout(commentTimer);const values={...decisions},notes={...comments};status('Saving…');
- saving=saving.catch(()=>{}).then(()=>post('/save',values,notes)).then(result=>{saveFailed=Boolean(draftChanges.size);if(!saveFailed)resultStatus({...result,message:'Saved locally'});}).catch(e=>{saveFailed=true;status(e.message,true);});
+ saving=saving.catch(()=>{}).then(()=>post('/save',values,notes)).then(result=>{saveFailed=Boolean(draftChanges.size);if(!saveFailed)status(savedMessage());}).catch(e=>{saveFailed=true;status(e.message,true);});
 }
 function setChoices(members,value,scope='edit'){
  if(editing||readOnly())return;
@@ -112,8 +112,6 @@ function commentBox(id,label,history=[]){
  const area=node('textarea');area.id='comment-'+id;area.rows=3;area.maxLength=20000;area.value=comments[id]||'';area.setAttribute('aria-label',label);area.placeholder='Describe the revision you want…';
  area.addEventListener('input',()=>{
   if(area.value)comments[id]=area.value;else delete comments[id];
-  const action=$('edit-comment-action');
-  if(id===currentEdit()?.id&&action){const label=commentAction();action.firstChild.textContent=label;action.setAttribute('aria-label',label+' (C)');}
   if(!history.length)summary.textContent=label;clearTimeout(commentTimer);commentTimer=setTimeout(save,350);updateProgress();
  });
  area.addEventListener('blur',save);box.append(area,node('div','comment-meta','Saves automatically · Esc or ⌘/Ctrl+Enter returns to review'));return box;
@@ -296,7 +294,7 @@ function render(){
  const controls=node('div','decisionbar'),s=groupStatus(g);
  const accept=keyButton('Accept','A',()=>{setChoices([g.id],'accept');focusSelection();},'accept');accept.setAttribute('aria-pressed',s==='accept');
  const reject=keyButton('Reject','S',()=>{setChoices([g.id],'reject');focusSelection();},'reject');reject.setAttribute('aria-pressed',s==='reject');
- const comment=keyButton(commentAction(),'C',()=>openComment(false),'quiet');
+ const comment=keyButton('Discussion','C',()=>openComment(false),'quiet');
  comment.id='edit-comment-action';
  const revise=keyButton('Edit','E',openEditor,'quiet');
  const reset=keyButton('Reset','U',()=>{setChoices([g.id],'pending');focusSelection();},'quiet');reset.title='Mark this edit undecided';
@@ -306,8 +304,8 @@ function render(){
   const history=selectedFeedback();if(history.length){const panel=node('details','discussion');panel.dataset.key='cumulative-discussion';panel.append(node('summary','','Discussion'));history.forEach(entry=>panel.append(discussionEntry(entry)));main.append(panel);}
   main.append(allEdits(h));
  }else{
-  controls.append(accept,reject,revise,comment,reset,node('span','decision-state',{pending:'Undecided',accept:'Accepted',reject:'Rejected'}[s]));main.append(controls);
   for(const entry of selectedExplanations()){const explanation=discussionEntry(entry);explanation.classList.add('rationale');main.append(explanation);}
+  controls.append(accept,reject,revise,comment,reset,node('span','decision-state',{pending:'Undecided',accept:'Accepted',reject:'Rejected'}[s]));main.append(controls);
   main.append(sourceEditor(h),discussionPanel(h,g),allEdits(h));
  }
  const foot=node('div','statusline');foot.append(node('span','',readOnly()?'D / F to move · T for this round · ? for shortcuts':'D / F to move · A / S to decide · ? for shortcuts'));const saveStatus=node('span','','');saveStatus.id='status';saveStatus.setAttribute('role','status');saveStatus.setAttribute('aria-live','polite');foot.append(saveStatus);main.append(foot);

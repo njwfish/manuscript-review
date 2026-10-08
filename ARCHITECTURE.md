@@ -28,7 +28,7 @@ Agents can also create a discussion entry directly against a passage or edit. In
 
 `editing.py` projects decisions onto source. The Python service and the small, pure `review_model.js` client module implement the same selection rule, checked against shared fixtures. Undecided edits keep proposed wording; rejected edits keep the round’s starting wording. A missing file is distinct from an empty file.
 
-Saving a passage replaces that passage in the proposal, creates a pinned Git version, and recomputes its file's comparison against the round’s fixed starting draft. The author's new changes are accepted. Decisions elsewhere survive; affected notes become discussion. There is no manual-replacement overlay or separate revision ledger. The working file receives the selected source, including other decisions already made in that file. Typeset previews are regenerated from the new source version.
+Saving a passage replaces that passage in the proposal, creates a pinned Git version, and recomputes its file's comparison against the round’s fixed starting draft. The author's new changes are accepted. Decisions elsewhere survive; affected notes become discussion. There is no manual-replacement overlay or separate revision ledger. Ordered edit segments locate the passage in the validated working file even when text repeats or earlier choices have been applied. Only that span is replaced. Other passages retain their exact working source, even when their review decisions select different wording. Applying the review writes the full selected result explicitly. Typeset previews are regenerated from the new source version.
 
 ## Transactions
 
@@ -43,6 +43,8 @@ Every mutation of review content requires the expected revision while holding a 
 Record replacement uses a unique temporary file, `fsync`, atomic rename, and directory synchronization. A manuscript write also holds a repository lock and checks HEAD, staging, safe paths, and expected contents before writing anything. The previous record and source contents are retained. A durable transaction journal records all intended file writes and the resulting review record before the first manuscript write. Startup and subsequent operations finish an interrupted transaction only when each file still matches its old or intended new contents. Intervening external changes leave the journal and draft available for recovery.
 
 `application.py` owns these file checks, `versions.py` creates pinned source commits, and `previews.py` serializes background compilation. Requests arriving during compilation cause the worker to render the latest source next. A renderer publishes its manifest only if both comparison endpoints are still current; round and cumulative previews have separate manifests. Preview failures leave source review available. Render context uses exact source spans to distinguish repeated equations or algorithms.
+
+`setup.py` reports local prerequisites and installs the bundled skill by linking it into the selected agent’s personal skills directory. Existing paths are never replaced. This setup stays separate from manuscript and review persistence.
 
 Library cards group records by manuscript repository and show rounds in chronological history. Applied status is derived from the saved source hashes and selected wording; notes and replies do not reset it.
 

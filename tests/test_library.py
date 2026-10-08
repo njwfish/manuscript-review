@@ -4,12 +4,54 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from test_review import ReviewFixture
 from manuscript_review.library import Library, inspect_repo, working_snapshot
+from manuscript_review.library import create_library_server
+from manuscript_review.setup import install_skill
+from unittest.mock import patch
 from manuscript_review.server import create_server
 from manuscript_review.storage import ReviewStore
 from manuscript_review.comparison import git
 
 
 class LibraryTests(ReviewFixture):
+    def test_passage_response_returns_library_context_after_releasing_the_record(self):
+        library = Library(self.root / 'library')
+        library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'one')
+        identifier = library.jobs['one']['review']
+        url = library.open(identifier)
+        record = ReviewStore(library.directory(identifier)).read()
+        file = next(f for f in record['snapshot']['files'] if f['path'] == 'main.tex')
+        passage = file['hunks'][0]
+        request = Request(url + 'passage', json.dumps({'revision': record['revision'], 'decisions': {},
+                          'comments': {}, 'passage_id': passage['id'], 'text': 'Author’s passage.'}).encode(),
+                          headers={'Content-Type': 'application/json', 'X-Review-Token': record['snapshot']['token']})
+        try:
+            result = json.load(urlopen(request, timeout=5))
+            self.assertEqual(result['revision'], result['data']['revision'])
+            self.assertEqual(result['data']['round_number'], 1)
+            self.assertEqual(result['data']['latest_review'], identifier)
+            self.assertTrue((self.repo / 'main.tex').read_text().startswith('Author’s passage.'))
+        finally:
+            library.servers[identifier].shutdown();library.servers[identifier].server_close()
+
+    def test_skill_install_route_requires_the_library_token(self):
+        library = Library(self.root / 'library')
+        server = create_library_server(library)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        def request(token):
+            return Request(library.url + 'install-skill', json.dumps({'agent': 'codex'}).encode(),
+                           headers={'Content-Type': 'application/json', 'X-Review-Token': token})
+        target = self.root / 'agent-home/.agents/skills/manuscript-review'
+        try:
+            with self.assertRaises(HTTPError) as error:
+                urlopen(request('wrong'))
+            self.assertEqual(error.exception.code, 403)
+            self.assertFalse(target.exists())
+            with patch('manuscript_review.library.install_skill', side_effect=lambda agent: install_skill(agent, self.root / 'agent-home')):
+                self.assertIn('installed', json.load(urlopen(request(library.token)))['message'])
+            self.assertTrue((target / 'SKILL.md').is_file())
+        finally:
+            server.shutdown();server.server_close()
+
     def test_library_create_update_and_clean_import(self):
         library = Library(self.root / 'library')
         request = {'repo':str(self.repo),'base':self.base,'proposed':'working','entry':''}
