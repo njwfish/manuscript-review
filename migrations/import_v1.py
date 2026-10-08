@@ -153,6 +153,8 @@ def import_v1(source, destination, reviewed_ref=None, history_source=None):
     record['ui'] = {'positions': {'round': {key: old_ui[key] for key in ('active', 'passage', 'edit', 'view', 'overrides') if key in old_ui}},
                     **{key: value for key, value in old_ui.items() if key not in ('active', 'passage', 'edit', 'view', 'overrides')}}
     record['drafts'] = record['ui'].pop('drafts', {})
+    from manuscript_review.migrations.v5 import port_drafts
+    record = port_drafts(record)
     destination.mkdir(parents=True)
     # A byte-exact archive retains primitive decisions and the four original
     # manual replacements as provenance, outside the supported runtime format.

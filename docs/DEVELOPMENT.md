@@ -1,13 +1,14 @@
 # Development
 
-Install the source as described in [Installation](INSTALL.md). The Python service has no third-party runtime dependencies; the native wrapper uses Cocoa and WebKit.
+Install the source as described in [Installation](INSTALL.md). The Python service has no third-party runtime dependencies; the native wrapper uses Cocoa and WebKit. For the full test suite, also install Node.js and the locked editor dependencies:
 
 ```sh
+npm ci
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/manuscript-review --home /absolute/path/to/test-library
 ```
 
-Node.js runs the client model and save-queue checks in the test suite. Install Node to include those checks; they are skipped when it is absent. Use an isolated library for write tests. The [architecture](../ARCHITECTURE.md) describes persistence and source-write boundaries.
+Node.js runs the client model, editor, and save-queue checks in the test suite. To change the editor, edit `frontend/editor.js` and regenerate the checked-in bundle with `npm run build`. Both CI and release builds check that regeneration produces the same bundle. Without Node, client checks are skipped. Use an isolated library for write tests. The [architecture](../ARCHITECTURE.md) describes persistence and source-write boundaries.
 
 ## Build the macOS app
 
@@ -24,4 +25,4 @@ The version lives in `manuscript_review/__init__.py` and supplies both package a
 
 ## Existing review libraries
 
-The runtime reads one current record format. If an older installation needs a format upgrade, quit the app and use the matching script in `migrations/`. These scripts validate the library and retain byte-exact originals. They do not run automatically. Release notes identify any required migration.
+The runtime reads one current record format. If an older installation needs a format upgrade, quit the app and use the explicit migration command documented in [Installation](INSTALL.md#upgrade-an-existing-library). Earlier retired formats have matching scripts in `migrations/`. These scripts validate the library and retain byte-exact originals. They do not run automatically. Release notes identify any required migration.

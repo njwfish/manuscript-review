@@ -1,8 +1,11 @@
 """Review operations share one transaction boundary and one source projection."""
 import copy
 import json
-from .application import apply_record, write_passage, is_applied
-from .comparison import compare, enrich_snapshot, make_patch, validate_decisions, build_snapshot
+from .application import apply_record, write_file_edit, is_applied
+from .comparison import compare, enrich_snapshot, make_patch, validate_decisions, build_snapshot, read_blob
+from .editing import selected_content, project_source
+from .file_editing import file_replacements, replace_ranges
+from .anchors import SourceSpan, SourceMap
 from .feedback import feedback_report, validate_comments
 from .history import add_explanations, add_responses, build_history, round_id
 from .previews import Previews
@@ -105,24 +108,55 @@ class ReviewSession:
             self.store.commit(record)
         return {'message': 'Review position saved.'}
 
+    def editor(self, path):
+        """The selected file and its retained draft, with exact editor highlights."""
+        with self.store.transaction():
+            record = self.store.read()
+        file = next((f for f in record['snapshot']['files'] if f['path'] == path), None)
+        if file is None:
+            raise ValueError('Choose a file in this review.')
+        projected = project_source(file, record['decisions'])
+        original = projected.content or ''
+        draft = record['drafts'].get(path)
+        text = draft['text'] if draft else original
+        mapping = SourceMap(original, text)
+        def offset(point):
+            return len(text[:point].encode('utf-16-le')) // 2
+        ranges = []
+        for group in file['edits']:
+            span = mapping.project(SourceSpan(*projected.ranges[group['id']]))
+            ranges.append({'id': group['id'], 'from': offset(span.start), 'to': offset(span.end),
+                           'rejected': record['decisions'].get(group['id']) == 'reject'})
+        return {'revision': record['revision'], 'file': path, 'source': draft['source'] if draft else record['result'],
+                'original': original, 'text': text, 'ranges': ranges}
+
     def save_draft(self, request):
         with self.store.transaction():
             record = self.store.read()
             self.check_revision(request, record)
-            identifier, text = request['passage_id'], request['text']
-            valid = {h['id'] for f in record['snapshot']['files'] for h in f['hunks']}
-            discard_saved = text is None and identifier in record['drafts']
-            if (identifier not in valid and not discard_saved) or (text is not None and (not isinstance(text, str) or len(text) > 200_000)):
-                raise ValueError('A draft needs a current passage and at most 200,000 characters.')
+            identifier, draft = request['id'], request['draft']
+            valid = {f['path'] for f in record['snapshot']['files']}
+            discard_saved = draft is None and identifier in record['drafts']
+            if identifier not in valid and not discard_saved:
+                raise ValueError('A draft needs a current file.')
+            if draft is not None:
+                file = next(f for f in record['snapshot']['files'] if f['path'] == identifier)
+                if (not isinstance(draft, dict) or draft.get('file') != identifier
+                        or set(draft) != {'file', 'source', 'text'}
+                        or not isinstance(draft['text'], str) or len(draft['text']) > 1_000_000
+                        or not isinstance(draft['source'], str) or len(draft['source']) != 40):
+                    raise ValueError('A draft needs its pinned source and at most 1,000,000 characters.')
+                if (read_blob(record['snapshot']['repo'], draft['source'], identifier) or '') != (selected_content(file, record['decisions']) or ''):
+                    raise ValueError('The selected wording changed. Your draft is retained; reload before editing.')
             previous = record['drafts'].get(identifier)
-            if text != previous:
-                if text is None:
+            if draft != previous:
+                if draft is None:
                     record['drafts'].pop(identifier, None)
                 else:
-                    record['drafts'][identifier] = text
+                    record['drafts'][identifier] = draft
                 record['revision'] += 1
                 self.store.commit(record)
-            return {'revision': record['revision'], 'message': 'Draft saved.' if text is not None else 'Draft discarded.'}
+            return {'revision': record['revision'], 'message': 'Draft saved.' if draft is not None else 'Draft discarded.'}
 
     def import_responses(self, records, revision):
         with self.store.transaction():
@@ -159,7 +193,7 @@ class ReviewSession:
             raise StaleReview('This review changed in another window. Your draft was retained. Reload to continue.')
 
     def update(self, action, request):
-        if action not in ('save', 'apply', 'passage'):
+        if action not in ('save', 'apply', 'file'):
             raise ValueError('Unknown action.')
         with self.store.transaction():
             previous = self.store.read()
@@ -167,6 +201,10 @@ class ReviewSession:
             snapshot = previous['snapshot']
             validate_decisions(snapshot, request['decisions'])
             validate_comments(snapshot, request['comments'])
+            for draft in previous['drafts'].values():
+                file = next((f for f in snapshot['files'] if f['path'] == draft['file']), None)
+                if file and selected_content(file, previous['decisions']) != selected_content(file, request['decisions']):
+                    raise ValueError('Save or discard the file draft before changing its review decisions.')
             if action == 'save' and request['decisions'] == previous['decisions'] and request['comments'] == previous['comments']:
                 return {'revision': previous['revision'], 'message': 'Saved locally.'}
             record = copy.deepcopy(previous)
@@ -174,17 +212,17 @@ class ReviewSession:
             record['result'] = selected_version(record)
             if action == 'save':
                 self.store.commit(record)
-                return {'revision': record['revision'], 'message': 'Saved locally.'}
+                return {'revision': record['revision'], 'result': record['result'], 'message': 'Saved locally.'}
             if action == 'apply':
                 if record['drafts']:
-                    raise ValueError('Save or discard passage drafts before applying the review.')
+                    raise ValueError('Save or discard source drafts before applying the review.')
                 count = apply_record(self.store, previous, record)
                 message = (f'Applied review to {count} manuscript {"file" if count == 1 else "files"}.' if count
                            else 'Review applied. The manuscript already matches your choices.')
                 return {'revision': record['revision'], 'applied': is_applied(record),
                         'message': message}
             try:
-                result = self.revise_passage(previous, record, request)
+                result = self.revise_file(previous, record, request)
             except Exception:
                 self.store.backup_request(request)
                 raise
@@ -193,60 +231,55 @@ class ReviewSession:
         view = self.view()
         return {**result, 'revision': view['revision'], 'data': view}
 
-    def revise_passage(self, previous, record, request):
-        text = request['text']
-        if not isinstance(text, str) or len(text) > 200_000:
-            raise ValueError('Passage source must be text of at most 200,000 characters.')
+    def revise_file(self, previous, record, request):
+        path, text, source = request['file'], request['text'], request['source']
         old = previous['snapshot']
-        location = next(((f, h) for f in old['files'] for h in f['hunks'] if h['id'] == request['passage_id']), None)
-        if location is None:
-            raise ValueError('Unknown passage.')
-        file, passage = location
-        start, end = passage['proposal_span']
-        after = (file['after'] or '')[:start] + text + (file['after'] or '')[end:]
+        file = next((f for f in old['files'] if f['path'] == path), None)
+        if file is None or not isinstance(text, str) or len(text) > 1_000_000:
+            raise ValueError('Choose a reviewed file with at most 1,000,000 characters.')
+        if not isinstance(source, str) or len(source) != 40 or (read_blob(old['repo'], source, path) or '') != (selected_content(file, record['decisions']) or ''):
+            raise ValueError('The editor source changed. Your draft is retained; reload before saving.')
+        replacements, selected_replacements = file_replacements(file, record['decisions'], text)
+        if not replacements:
+            record['drafts'].pop(path, None)
+            self.store.commit(record)
+            return {'message': 'No source changes to save.'}
+        after = replace_ranges(file['after'] or '', replacements)
         current = record['snapshot']
-        revised = enrich_snapshot({'files': [compare(file['path'], file['before'], after)]})['files'][0]
-        current['files'] = [revised if f['path'] == file['path'] else f for f in current['files']]
+        revised = enrich_snapshot({'files': [compare(path, file['before'], after)]})['files'][0]
+        current['files'] = [revised if f['path'] == path else f for f in current['files']]
         current['files'] = [f for f in current['files'] if f['before'] != f['after']]
-        current['proposed'] = source_version(old['repo'], old['proposed'], {file['path']: after},
+        current['proposed'] = source_version(old['repo'], old['proposed'], {path: after},
                                             'refs/manuscript-review/' + record['metadata']['id'] + '/versions',
-                                            'Manuscript Review passage revision')
-        # Archive affected notes before removing their old edit identities. Earlier
-        # discussion is reattached against the unchanged baseline, never rewritten.
-        affected = {passage['id'], *(g['id'] for g in passage['edits'])}
-        notes = {key: value for key, value in record['comments'].items() if key in affected}
-        state = {**record, 'comments': notes}
-        report = feedback_report(old, record['decisions'], notes, record['history'])
-        record['history'] = build_history(old, current, state, report, record['history'], self.directory)
+                                            'Manuscript Review file revision')
+        changed = [SourceSpan(start, end) for start, end, _ in replacements]
+        affected = {item['id'] for item in [*file['edits'], *file['hunks']]
+                    if any(span.overlaps(SourceSpan(*item['proposal_span'])) for span in changed)}
         valid = {g['id'] for f in current['files'] for g in f['edits']}
         valid_notes = valid | {h['id'] for f in current['files'] for h in f['hunks']}
-        outside = set(record['decisions']) - affected
-        if outside - valid:
-            raise ValueError('The edit changes another decision’s alignment. Your draft is retained; revise a smaller passage or update the comparison.')
-        passage_ids = {h['id'] for f in current['files'] for h in f['hunks']}
-        if set(record['drafts']) - {passage['id']} - passage_ids:
-            raise ValueError('The edit changes another draft’s location. Save or discard that draft first; your source is retained.')
-        lost_notes = {key: value for key, value in record['comments'].items() if key not in affected and key not in valid_notes}
-        if lost_notes:
-            archived = {**state, 'comments': lost_notes}
-            report = feedback_report(old, record['decisions'], lost_notes, record['history'])
-            record['history'] = build_history(old, current, archived, report, record['history'], self.directory)
+        if set(record['decisions']) - affected - valid:
+            raise ValueError('The revision changes another decision’s alignment. Your draft is retained; revise a smaller region.')
+        archived = {key: value for key, value in record['comments'].items() if key in affected or key not in valid_notes}
+        state = {**record, 'comments': archived}
+        report = feedback_report(old, record['decisions'], archived, record['history'])
+        record['history'] = build_history(old, current, state, report, record['history'], self.directory)
+        old_edits = {g['id'] for g in file['edits']} - affected
         record['decisions'] = {key: value for key, value in record['decisions'].items() if key in valid and key not in affected}
-        lo, hi = passage['base_span']
-        for g in revised['edits']:
-            a, b = g['base_span']
-            if a <= hi and b >= lo:
-                record['decisions'][g['id']] = 'accept'
-        record['comments'] = {key: value for key, value in record['comments'].items() if key in valid_notes and key not in affected}
+        for group in revised['edits']:
+            if group['id'] not in old_edits:
+                record['decisions'][group['id']] = 'accept'
+        if selected_content(revised, record['decisions']) != text:
+            raise ValueError('The revision could not preserve all selected wording. Your draft is retained; revise a smaller region.')
+        record['comments'] = {key: value for key, value in record['comments'].items() if key not in archived}
+        record['drafts'].pop(path, None)
         record['result'] = selected_version(record)
         record['metadata'].update(preview_status='queued' if current['entry'] else 'none',
                                   proposal_label=f'Your revision ({current["proposed"][:7]})')
-        record['drafts'].pop(passage['id'], None)
         self.store.archive(previous)
-        write_passage(self.store, previous, record, file, passage, text)
-        self.previews.queue()
-        return {'revision': record['revision'],
-                'message': f'Saved passage to {file["path"]} and refreshed its word changes.'}
+        write_file_edit(self.store, previous, record, file, selected_replacements, request['decisions'])
+        if current['entry']:
+            self.previews.queue()
+        return {'message': f'Saved changes to {path} and refreshed the word diff.'}
 
     def resume_previews(self):
         with self.store.transaction():

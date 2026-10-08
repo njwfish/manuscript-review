@@ -22,7 +22,7 @@ Use the review ID named by the user or identify it from its repository and basel
 
 ## Address feedback
 
-Follow the manuscript repository's writing instructions and the user's requested editing scope. When they request surgical revisions, preserve existing prose and change only what the feedback requires. Let the user finish or save any active passage draft before making changes to its working file. A request to inspect feedback does not authorize manuscript revisions or review decisions.
+Follow the manuscript repository's writing instructions and the user's requested editing scope. When they request surgical revisions, preserve existing prose and change only what the feedback requires. Let the user save or discard any active file draft before making changes to its working file. A request to inspect feedback does not authorize manuscript revisions or review decisions.
 
 When first integrating external feedback, such as a referee report, give the author enough context to judge the proposed changes. Each explanation becomes an ordinary agent-authored discussion entry. Use one short explanation per passage to connect the feedback to the change and explain the reason for it; target an edit only when it has a separate reason. Group related changes under one explanation and keep it proportional to the issue. During later iterations, reply to the author's comments using the response workflow below; do not add another set of explanations for the same feedback.
 
@@ -34,7 +34,7 @@ If no review exists yet, read [First comparison](references/first-comparison.md)
 "/path/to/skill/scripts/review-agent" begin --review REVIEW_ID
 ```
 
-Keep the returned `revision` and `starting_version`. Begin checks that reviewed files match the saved choices and that no passage draft remains unsaved. If begin reports a mismatch, inspect the working changes and the review before proceeding. When the author authorizes applying saved choices, including through the app’s completed-review request, use:
+Keep the returned `revision` and `starting_version`. Begin checks that reviewed files match the saved choices and that no file draft remains unsaved. If begin reports a mismatch, inspect the working changes and the review before proceeding. When the author authorizes applying saved choices, including through the app’s completed-review request, use:
 
 ```sh
 "/path/to/skill/scripts/review-agent" apply --review REVIEW_ID --revision SAVED_REVISION

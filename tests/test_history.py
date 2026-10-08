@@ -23,7 +23,7 @@ class DiscussionTests(ReviewFixture):
         entry = explained['history'][0]
         identifier, original = entry['id'], entry['context_before']
         self.session.import_responses([{'id': identifier, 'text': 'The author refined this wording.'}], explained['revision'])
-        self.session.update('passage', self.request(passage_id=h['id'], text='We score chosen cells.'))
+        self.session.update('file', self.file_request(passage_id=h['id'], text='We score chosen cells.'))
         record = self.session.store.read()
         self.assertEqual(record['history'][0]['id'], identifier)
         self.assertEqual(record['history'][0]['context_before'], original)
@@ -44,7 +44,7 @@ class DiscussionTests(ReviewFixture):
     def test_response_import_is_atomic_and_keeps_current_notes(self):
         h = self.file()['hunks'][0]
         self.session.update('save', self.request(comments={h['id']: 'Exact note. \n'}))
-        self.session.update('passage', self.request(passage_id=h['id'], text='We score chosen cells.'))
+        self.session.update('file', self.file_request(passage_id=h['id'], text='We score chosen cells.'))
         before = self.session.store.read()
         row = {'id': before['history'][0]['id'], 'text': 'Corrected the scoring.'}
         with self.assertRaises(ValueError):
@@ -59,13 +59,13 @@ class DiscussionTests(ReviewFixture):
     def test_update_retains_old_response_and_new_followup(self):
         h = self.file()['hunks'][0]
         self.session.update('save', self.request(comments={h['id']: 'First note'}))
-        self.session.update('passage', self.request(passage_id=h['id'], text='We score chosen cells.'))
+        self.session.update('file', self.file_request(passage_id=h['id'], text='We score chosen cells.'))
         state = self.session.store.read()
         state['history'] = add_responses(state['history'], [{'id':state['history'][0]['id'],'text':'First reply'}])
         self.session.store.commit(state)
         h = self.file()['hunks'][0]
         self.session.update('save', self.request(comments={h['id']:'Follow-up note'}))
-        self.session.update('passage', self.request(passage_id=h['id'], text='We score final cells.'))
+        self.session.update('file', self.file_request(passage_id=h['id'], text='We score final cells.'))
         history = self.session.store.read()['history']
         self.assertEqual([e['comment'] for e in history], ['First note','Follow-up note'])
         self.assertEqual(history[0]['replies'][-1]['text'], 'First reply')

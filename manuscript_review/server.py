@@ -11,7 +11,8 @@ from .storage import StaleReview
 def create_server(directory, port=0, library_url=None, review_context=None):
     session = ReviewSession(directory, library_url, review_context)
     static = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
-              '/review_model.js': ('review_model.js', 'text/javascript')}
+              '/review_model.js': ('review_model.js', 'text/javascript'),
+              '/editor.js': ('editor.js', 'text/javascript')}
 
     class Handler(LocalHandler):
         content_security_policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"
@@ -30,6 +31,12 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                 self.response(result)
                 if scope == 'baseline' and result['preview_status'] in ('queued', 'rendering'):
                     session.previews.queue(scope)
+            elif urlsplit(self.path).path == '/editor':
+                try:
+                    path = parse_qs(urlsplit(self.path).query).get('file', [''])[0]
+                    self.response(session.editor(path))
+                except ValueError as error:
+                    self.response({'error': str(error)}, status=409)
             elif self.path == '/feedback.json':
                 with session.store.lock:
                     self.response(session.report(), attachment='manuscript-review-feedback.json')

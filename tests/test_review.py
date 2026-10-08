@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from manuscript_review.comparison import build_snapshot, compare, enrich_snapshot, git, make_patch
-from manuscript_review.editing import selected_content, passage_text
+from manuscript_review.editing import selected_content, projection_blocks, mapped_range
 from manuscript_review.session import ReviewSession
 from manuscript_review.storage import atomic_json, new_record, ReviewStore
 
@@ -52,6 +52,13 @@ class ReviewFixture(unittest.TestCase):
     def request(self, **values):
         r = self.session.store.read()
         return {'revision': r['revision'], 'decisions': r['decisions'], 'comments': r['comments'], **values}
+
+    def file_request(self, passage_id, text):
+        record = self.session.store.read()
+        file, passage = next((f, h) for f in record['snapshot']['files'] for h in f['hunks'] if h['id'] == passage_id)
+        content = selected_content(file, record['decisions']) or ''
+        start, end = mapped_range(projection_blocks(file, content), passage['proposal_span'], {g['id'] for g in passage['edits']})
+        return self.request(file=file['path'], source=record['result'], text=content[:start] + text + content[end:])
 
 
 class ReviewTests(ReviewFixture):
@@ -108,7 +115,7 @@ class ReviewTests(ReviewFixture):
         notes = {first['edits'][0]['id']: '  Keep this note. \n', second['id']: 'Another passage note'}
         self.session.update('save', self.request(decisions=decision, comments=notes))
         text = 'We score measured cells and their sisters.\n% Author note'
-        result = self.session.update('passage', self.request(passage_id=first['id'], text=text))
+        result = self.session.update('file', self.file_request(passage_id=first['id'], text=text))
         expected = text + '\n\nWe expand the explanation.\n\n\\[E=1\\]\n'
         self.assertEqual((self.repo / 'main.tex').read_text(), expected)
         current = self.session.store.read()
@@ -134,7 +141,7 @@ class ReviewTests(ReviewFixture):
         outside = {second['edits'][0]['id']: 'accept', third['edits'][0]['id']: 'accept'}
         self.session.update('save', self.request(decisions={**rejected, **outside}))
         text = 'We score the author’s chosen cells.'
-        saved = self.session.update('passage', self.request(passage_id=first['id'], text=text))
+        saved = self.session.update('file', self.file_request(passage_id=first['id'], text=text))
         self.assertEqual((self.repo / 'main.tex').read_text(), source.replace(first['before'], text))
         self.assertFalse(saved['data']['applied'])
         self.assertEqual({key: self.session.store.read()['decisions'][key] for key in outside}, outside)
@@ -152,7 +159,7 @@ class ReviewTests(ReviewFixture):
         source = (self.repo / 'main.tex').read_text()
         self.session.update('save', self.request(decisions={}))
         text = 'We score selected observations.'
-        self.session.update('passage', self.request(passage_id=first['id'], text=text))
+        self.session.update('file', self.file_request(passage_id=first['id'], text=text))
         self.assertEqual((self.repo / 'main.tex').read_text(), source.replace(first['before'], text))
         current = self.session.store.read()
         self.assertNotIn(second['edits'][0]['id'], current['decisions'])
@@ -163,7 +170,7 @@ class ReviewTests(ReviewFixture):
         self.session.update('save', self.request(comments={first['id']: 'Passage note'}))
         for text in ('We score custom cells.', first['before']):
             h = self.file()['hunks'][0]
-            self.session.update('passage', self.request(passage_id=h['id'], text=text))
+            self.session.update('file', self.file_request(passage_id=h['id'], text=text))
         r = self.session.store.read()
         self.assertEqual(r['history'][0]['comment'], 'Passage note')
         self.assertIsNone(r['history'][0]['target'])
@@ -185,7 +192,7 @@ class ReviewTests(ReviewFixture):
         path.write_text('Outside edit')
         before = self.session.store.path.read_bytes()
         with self.assertRaisesRegex(ValueError, 'outside'):
-            self.session.update('passage', self.request(passage_id=first['id'], text='Manual text'))
+            self.session.update('file', self.file_request(passage_id=first['id'], text='Manual text'))
         self.assertEqual(path.read_text(), 'Outside edit')
         self.assertEqual(self.session.store.path.read_bytes(), before)
         git(self.repo, 'add', 'main.tex')
@@ -204,7 +211,7 @@ class ReviewTests(ReviewFixture):
             return original(path, value)
         with patch('manuscript_review.storage.atomic_json', side_effect=fail_record):
             with self.assertRaises(OSError):
-                self.session.update('passage', self.request(passage_id=first['id'], text='Manually authored passage.'))
+                self.session.update('file', self.file_request(passage_id=first['id'], text='Manually authored passage.'))
         self.assertTrue(self.session.store.journal.exists())
         recovered = ReviewSession(self.directory)
         self.assertFalse(recovered.store.journal.exists())

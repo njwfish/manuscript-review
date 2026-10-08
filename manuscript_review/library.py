@@ -86,7 +86,7 @@ class Library:
         with store.transaction():
             record = store.read()
             if record['drafts']:
-                raise ValueError('Save or discard the active passage drafts before beginning another round.')
+                raise ValueError('Save or discard the active source drafts before beginning another round.')
             repo = Path(record['snapshot']['repo'])
             for file in record['snapshot']['files']:
                 path = repo / file['path']
@@ -153,7 +153,7 @@ class Library:
                 if saved['snapshot']['repo'] != repo:
                     raise ValueError('Earlier feedback belongs to a different repository.')
                 if saved['drafts']:
-                    raise ValueError('Save or discard the active passage drafts before starting another round.')
+                    raise ValueError('Save or discard the active source drafts before starting another round.')
                 if 'expected_revision' in request and request['expected_revision'] != saved['revision']:
                     raise ValueError('The earlier review changed during this pass. Reread its feedback before finishing.')
                 baseline = saved['baseline']

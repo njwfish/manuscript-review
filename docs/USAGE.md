@@ -18,10 +18,10 @@ Use `discussion_id` for a current comment or `id` for a saved discussion in the 
 
 ## Source writes and recovery
 
-Applying choices writes the selected source as unstaged changes. Saving a passage writes only that passage, preserving the rest of the working file exactly. Review decisions elsewhere take effect when you apply the review. Source writes check the working contents, HEAD, and staging so that outside edits are not overwritten. If a write is refused, inspect the working changes before preparing another comparison.
+Applying choices writes the selected source as unstaged changes. Saving source writes only your manual changes, preserving unedited working text exactly. Review decisions elsewhere take effect when you apply the review. Source writes check the working contents, HEAD, and staging so that outside edits are not overwritten. If a write is refused, inspect the working changes before preparing another comparison.
 
 Earlier source and review records are retained, and a durable journal records interrupted manuscript writes. Recovery proceeds only when each affected file still matches its previous or intended contents and there are no staged changes. External conflicts leave the journal available for inspection.
 
 If an agent or another window updates the review, the open window offers **Reload review**. It retains conflicting local input under the review folder's `conflicting-drafts/` before reloading. The current record keeps the other window's saved work; the retained files make the local input available for manual reconciliation.
 
-The runtime reads one current record format. Explicit scripts in `migrations/` upgrade older libraries while retaining their original records. Quit the app before running a migration; release notes identify any required upgrade.
+The runtime reads one current record format. The explicit migration command and scripts in `migrations/` upgrade older libraries while retaining their original records. Quit the app before running a migration; release notes identify any required upgrade.

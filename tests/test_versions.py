@@ -90,7 +90,7 @@ class VersionTests(ReviewFixture):
         child_bytes = (child_dir / 'review.json').read_bytes()
         original_head, original_index = git(self.repo, 'rev-parse', 'HEAD'), git(self.repo, 'ls-files', '--stage')
         migrated = upgrade.upgrade(home)
-        self.assertEqual(ReviewStore(store.directory).read()['drafts'], first['ui']['drafts'])
+        self.assertIn('A saved draft', next(iter(ReviewStore(store.directory).read()['drafts'].values()))['text'])
         self.assertEqual((store.directory / 'migration-v2/review.json').read_bytes(), source_bytes)
         self.assertEqual((child_dir / 'migration-v2/review.json').read_bytes(), child_bytes)
         current = migrated[child_id]

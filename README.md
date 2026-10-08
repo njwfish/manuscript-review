@@ -1,6 +1,6 @@
 # Manuscript Review
 
-Review manuscript revisions one word change at a time, with highlighted LaTeX previews, keyboard decisions, passage editing, and comments that stay with each round.
+Review manuscript revisions one word change at a time, with highlighted LaTeX previews, keyboard decisions, full-file editing, and comments that stay with each round.
 
 The app is designed for authors reviewing substantial edits from students, collaborators, or agents. Text opens as a short excerpt with the exact additions and deletions highlighted. Equations and algorithms open side by side as typeset LaTeX. Reviews stay on your computer; an agent can read your saved feedback and prepare another round through the bundled skill.
 
@@ -20,17 +20,21 @@ Pick **Compare from** and **Compare to** from dropdowns of saved review checkpoi
 
 The Library shows one entry per manuscript, with its latest review and earlier rounds under **History**. **Open** resumes the current round. **New round** compares working files against the latest selected draft and preserves the original baseline. Earlier choices are already part of the starting draft, so rejecting a new edit keeps that earlier wording. **Compare…** lets you choose another pair of versions.
 
-The review opens in **This round**, showing only changes from its starting draft to its proposal. Switch to **Since baseline**, or press **T**, to inspect the selected manuscript against the original baseline. This cumulative view updates with your decisions; review decisions and passage edits belong to **This round**. Earlier comments and replies remain available beside matching edits and in **All feedback**. The app reopens your last review on launch.
+The review opens in **This round**, showing only changes from its starting draft to its proposal. Switch to **Since baseline**, or press **T**, to inspect the selected manuscript against the original baseline. This cumulative view updates with your decisions; review decisions and source edits belong to **This round**. Earlier comments and replies remain available beside matching edits and in **All feedback**. The app reopens your last review on launch.
 
 Use **Accept** or **A** to keep an edit, **Reject** or **S** to restore this round’s starting wording, and **Reset** or **U** to leave it undecided. Accepting or rejecting advances to the next edit; **D / F** moves backward or forward. Choices and comments save automatically. When the review is complete, **Apply review** writes the selected wording to your manuscript.
 
 ## Edit and discuss
 
-Press **E** to edit the whole selected passage, starting from your current choices. **Save passage** or **⌘/Ctrl+Enter** writes your wording to the manuscript, rebuilds the word diff against this round’s starting draft, and marks your changes accepted. Only this passage is written; the rest of the working file and its review decisions stay as they were. Comments on superseded edits move into the discussion. Saving also refreshes equation highlights. **Esc** keeps your draft and returns to review; drafts survive app restarts. The draft indicator or **Shift+E** resumes a draft; **Discard draft** restores the selected wording.
+Click proposed text, click a proposed LaTeX preview, or press **E** to edit the file at the current passage. The source editor replaces the passage display and shows the whole selected file in monospace, with change highlights. Scroll elsewhere to make additional changes; **⌘/Ctrl+F** finds text and standard undo/redo keys work throughout.
 
-Press **C** to comment on an edit, or **Shift+C** for a passage note. The **Comment on** selector changes the scope. Earlier feedback and replies appear above the follow-up field. **Q** opens current comments and earlier discussion, with search. Replies append, so another revision pass can retain the full exchange.
+**Save changes**, **⌘/Ctrl+S**, or **⌘/Ctrl+Enter** writes your manual changes and refreshes the diff against this round’s starting draft. Your new changes are accepted. Unrelated decisions and working-file text stay as they were; **Apply review** writes the remaining selected wording. Comments on revised edits move into discussion, and saving refreshes equation previews. **Esc** returns to review and retains the file draft across app restarts. The draft indicator or **Shift+E** resumes it; **Discard draft** clears it. Save or discard a file draft before changing decisions in that file.
 
-When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard passage drafts before applying. **Review tools → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
+Discussion appears in a collapsible right sidebar. Press **C** to comment on an edit, or **Shift+C** for a passage note; the selector changes the scope. Selecting a highlighted change in the editor brings its discussion alongside the source. Earlier feedback and replies appear above the comment field. **Q** searches all comments and responses. Replies append, so each revision pass retains the exchange.
+
+![The source editor with change highlights and discussion](docs/images/editor.png)
+
+When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard file drafts before applying. **Review tools → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
 
 The macOS library lives in `~/Library/Application Support/Manuscript Review/`, separate from the app. Replacing the app preserves your saved reviews. [Advanced usage](docs/USAGE.md) covers exports, manual response imports, and recovery.
 
@@ -45,13 +49,14 @@ The macOS library lives in `~/Library/Application Support/Manuscript Review/`, s
 | Shift+A / Shift+S / Shift+U | Accept / reject / reset the passage |
 | Ctrl+A / Ctrl+S / Ctrl+U | Accept / reject / reset the file |
 | U | Reset the current decision |
-| E | Edit the whole passage |
+| E | Edit the file at this passage |
 | Shift+E | Resume a saved draft |
 | C / Shift+C | Comment on edit / passage |
 | Q | Search current comments and earlier replies |
 | R | Copy an agent request for your chat |
 | T | This round / Since baseline |
-| ⌘/Ctrl+Enter | Save passage / comment; apply a completed review |
+| ⌘/Ctrl+Enter | Save source / comment; apply a completed review |
+| ⌘/Ctrl+S, ⌘/Ctrl+F | Save or find in the source editor |
 | Esc | Return to review; keep source draft |
 | V | Switch word changes / rendered LaTeX |
 | G | Next undecided edit |
@@ -76,4 +81,4 @@ See [Development](docs/DEVELOPMENT.md) for tests, native builds, and releases, a
 
 ## License
 
-[MIT](LICENSE). Bundled Python and PyInstaller notices are included in the app.
+[MIT](LICENSE). Bundled Python and PyInstaller notices are included in the app. The source editor includes CodeMirror and its dependency licenses in the bundled JavaScript.

@@ -2,7 +2,8 @@
 import hashlib
 from pathlib import Path
 from .comparison import git
-from .editing import selected_content, working_passage_range
+from .editing import selected_content, projection_blocks, mapped_range
+from .file_editing import replace_ranges
 from .storage import FileLock
 
 
@@ -53,14 +54,25 @@ def commit_sources(store, previous, record, changes):
     return len(plan)
 
 
-def write_passage(store, previous, record, file, passage, text):
-    """Replace one passage in the checked working file, leaving its surroundings intact."""
+def write_file_edit(store, previous, record, file, replacements, decisions):
+    """Write manual intervals without applying decisions elsewhere in the file."""
     repo = Path(previous['snapshot']['repo']).resolve()
     with repository_lock(repo):
         check_checkout(store, previous, repo)
         current = checked_content(previous, repo, file['path'], file['after'])
-        start, end = working_passage_range(file, passage, current or '')
-        content = (current or '')[:start] + text + (current or '')[end:]
+        selected = projection_blocks(file, selected_content(file, decisions) or '')
+        working = projection_blocks(file, current or '')
+        # Compose through ordered source segments, preserving intervals that
+        # disappear entirely in the proposal (for example a rejected deletion).
+        blocks = [(a, b, c, d, identifier) for (_, _, a, b, identifier), (_, _, c, d, _) in zip(selected, working)]
+        changes = [(*mapped_range(blocks, (start, end), {identifier for a, b, _, _, identifier in blocks if a == b and start <= a <= end}), text)
+                   for start, end, text in replacements]
+        content = replace_ranges(current or '', changes)
+        revised = next((f for f in record['snapshot']['files'] if f['path'] == file['path']), None)
+        if revised:
+            projection_blocks(revised, content)
+        elif content != file['before']:
+            raise ValueError('The manual changes could not preserve the working source. Your draft is retained.')
         return commit_sources(store, previous, record, [(file['path'], current, content)])
 
 

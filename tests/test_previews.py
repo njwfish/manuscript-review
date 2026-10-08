@@ -28,7 +28,7 @@ class PreviewTests(ReviewFixture):
             self.session.previews.queue()
             self.assertTrue(started.wait(5))
             h = self.file()['hunks'][0]
-            self.session.update('passage', self.request(passage_id=h['id'], text='We score chosen cells.'))
+            self.session.update('file', self.file_request(passage_id=h['id'], text='We score chosen cells.'))
             proposed = self.session.snapshot['proposed']
             release.set()
             self.assertTrue(finished.wait(5))

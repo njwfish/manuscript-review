@@ -1,55 +1,63 @@
 from test_review import ReviewFixture
 from manuscript_review.session import ReviewSession
 from manuscript_review.storage import StaleReview
+from manuscript_review.editing import selected_content
 
 
 class DraftTests(ReviewFixture):
-    def test_retained_unmatched_draft_remains_readable_and_discardable(self):
+    def draft(self, text, path='main.tex'):
         record = self.session.store.read()
-        record['drafts']['retired-passage'] = 'Preserved source from an earlier comparison.'
+        return {'revision': record['revision'], 'id': path,
+                'draft': {'file': path, 'source': record['result'], 'text': text}}
+
+    def test_detached_draft_remains_readable_and_discardable(self):
+        record = self.session.store.read()
+        record['drafts']['detached'] = {'file': None, 'source': record['result'], 'text': 'Preserved unfinished words.'}
         self.session.store.commit(record)
         self.assertEqual(self.session.report()['drafts'], record['drafts'])
-        with self.assertRaisesRegex(ValueError, 'passage drafts'):
+        with self.assertRaisesRegex(ValueError, 'source drafts'):
             self.session.update('apply', self.request())
-        self.session.save_draft({'revision': 0, 'passage_id': 'retired-passage', 'text': None})
+        self.session.save_draft({'revision': 0, 'id': 'detached', 'draft': None})
         self.assertEqual(self.session.store.read()['drafts'], {})
 
-    def test_passage_revision_cannot_orphan_another_saved_draft(self):
-        first, second = self.file()['hunks'][:2]
-        self.session.save_draft({'revision': 0, 'passage_id': second['id'], 'text': 'An unfinished second passage.'})
-        before = self.session.store.path.read_bytes()
-        source = (self.repo / 'main.tex').read_bytes()
-        with self.assertRaisesRegex(ValueError, 'another draft'):
-            self.session.update('passage', self.request(passage_id=first['id'], text='We score chosen cells.\n\nWe retain the explanation.'))
-        self.assertEqual(self.session.store.path.read_bytes(), before)
-        self.assertEqual((self.repo / 'main.tex').read_bytes(), source)
-        self.session.save_draft({'revision': 1, 'passage_id': second['id'], 'text': None})
-        self.assertEqual(self.session.store.read()['drafts'], {})
-
-    def test_navigation_and_stale_windows_cannot_erase_source_drafts(self):
-        first, second = self.file()['hunks'][:2]
-        initial = self.session.store.read()['revision']
-        self.session.save_draft({'revision': initial, 'passage_id': first['id'], 'text': 'Unsaved source from window one.'})
+    def test_navigation_and_stale_windows_cannot_erase_file_drafts(self):
+        request = self.draft('Unsaved source from window one.')
+        self.session.save_draft(request)
         other = ReviewSession(self.directory)
         other.save_ui({'positions': {'round': {'active': 0}}})
-        self.assertEqual(other.store.read()['drafts'][first['id']], 'Unsaved source from window one.')
+        self.assertEqual(other.store.read()['drafts']['main.tex']['text'], request['draft']['text'])
         with self.assertRaises(StaleReview):
-            other.save_draft({'revision': initial, 'passage_id': first['id'], 'text': None})
+            other.save_draft({'revision': request['revision'], 'id': 'main.tex', 'draft': None})
         with self.assertRaises(ValueError):
             other.save_ui({'drafts': {}})
-        r = other.store.read()
-        other.save_draft({'revision': r['revision'], 'passage_id': second['id'], 'text': 'Second draft.'})
-        self.assertEqual(len(other.store.read()['drafts']), 2)
 
-    def test_discard_and_passage_save_clear_only_their_own_draft(self):
-        first, second = self.file()['hunks'][:2]
-        for h in (first, second):
-            self.session.save_draft({'revision': self.session.store.read()['revision'], 'passage_id': h['id'], 'text': 'Saved draft.'})
-        request = {'revision': self.session.store.read()['revision'], 'passage_id': first['id'], 'text': None}
-        discarded = self.session.save_draft(request)
-        repeated = self.session.save_draft({**request, 'revision': discarded['revision']})
-        self.assertEqual(repeated['revision'], discarded['revision'])
-        self.assertEqual(self.session.store.read()['drafts'], {second['id']: 'Saved draft.'})
-        self.session.update('passage', self.request(passage_id=second['id'], text='We retain the short explanation.'))
-        self.assertEqual(self.session.store.read()['drafts'], {})
-        self.assertIn('short explanation', (self.repo / 'main.tex').read_text())
+    def test_decisions_in_a_drafted_file_are_protected_but_comments_still_save(self):
+        self.session.save_draft(self.draft('Unfinished source.'))
+        group = self.file()['edits'][0]['id']
+        with self.assertRaisesRegex(ValueError, 'file draft'):
+            self.session.update('save', self.request(decisions={group: 'reject'}))
+        self.session.update('save', self.request(comments={group: 'Please check the wording.'}))
+        self.assertEqual(self.session.store.read()['drafts']['main.tex']['text'], 'Unfinished source.')
+
+    def test_discard_and_file_save_clear_only_their_own_draft(self):
+        text = selected_content(self.file(), {}) + '\nNew context.\n'
+        self.session.save_draft(self.draft(text))
+        self.session.save_draft(self.draft('A draft for a different file.', 'empty.txt'))
+        record = self.session.store.read()
+        self.session.update('file', self.request(file='main.tex', source=record['drafts']['main.tex']['source'], text=text))
+        self.assertEqual(set(self.session.store.read()['drafts']), {'empty.txt'})
+        self.assertIn('New context.', (self.repo / 'main.tex').read_text())
+        response = self.session.save_draft({'revision': self.session.store.read()['revision'], 'id': 'empty.txt', 'draft': None})
+        repeat = self.session.save_draft({'revision': response['revision'], 'id': 'empty.txt', 'draft': None})
+        self.assertEqual(repeat['revision'], response['revision'])
+
+    def test_editor_restores_the_file_and_maps_highlights_over_a_saved_draft(self):
+        original = selected_content(self.file(), {})
+        text = 'Additional context.\n\n' + original
+        self.session.save_draft(self.draft(text))
+        editor = self.session.editor('main.tex')
+        self.assertEqual(editor['original'], original)
+        self.assertEqual(editor['text'], text)
+        group = self.file()['edits'][0]
+        mark = next(r for r in editor['ranges'] if r['id'] == group['id'])
+        self.assertEqual(text[mark['from']:mark['to']], group['new'])

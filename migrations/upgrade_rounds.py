@@ -12,6 +12,7 @@ from manuscript_review.editing import selected_content
 from manuscript_review.feedback import feedback_report
 from manuscript_review.history import build_history
 from manuscript_review.storage import SCHEMA, FileLock, atomic_bytes, atomic_json, read_json, validate_record
+from manuscript_review.migrations.v5 import port_drafts
 from manuscript_review.versions import selected_version
 
 
@@ -94,7 +95,7 @@ def port_record(old, parent, directory):
     for path, text in selected_sources(old).items():
         if read_blob(previous['repo'], record['result'], path) != text:
             raise ValueError('Migration changed selected wording in ' + path)
-    return validate_record(record)
+    return port_drafts(record)
 
 
 def cache_baseline(directory, old, current):

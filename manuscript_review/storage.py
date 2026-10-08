@@ -8,7 +8,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA = 5
+SCHEMA = 6
 
 
 class StaleReview(ValueError):
@@ -104,8 +104,14 @@ def validate_record(record):
     if any(not isinstance(entry, dict) or entry.get('author') not in ('user', 'agent') for entry in record['history']):
         raise ValueError('Each discussion needs a user or agent author.')
     drafts = record['drafts']
-    if not isinstance(drafts, dict) or any(not isinstance(key, str) or not isinstance(text, str) or len(text) > 200_000 for key, text in drafts.items()):
-        raise ValueError('Invalid passage drafts.')
+    if not isinstance(drafts, dict) or any(
+            not isinstance(key, str) or not isinstance(draft, dict)
+            or set(draft) != {'file', 'source', 'text'}
+            or draft['file'] is not None and not isinstance(draft['file'], str)
+            or not isinstance(draft['source'], str) or len(draft['source']) != 40
+            or not isinstance(draft['text'], str) or len(draft['text']) > 1_000_000
+            for key, draft in drafts.items()):
+        raise ValueError('Invalid source drafts.')
     if 'drafts' in record['ui']:
         raise ValueError('Source drafts belong to review content, not navigation preferences.')
     return record

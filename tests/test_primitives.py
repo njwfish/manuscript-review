@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from manuscript_review.anchors import SourceMap, SourceSpan
 from manuscript_review.comparison import compare, enrich_snapshot
-from manuscript_review.editing import project_source, working_passage_range
+from manuscript_review.editing import project_source, projection_blocks, mapped_range
 from manuscript_review.session import ReviewSession
 from manuscript_review.storage import FileLock
 from manuscript_review.history import add_responses
@@ -25,7 +25,7 @@ class PrimitiveTests(unittest.TestCase):
             paragraphs = [before if choices & (1 << index) else after for index in range(5)]
             working = '\n\n'.join(paragraphs)
             for index, passage in enumerate(file['hunks']):
-                start, end = working_passage_range(file, passage, working)
+                start, end = mapped_range(projection_blocks(file, working), passage['proposal_span'], {g['id'] for g in passage['edits']})
                 self.assertEqual(working[start:end], paragraphs[index])
 
     def test_distributed_changes_in_a_long_manuscript_remain_separate_words(self):
@@ -72,20 +72,17 @@ assert.ok(agentRequest(data,false).includes('leave manuscript revisions until I 
         subprocess.run(['node', '--input-type=module', '-e', script, module], input=json.dumps(fixture), text=True, check=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client-model tests.')
-    def test_current_explanations_follow_passage_and_edit_selection(self):
+    def test_discussion_follows_passage_selection_across_rounds(self):
         module = (Path(__file__).parents[1] / 'manuscript_review/review_model.js').as_uri()
         script = """import assert from 'node:assert/strict';
-const {explanationsForEdit,feedbackForPassage}=await import(process.argv[1]);
+const {feedbackForPassage}=await import(process.argv[1]);
 const hunk={id:'passage',edits:[{id:'first'},{id:'second'}]},history=[
  {id:'one',author:'agent',round_id:'current',target:{id:'passage'}},
  {id:'two',author:'agent',round_id:'current',target:{id:'first'}},
  {id:'three',author:'agent',round_id:'previous',target:{id:'passage'}},
  {id:'four',author:'user',round_id:'current',target:{id:'first'}},
  {id:'five',author:'agent',round_id:'current',target:null}];
-assert.deepEqual(explanationsForEdit(history,hunk,hunk.edits[0],'current').map(e=>e.id),['one','two']);
-assert.deepEqual(explanationsForEdit(history,hunk,hunk.edits[1],'current').map(e=>e.id),['one']);
-assert.deepEqual(feedbackForPassage(history,hunk).map(e=>e.id),['one','two','three','four']);
-assert.deepEqual(explanationsForEdit(history,hunk,hunk.edits[0],'later'),[]);"""
+assert.deepEqual(feedbackForPassage(history,hunk).map(e=>e.id),['one','two','three','four']);"""
         subprocess.run(['node', '--input-type=module', '-e', script, module], check=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client-model tests.')

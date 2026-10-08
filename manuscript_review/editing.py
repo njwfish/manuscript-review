@@ -39,35 +39,44 @@ def project_source(file, decisions):
     return SelectedSource(None if absent else ''.join(content), ranges)
 
 
-def working_passage_range(file, passage, working):
-    """Locate a passage in a projection of this proposal, without guessing at repeats."""
-    lo, hi = passage['proposal_span']
-    if working == (file['after'] or ''):
-        return lo, hi
-    selected = {group['id'] for group in passage['edits']}
-    states, offset = {(0, None, None)}, 0
+def projection_blocks(file, content):
+    """Exact proposal-to-projection spans, preserving repeated source locations."""
+    states = {(0, ())}
+    offset = 0
     for identifier, old, new in source_segments(file):
         following = set()
-        for position, start, end in states:
+        for position, blocks in states:
             for text in dict.fromkeys((new, old)):
-                if not working.startswith(text, position):
-                    continue
-                first, last = start, end
-                if identifier in selected:
-                    first = position if first is None else first
-                    last = position + len(text)
-                elif identifier is None and max(lo, offset) < min(hi, offset + len(new)):
-                    first = position + max(lo - offset, 0) if first is None else first
-                    last = position + min(hi - offset, len(new))
-                following.add((position + len(text), first, last))
+                if content.startswith(text, position):
+                    block = (offset, offset + len(new), position, position + len(text), identifier)
+                    following.add((position + len(text), (*blocks, block)))
         states = following
         offset += len(new)
-        if not states:
-            break
-    ranges = {(start, end) for position, start, end in states if position == len(working) and start is not None}
-    if len(ranges) != 1:
-        raise ValueError('This passage cannot be located unambiguously in the working file. Your draft is retained; update the comparison first.')
-    return ranges.pop()
+    matches = {blocks for position, blocks in states if position == len(content)}
+    if len(matches) != 1:
+        raise ValueError('The source cannot be located unambiguously. Your draft is retained; update the comparison first.')
+    return matches.pop()
+
+
+def mapped_range(blocks, span, included=()):
+    """Map an interval; changed groups map as a whole and retained text exactly."""
+    lo, hi = span
+    def position(point, end):
+        for a, b, c, d, identifier in blocks:
+            if (a < point <= b if end else a <= point < b):
+                return c + point - a if identifier is None else d if end else c
+        return 0 if point == 0 else blocks[-1][3] if blocks else 0
+    if lo == hi:
+        collapsed = [(c, d) for a, b, c, d, _ in blocks if a == b == lo and c != d]
+        if collapsed:
+            return min(c for c, _ in collapsed), max(d for _, d in collapsed)
+        point = position(lo, False)
+        return point, point
+    start, end = position(lo, False), position(hi, True)
+    for a, b, c, d, identifier in blocks:
+        if a == b and lo <= a <= hi and identifier in included:
+            start, end = min(start, c), max(end, d)
+    return start, end
 
 
 def selected_content(file, decisions):

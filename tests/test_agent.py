@@ -139,10 +139,10 @@ class AgentTests(ReviewFixture):
         self.assertIn('retain the explanation', (self.repo / 'main.tex').read_text())
         self.command('begin', '--review', self.identifier)
         session = ReviewSession(self.store.directory)
-        session.save_draft({'revision': applied['revision'], 'passage_id': self.first['id'], 'text': 'Still editing.'})
+        session.save_draft({'revision': applied['revision'], 'id': 'main.tex', 'draft': {'file': 'main.tex', 'source': session.store.read()['result'], 'text': 'Still editing.'}})
         source = (self.repo / 'main.tex').read_bytes()
         refused = self.command('apply', '--review', self.identifier, '--revision', str(applied['revision'] + 1), check=False)
-        self.assertIn('passage drafts', refused.stderr)
+        self.assertIn('source drafts', refused.stderr)
         self.assertEqual((self.repo / 'main.tex').read_bytes(), source)
 
     def finish(self, started, check=True):
@@ -230,10 +230,10 @@ class AgentTests(ReviewFixture):
         result = self.finish(started, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('changed during this pass', result.stderr)
-        session.save_draft({'revision': session.store.read()['revision'], 'passage_id': self.first['id'], 'text': 'Unfinished source'})
+        session.save_draft({'revision': session.store.read()['revision'], 'id': 'main.tex', 'draft': {'file': 'main.tex', 'source': session.store.read()['result'], 'text': 'Unfinished source'}})
         result = self.command('begin', '--review', self.identifier, check=False)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('passage drafts', result.stderr)
+        self.assertIn('source drafts', result.stderr)
 
     def test_begin_captures_unrelated_upstream_changes_without_changing_git_index(self):
         self.apply_and_begin()

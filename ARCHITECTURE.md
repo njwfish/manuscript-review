@@ -4,7 +4,7 @@ The native app hosts one Python service and one web interface. All application c
 
 ## The review record
 
-Each library entry owns one `review.json` with schema version 5. It contains the original baseline, round comparison, selected result version, conceptual decisions, current notes, discussion history, expected working-file hashes, metadata, source drafts, and navigation preferences. Files under `renders/`, `baseline-renders/`, and `comparisons/` are disposable caches; `versions/` holds records preceding source changes. Patch and feedback exports are generated from the current record.
+Each library entry owns one `review.json` with schema version 6. It contains the original baseline, round comparison, selected result version, conceptual decisions, current notes, discussion history, expected working-file hashes, metadata, source drafts, and navigation preferences. Files under `renders/`, `baseline-renders/`, and `comparisons/` are disposable caches; `versions/` holds records preceding source changes. Patch and feedback exports are generated from the current record.
 
 | Primitive | Meaning |
 | --- | --- |
@@ -15,7 +15,7 @@ Each library entry owns one `review.json` with schema version 5. It contains the
 | Passage | The complete source context enclosing one or more edits |
 | Decision | Accept or reject one edit; absence means undecided |
 | Discussion | A user or agent note, its original context and source versions, and append-only replies |
-| Source draft | Retained passage text, patched independently with the content revision |
+| Source draft | Retained file text and its pinned selected source version |
 | Source span | A character interval mapped conservatively between source versions |
 
 Diff opcodes describe exact source reconstruction; they are internal to a comparison. Decisions use visible edit IDs. An edit's ID depends on its file, baseline span, and proposed text, so changing another passage does not renumber it. A passage ID depends on its file and baseline span. Neither is a substitute for a persistent discussion ID.
@@ -28,7 +28,11 @@ Agents can also create a discussion entry directly against a passage or edit. In
 
 `editing.py` projects decisions onto source. The Python service and the small, pure `review_model.js` client module implement the same selection rule, checked against shared fixtures. Undecided edits keep proposed wording; rejected edits keep the round’s starting wording. A missing file is distinct from an empty file.
 
-Saving a passage replaces that passage in the proposal, creates a pinned Git version, and recomputes its file's comparison against the round’s fixed starting draft. The author's new changes are accepted. Decisions elsewhere survive; affected notes become discussion. There is no manual-replacement overlay or separate revision ledger. Ordered edit segments locate the passage in the validated working file even when text repeats or earlier choices have been applied. Only that span is replaced. Other passages retain their exact working source, even when their review decisions select different wording. Applying the review writes the full selected result explicitly. Typeset previews are regenerated from the new source version.
+The file is the editing unit; passages and edits remain the review and discussion units. The editor starts from selected wording and retains a draft against a pinned source version. Saving compares that source with the edited file, expands manual changes that touch an existing replacement, and maps those intervals back to the proposal. If a manual change merges neighboring edits, their selected wording travels into the merged replacement. The updated proposal remains separate from unrelated rejected wording. New manual changes are accepted; unaffected decisions survive, and affected notes become discussion. The selected result must reproduce the editor text exactly before any manuscript write.
+
+Source segments locate manual intervals in the validated working projection, including repeated text and choices applied earlier. Saving writes only those intervals. Unedited working text retains its exact contents even when the current review selects different wording. Applying the review writes the full selected result explicitly. Every source save creates a pinned Git version and refreshes the comparison against the round’s fixed starting draft; typeset previews follow that version.
+
+CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights. The small adapter in `frontend/editor.js` connects document changes to the existing review client. It owns no review persistence or manuscript writes. The bundle and dependency licenses are checked in; `npm run build` regenerates them without adding a runtime network dependency.
 
 ## Transactions
 
@@ -38,7 +42,7 @@ Saving a passage replaces that passage in the proposal, creates a pinned Git ver
 
 Derived cumulative comparisons cache immutable version pairs and mapped discussion separately from the canonical record. Their computations release the record lock so reviewing can continue. Word diffs, source mapping, and LaTeX highlights share exact token alignment. It preserves identical prefixes and suffixes and anchors long changed interiors with unique shared tokens before aligning the gaps.
 
-Every mutation of review content requires the expected revision while holding a process and thread lock. Passage draft saves patch one draft; navigation saves cannot replace drafts. A passage revision refuses to invalidate another saved draft’s location. A stale request is retained under `conflicting-drafts/` and refused. Reloading or quitting a stale window retains its latest local input there before continuing. UI preferences save independently from the content revision. The client serializes content writes and blocks navigation or source application while any draft patch remains unsaved.
+Every mutation of review content requires the expected revision while holding a process and thread lock. File draft saves patch one draft; navigation saves cannot replace drafts. Decisions in a drafted file cannot change its selected wording until the draft is saved or discarded. Drafts in other files remain independent. A stale request is retained under `conflicting-drafts/` and refused. Reloading or quitting a stale window retains its latest local input there before continuing. UI preferences save independently from the content revision. The client serializes content writes and blocks navigation or source application while any draft patch remains unsaved.
 
 Record replacement uses a unique temporary file, `fsync`, atomic rename, and directory synchronization. A manuscript write also holds a repository lock and checks HEAD, staging, safe paths, and expected contents before writing anything. The previous record and source contents are retained. A durable transaction journal records all intended file writes and the resulting review record before the first manuscript write. Startup and subsequent operations finish an interrupted transaction only when each file still matches its old or intended new contents. Intervening external changes leave the journal and draft available for recovery.
 
@@ -48,7 +52,7 @@ Record replacement uses a unique temporary file, `fsync`, atomic rename, and dir
 
 Library cards group records by manuscript repository and show rounds in chronological history. Applied status is derived from the saved source hashes and selected wording; notes and replies do not reset it.
 
-The app reads only schema 5. The explicit migrations in `migrations/` port retired records and preserve byte-exact originals. The v2 upgrade retains selected manuscript content and leaves the checkout and Git index unchanged. The v3 upgrade adds user attribution to existing discussion; the v4 upgrade moves source drafts out of navigation preferences. These preserve discussion IDs, notes, replies, decisions, and review revisions, and validate the library before replacing canonical files. Migrations are never imported by the service.
+The app reads only schema 6. The explicit migrations in `migrations/` port retired records and preserve byte-exact originals. The v2 upgrade retains selected manuscript content and leaves the checkout and Git index unchanged. The v3 upgrade adds user attribution to existing discussion; the v4 upgrade moves source drafts out of navigation preferences. These preserve discussion IDs, notes, replies, decisions, and review revisions, and validate the library before replacing canonical files. The v5 migration combines located passage drafts into full-file drafts against the same selected version and retains detached source drafts. The explicit agent `migrate` command validates the whole library before replacing records and archives their original bytes. Migrations are never imported by the service.
 
 ## Verification
 

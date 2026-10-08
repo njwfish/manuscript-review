@@ -12,7 +12,6 @@ export function selectedSource(file,decisions){
  }
  return text;
 }
-export const passageSource=(passage,decisions)=>passage.grouped_segments.map(segment=>segment.members?(choiceFor(segment.id,decisions)==='reject'?segment.old:segment.new):segment.text).join('');
 
 export const editLocations=snapshot=>snapshot.files.flatMap((file,fi)=>file.hunks.flatMap((hunk,hi)=>hunk.edits.map((group,ei)=>[fi,hi,ei])));
 export function reviewProgress(files,decisions){
@@ -31,8 +30,7 @@ export const feedbackForPassage=(history,hunk)=>{
  const ids=new Set([hunk?.id,...(hunk?.edits||[]).map(group=>group.id)]);
  return history.filter(entry=>ids.has(entry.target?.id));
 };
-export const explanationsForEdit=(history,hunk,edit,round)=>history.filter(entry=>
- entry.author==='agent'&&entry.round_id===round&&(entry.target?.id===hunk?.id||entry.target?.id===edit?.id));
+
 
 export function currentFeedback(data,comments){
  const notes=[];

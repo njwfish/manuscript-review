@@ -3,9 +3,10 @@ import importlib.util
 import json
 from pathlib import Path
 from test_review import ReviewFixture
-from manuscript_review.comparison import stable_id
+from manuscript_review.comparison import stable_id, compare, enrich_snapshot
 from manuscript_review.storage import atomic_json, ReviewStore
 from manuscript_review.editing import selected_content
+from manuscript_review.migrations.v5 import port_drafts, upgrade as upgrade_files
 
 spec = importlib.util.spec_from_file_location('import_v1', Path(__file__).parents[1] / 'migrations/import_v1.py')
 importer = importlib.util.module_from_spec(spec)
@@ -19,6 +20,42 @@ draft_spec.loader.exec_module(draft_upgrade)
 
 
 class MigrationTests(ReviewFixture):
+    def test_v5_passage_drafts_include_rejected_deletions_at_both_ends(self):
+        for before, after in [('First removed', 'First'), ('removed First', 'First')]:
+            old = self.session.store.read()
+            file = enrich_snapshot({'files': [compare('main.tex', before, after)]})['files'][0]
+            old['snapshot']['files'] = [file]
+            old['schema'] = 5
+            old['decisions'] = {g['id']: 'reject' for g in file['edits']}
+            old['drafts'] = {file['hunks'][0]['id']: 'Replacement'}
+            current = port_drafts(old)
+            self.assertEqual(current['drafts']['main.tex']['text'], 'Replacement')
+
+    def test_v5_drafts_become_one_file_draft_and_keep_detached_words(self):
+        old = self.session.store.read()
+        old['schema'] = 5
+        first, second = self.file()['hunks'][:2]
+        old['drafts'] = {first['id']: ' First unfinished source. \n',
+                         second['id']: ' Second unfinished source. \n', 'unmatched': ' Detached exact words. \n'}
+        old['comments'] = {self.file()['edits'][0]['id']: 'Original note.'}
+        home = self.root / 'v5-library'
+        path = home / 'reviews' / old['metadata']['id'] / 'review.json'
+        atomic_json(path, old)
+        original = path.read_bytes()
+        self.assertEqual(upgrade_files(home), 1)
+        current = ReviewStore(path.parent).read()
+        self.assertEqual({k: v for k, v in current.items() if k not in ('schema', 'drafts')},
+                         {k: v for k, v in old.items() if k not in ('schema', 'drafts')})
+        self.assertEqual(set(current['drafts']), {'main.tex', 'unmatched'})
+        draft = current['drafts']['main.tex']
+        self.assertEqual(draft['source'], old['result'])
+        for identifier in (first['id'], second['id']):
+            self.assertIn(old['drafts'][identifier], draft['text'])
+        self.assertEqual(current['drafts']['unmatched']['text'], old['drafts']['unmatched'])
+        self.assertIsNone(current['drafts']['unmatched']['file'])
+        self.assertEqual((path.parent / 'migration-v5/review.json').read_bytes(), original)
+        self.assertEqual(upgrade_files(home), 0)
+
     def test_v4_port_moves_drafts_verbatim_without_changing_other_review_content(self):
         old = self.session.store.read()
         old['schema'] = 4
@@ -29,8 +66,9 @@ class MigrationTests(ReviewFixture):
         atomic_json(path, old)
         original = path.read_bytes()
         expected = copy.deepcopy(old)
-        expected['schema'] = 5
+        expected['schema'] = 6
         expected['drafts'] = expected['ui'].pop('drafts')
+        expected = port_drafts(expected)
         self.assertEqual(draft_upgrade.upgrade(home), 1)
         self.assertEqual(ReviewStore(path.parent).read(), expected)
         self.assertEqual((path.parent / 'migration-v4/review.json').read_bytes(), original)
@@ -59,9 +97,10 @@ class MigrationTests(ReviewFixture):
         atomic_json(path, record)
         original_bytes = path.read_bytes()
         expected = copy.deepcopy(record)
-        expected['schema'] = 5
+        expected['schema'] = 6
         expected['history'][0]['author'] = 'user'
         expected['drafts'] = expected['ui'].pop('drafts')
+        expected = port_drafts(expected)
         self.assertEqual(discussion_upgrade.upgrade(home), 1)
         migrated = ReviewStore(path.parent).read()
         self.assertEqual(migrated, expected)

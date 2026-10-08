@@ -107,8 +107,22 @@ h1{font-size:13px;font-weight:600;letter-spacing:-.1px;margin:0 2px 0 6px}
 /* Shell: file sidebar and reading column */
 .shell{display:grid;grid-template-columns:224px minmax(0,1fr)}
 .wide .shell{grid-template-columns:minmax(0,1fr)}
-.wide aside{display:none}
-aside{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));overflow:auto;padding:14px 10px;background:var(--bg);border-right:1px solid var(--line)}
+.wide #files{display:none}
+#files{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));overflow:auto;padding:14px 10px;background:var(--bg);border-right:1px solid var(--line)}
+.has-discussion .shell{grid-template-columns:190px minmax(0,1fr) 300px}
+.wide.has-discussion .shell{grid-template-columns:minmax(0,1fr) 300px}
+#discussion{position:sticky;top:var(--header-h);height:calc(100vh - var(--header-h));overflow:auto;border-left:1px solid var(--line);background:var(--bg);padding:18px}
+.discussion-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+.discussion-head select{background:transparent;border:0;box-shadow:none;font-size:12px;padding:2px 0}
+#discussion textarea{width:100%;min-height:110px;resize:vertical}
+.editing-file main{max-width:none;padding:18px 24px}
+.editing-file .contextbar{margin-bottom:10px}
+.editing-file .contextbar .view-select,.editing-file .contextbar .zoom-control{display:none}
+.editor-toolbar{display:flex;gap:6px;align-items:center;padding:8px 0 12px}
+.editor-toolbar button{font-size:12px}
+.file-editor{height:calc(100vh - var(--header-h) - 155px);min-height:320px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.file-editor:focus-within{border-color:var(--accent)}
+.source-text,.editable-preview{cursor:text}
 .nav-label{font-size:11px;font-weight:600;color:var(--faint);margin:14px 8px 5px}
 .nav-label:first-child{margin-top:2px}
 .file{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:6px 10px;font-size:12.5px;background:transparent;border:0;border-radius:6px;box-shadow:none}
@@ -163,9 +177,6 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .exact-edit .word-label{font:11px -apple-system,system-ui,sans-serif;color:var(--faint);display:block;margin:8px 0 4px}
 
 /* Why this changed */
-.rationale{margin:18px 0 4px;max-width:70ch}
-.rationale .discussion-title{display:inline;font-size:12px;font-weight:600;color:var(--muted);margin:0}
-.rationale>.discussion-text{margin-top:6px}
 
 /* Decision bar */
 .decisionbar{position:sticky;bottom:0;z-index:2;isolation:isolate;display:flex;align-items:center;gap:6px;margin-top:24px;padding:10px 0;border-top:1px solid var(--line);background:var(--bar);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
@@ -188,28 +199,11 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .edit-option del+ins{margin-left:.5em}
 .edit-option[aria-current=true]{font-weight:600}
 
-/* Passage editing and discussion */
-.source-editor,.discussion-panel{margin-top:14px;font-size:12.5px}
-.source-editor summary,.discussion-panel summary{color:var(--muted);width:fit-content}
-.source-editor summary:hover,.discussion-panel summary:hover{color:var(--ink)}
-.source-editor[open],.discussion-panel[open]{background:var(--bg);border-radius:10px;padding:14px 18px 16px}
-.source-editor textarea{display:block;width:100%;resize:vertical;margin-top:8px}
 .source-area{font:14px/1.7 var(--mono);tab-size:2}
-.revision-controls{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-.revision-controls button{font-size:12px}
-.field-label{display:block;font-size:11px;color:var(--faint);margin-top:12px}
-.preview-error{margin-top:12px;font-size:12px;color:var(--muted)}
-.preview-error pre{font:11px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
-.comment-box{margin-top:14px;font-size:12.5px}
-.comment-box summary{color:var(--muted);width:fit-content}
-.comment-box summary:hover{color:var(--ink)}
-.comment-box textarea{display:block;width:100%;resize:vertical;margin-top:10px}
 .comment-meta{font-size:11px;color:var(--faint);margin-top:7px}
-.comment-target{display:flex;align-items:center;gap:8px;margin-top:12px;color:var(--muted);font-size:12px}
-.comment-target select{font-size:12px;padding:3px 8px;box-shadow:none}
-.saving-passage main,.saving-passage aside,.saving-passage header{pointer-events:none;opacity:.6}
+.busy main,.busy aside,.busy header{pointer-events:none;opacity:.6}
 
-/* Discussion entries (panels, rationale, All feedback) */
+/* Discussion entries (sidebar and All feedback) */
 .discussion{margin-top:14px}
 .discussion-entry{padding:4px 0 16px}
 .discussion-entry+.discussion-entry{border-top:1px solid var(--line);padding-top:16px}
@@ -256,7 +250,9 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  header #copy-request-header{display:none}
  .review-notice{top:var(--header-h)}
  .shell{display:block}
- aside{position:static;height:auto;max-height:230px;border-right:0;border-bottom:1px solid var(--line)}
+ #files{position:static;height:auto;max-height:230px;border-right:0;border-bottom:1px solid var(--line)}
+ .has-discussion .shell,.wide.has-discussion .shell{display:block}
+ #discussion{position:static;height:auto;border-left:0;border-top:1px solid var(--line)}
  main,main.rendered{padding:20px 16px}
  .typeset-pair{grid-template-columns:minmax(0,1fr);gap:16px}
  .passage-body{font-size:13px}
@@ -311,12 +307,13 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <tr><th>A / S / U</th><td>Accept / reject and advance; U resets this edit</td></tr>
  <tr><th>Shift+A / Shift+S / Shift+U</th><td>Decide the whole passage</td></tr>
  <tr><th>Ctrl+A / Ctrl+S / Ctrl+U</th><td>Decide the whole file</td></tr>
- <tr><th>E</th><td>Edit the whole passage source</td></tr>
- <tr><th>Shift+E</th><td>Resume a saved passage draft</td></tr>
+ <tr><th>E</th><td>Edit the file at this passage</td></tr>
+ <tr><th>Shift+E</th><td>Resume a saved file draft</td></tr>
  <tr><th>C / Shift+C</th><td>Discussion for edit / passage</td></tr>
  <tr><th>Q</th><td>All saved feedback and responses</td></tr>
  <tr><th>R</th><td>Copy an agent request to paste into your chat</td></tr>
- <tr><th>Ctrl+Enter / ⌘+Enter</th><td>Save passage / comment; apply completed review</td></tr>
+ <tr><th>Ctrl+Enter / ⌘+Enter</th><td>Save source / comment; apply completed review</td></tr>
+ <tr><th>⌘/Ctrl+S, ⌘/Ctrl+F</th><td>Save or find while editing source</td></tr>
  <tr><th>Esc</th><td>Return to review; keep source draft</td></tr>
  <tr><th>T</th><td>This round / since baseline</td></tr>
  <tr><th>V</th><td>Switch rendered / word changes</td></tr>
@@ -331,6 +328,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
 <div class="shell">
  <aside aria-label="Changed files" id="files"></aside>
  <main id="main"><p>Loading review…</p></main>
+ <aside id="discussion" aria-label="Discussion" hidden></aside>
 </div>
 <script type="module" src="/app.js"></script>
 </body>

@@ -14,6 +14,7 @@ def main():
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--home', type=Path, default=default_home())
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('migrate', help='Upgrade a v5 library to file drafts; quit the app first.')
     checkpoint = commands.add_parser('checkpoint', help='Pin the actual manuscript before the first revision.')
     checkpoint.add_argument('--repo', required=True, type=Path)
     compare = commands.add_parser('compare', help='Create a review from two manuscript versions.')
@@ -45,7 +46,10 @@ def main():
     args = parser.parse_args()
     library = Library(args.home)
     try:
-        if args.command == 'checkpoint':
+        if args.command == 'migrate':
+            from .migrations.v5 import upgrade
+            result = {'upgraded': upgrade(args.home), 'originals': 'migration-v5/review.json'}
+        elif args.command == 'checkpoint':
             repo = str(args.repo.expanduser().resolve())
             starting, _ = working_snapshot(repo)
             git(repo, 'update-ref', 'refs/manuscript-review/inputs/' + starting, starting)

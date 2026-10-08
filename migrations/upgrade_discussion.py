@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from manuscript_review.storage import SCHEMA, FileLock, atomic_bytes, atomic_json, read_json, validate_record
+from manuscript_review.migrations.v5 import port_drafts
 
 
 def port_record(old):
@@ -17,7 +18,7 @@ def port_record(old):
     for entry in record['history']:
         entry['author'] = 'user'
     record['drafts'] = record['ui'].pop('drafts', {})
-    return validate_record(record)
+    return port_drafts(record)
 
 
 def upgrade(home):

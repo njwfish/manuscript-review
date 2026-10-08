@@ -86,6 +86,16 @@ mkdir -p ~/.claude/skills
 
 Keep the checkout and its `.venv` in place while using the linked skill. See [Development](DEVELOPMENT.md) to build the native app.
 
+## Upgrade an existing library
+
+Version 0.11 uses full-file source drafts. Before opening an existing version 0.10 library in the updated app, quit the old app, replace it, and run:
+
+```sh
+"/Applications/Manuscript Review.app/Contents/MacOS/manuscript-review-agent" migrate
+```
+
+For a source installation, use `.venv/bin/manuscript-review-agent migrate`. Add `--home /path/to/library` before `migrate` for a separate library. The command preserves review choices, comments, replies, and source versions, combines saved passage drafts into file drafts, and archives each original record under `migration-v5/review.json`. It leaves manuscript files unchanged and is safe to repeat. Then open the updated app.
+
 ## Prepare a manuscript folder
 
 The app compares text sources in a Git repository with at least one commit. Use an existing manuscript repository, or initialize an ordinary LaTeX folder before opening it in the app:

@@ -21,8 +21,8 @@ class LibraryTests(ReviewFixture):
         record = ReviewStore(library.directory(identifier)).read()
         file = next(f for f in record['snapshot']['files'] if f['path'] == 'main.tex')
         passage = file['hunks'][0]
-        request = Request(url + 'passage', json.dumps({'revision': record['revision'], 'decisions': {},
-                          'comments': {}, 'passage_id': passage['id'], 'text': 'Author’s passage.'}).encode(),
+        request = Request(url + 'file', json.dumps({'revision': record['revision'], 'decisions': {},
+                          'comments': {}, 'file': 'main.tex', 'source': record['result'], 'text': file['after'].replace(passage['after'], 'Author’s passage.', 1)}).encode(),
                           headers={'Content-Type': 'application/json', 'X-Review-Token': record['snapshot']['token']})
         try:
             result = json.load(urlopen(request, timeout=5))
