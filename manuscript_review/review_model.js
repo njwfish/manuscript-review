@@ -53,8 +53,8 @@ export function sourceRange(file,edit,view,decisions){
 }
 
 export function agentRequest(data,complete){
- const scope=complete?'Use my completed accept/reject decisions as the starting draft. If text changes are needed, apply these choices when necessary before beginning the pass; preserve outside edits.':'My decisions are still in progress. Respond to my comments now, and leave manuscript revisions until I finish reviewing.';
- return `Use $manuscript-review for review ${data.id} in ${data.repo}, saved at ${data.feedback_path}. Read its decisions, comments, manual edits, and earlier replies. Respond to my comments and make only the requested surgical revisions. ${scope} For text changes, use begin before editing and finish to create a new review round, then add responses there. For replies only, add responses to this review without creating a new round. Preserve the original baseline ${data.baseline} and earlier rounds, and open the result in Manuscript Review.`;
+ const scope=!data.files.some(file=>file.edits.length)?'Use the current manuscript as the starting draft.':complete?'Use my completed accept/reject decisions as the starting draft. If text changes are needed, apply these choices when necessary before beginning the pass; preserve outside edits.':'My decisions are still in progress. Respond to my comments now, and leave manuscript revisions until I finish reviewing.';
+ return `Use $manuscript-review for review ${data.id} in ${data.repo}, saved at ${data.feedback_path}. Read its decisions, comments, manual edits, and earlier replies. Respond to my comments and make only the requested surgical revisions. Treat existing prose as settled wording; a style guide alone does not authorize rewriting it. ${scope} For text changes, use begin before editing and finish to create a new review round, then add responses there. For replies only, add responses to this review without creating a new round. Preserve the original baseline ${data.baseline} and earlier rounds, and open the result in Manuscript Review.`;
 }
 
 export function decisionShortcut(event){

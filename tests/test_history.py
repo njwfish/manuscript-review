@@ -37,7 +37,7 @@ class DiscussionTests(ReviewFixture):
         history = build_history(self.session.snapshot, next_snapshot, record, report, record['history'], self.directory)
         self.assertEqual(history[0]['id'], identifier)
         self.assertEqual(history[0]['context_before'], original)
-        self.assertEqual(history[0]['anchor']['revision'], next_snapshot['base'])
+        self.assertEqual(history[0]['anchor'], record['history'][0]['anchor'])
         self.assertIsNotNone(history[0]['target'])
         self.assertEqual(history[0]['replies'][-1]['text'], 'The author refined this wording.')
 

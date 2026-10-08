@@ -6,6 +6,32 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_clearing_a_comment_during_creation_deletes_the_saved_note(self):
+        script = r"""import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
+const requests=[],elements=new Map();let acknowledge;
+const context={reviewProgress:()=>({total:0,complete:true}),updateProgress:()=>{},setTimeout,clearTimeout,
+document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:''});return elements.get(id);},body:{classList:{contains:()=>false}}},
+fetch:async(path,options)=>{const request=JSON.parse(options.body);requests.push([path,request]);
+ if(path==='/note'&&!request.id)await new Promise(resolve=>acknowledge=resolve);
+ return {ok:true,json:async()=>({revision:requests.length,entry:{id:'saved-note',file:'main.tex',comment:request.comment}})};}};
+vm.createContext(context);vm.runInContext(beginning+`
+data={token:'test',revision:0,scope:'manuscript',files:[],history:[]};
+const target={file:'main.tex',marker:'temporary',comment:''};
+setNoteText(target,'Typed then erased');saveNotes();`,context);
+await new Promise(resolve=>setTimeout(resolve,0));
+assert.equal(vm.runInContext('target.comment',context),'Typed then erased');
+vm.runInContext("setNoteText(target,'');saveNotes();",context);
+acknowledge();await vm.runInContext('saving',context);
+assert.deepEqual(requests.filter(([path])=>path==='/note').map(([,r])=>[r.id??null,r.comment]),[[null,'Typed then erased'],['saved-note','']]);
+assert.equal(vm.runInContext('data.history.length',context),0);
+assert.equal(vm.runInContext('noteChanges.size',context),0);
+vm.runInContext('clearTimeout(uiTimer);clearTimeout(noteTimer);',context);
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
     def test_source_editor_preserves_newlines_and_tracks_changes(self):
         script = r"""import assert from 'node:assert/strict';
 import {createSourceState} from './frontend/editor.js';
@@ -37,10 +63,10 @@ const app=readFileSync('manuscript_review/app.js','utf8');
 const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
 const flush=app.slice(app.indexOf('window.flushReview='),app.indexOf("$('library').addEventListener"));
 const requests=[],elements=new Map();let fail=true;
-const context={window:{},document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',hidden:true});return elements.get(id);},body:{classList:{contains:()=>false}}},setTimeout,clearTimeout,
+const context={window:{},reviewProgress:()=>({total:0,complete:true}),document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',hidden:true});return elements.get(id);},body:{classList:{contains:()=>false}}},setTimeout,clearTimeout,
 fetch:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);if(path==='/draft'&&fail)return {ok:false,json:async()=>({error:'Transient disk error'})};return {ok:true,json:async()=>({revision:0})};}};
 vm.createContext(context);vm.runInContext(beginning+'\n'+flush+`
-data={token:'test',revision:0,scope:'round'};drafts={passage:{file:'passage',source:'a'.repeat(40),text:'Unsaved manuscript words'}};
+data={token:'test',revision:0,scope:'round',files:[],history:[]};drafts={passage:{file:'passage',source:'a'.repeat(40),text:'Unsaved manuscript words'}};
 draftChanges.set('passage',drafts.passage);`,context);
 await assert.rejects(context.window.flushReview(),/could not be saved/);
 assert.equal(vm.runInContext('draftChanges.size',context),1);

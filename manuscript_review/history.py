@@ -130,8 +130,9 @@ def build_history(previous, current, state, report, inherited, previous_review):
     for entry in entries:
         path, anchor = entry['file'], entry['anchor']
         span = mapped(path, source(anchor['revision'], path), anchor['start'], anchor['end'])
-        entry['anchor'] = {'revision': current['base'], 'start': span.start, 'end': span.end}
-        attach(entry, new_files.get(path))
+        attachment = {**entry, 'anchor': {'revision': current['base'], 'start': span.start, 'end': span.end}}
+        attach(attachment, new_files.get(path))
+        entry['target'] = attachment['target']
 
     for note in report['comments']:
         comment = state['comments'][note['id']]

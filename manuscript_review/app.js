@@ -8,6 +8,8 @@ let uiTimer,draftTimer,editing=false,staleReview=false,commentScope='edit';
 const draftChanges=new Map();
 let positions={};
 let fileEditor=null,editorFile=null,editorSource=null,editorInitial='',openingEditor=false,discussionOpen=null,discussionKey=null;
+let noteTarget=null,noteTimer,pendingNoteId=null,noteSelection=0;
+const noteChanges=new Map();
 const $=id=>document.getElementById(id);
 const node=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const choice=id=>choiceFor(id,decisions);
@@ -23,8 +25,8 @@ const niceName=path=>path.split('/').pop().replace(/\.[^.]+$/,'').replace(/[_-]/
 function status(message,error=false){$('status')&&($('status').textContent=message);if($('status'))$('status').className=error?'error':'';}
 function resultStatus(result,fallback){status(result.message||fallback);}
 function setBusy(value){editing=value;document.body.classList.toggle('busy',value);document.querySelectorAll('header,.shell,#review-summary').forEach(element=>{element.inert=value;});}
-const savedMessage=()=>data.files?.length&&reviewProgress(data.files,decisions).complete&&!data.applied?'Ready to apply. ⌘/Ctrl+Enter applies the review.':'Saved locally';
-const currentUI=()=>{positions[data?.scope||'round']={active,passage,edit,view,overrides};return {scope:data?.scope||'round',positions,previewZoom,wide:document.body.classList.contains('wide')};};
+const savedMessage=()=>data.scope!=='manuscript'&&reviewProgress(data.files,decisions).total&&reviewProgress(data.files,decisions).complete&&!data.applied?'Ready to apply. ⌘/Ctrl+Enter applies the review.':'Saved locally';
+const currentUI=()=>{const scope=data?.scope||'round',previous=positions[scope]||{},file=editorFile||currentFile()?.path;positions[scope]={active:fileEditor?data.files.findIndex(item=>item.path===file):active,passage,edit,view,overrides,file,cursor:fileEditor?.position()??(previous.file===file?previous.cursor:0)};return {scope,positions,note:noteTarget?.id||noteTarget?.parent,previewZoom,wide:document.body.classList.contains('wide')};};
 function remember(){
  const ui=currentUI();
  if(data){clearTimeout(uiTimer);uiTimer=setTimeout(()=>fetch('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui})}).catch(()=>{}),400);}
@@ -42,13 +44,32 @@ function saveDrafts(){
  clearTimeout(draftTimer);
  for(const [id,text] of draftChanges){
   draftChanges.delete(id);
-  saving=saving.catch(()=>{}).then(()=>post('/draft',{}, {},{id,draft:text})).then(result=>{saveFailed=Boolean(draftChanges.size);if(!saveFailed)resultStatus(result);}).catch(error=>{saveFailed=true;if((text===null&&!Object.hasOwn(drafts,id))||drafts[id]===text)draftChanges.set(id,text);status(error.message,true);});
+  saving=saving.catch(()=>{}).then(()=>post('/draft',{}, {},{id,draft:text})).then(result=>{saveFailed=Boolean(draftChanges.size||noteChanges.size);if(!saveFailed)resultStatus(result);}).catch(error=>{saveFailed=true;if((text===null&&!Object.hasOwn(drafts,id))||drafts[id]===text)draftChanges.set(id,text);status(error.message,true);});
+ }
+}
+function setNoteText(target,comment){
+ target.comment=comment;
+ if(comment.trim()||target.id||target.submitted)noteChanges.set(target,comment);else noteChanges.delete(target);
+ clearTimeout(noteTimer);noteTimer=setTimeout(saveNotes,350);
+}
+function saveNotes(){
+ clearTimeout(noteTimer);saveDrafts();
+ for(const [target,comment] of noteChanges){
+  noteChanges.delete(target);target.submitted=true;
+  saving=saving.catch(()=>{}).then(()=>post('/note',{}, {},{...target,comment})).then(result=>{
+   const entry=result.entry;
+   if(entry){data.history=data.history.filter(previous=>previous.id!==entry.id);if(entry.comment.trim())data.history.push(entry);}
+   target.id=entry?.comment.trim()?entry.id:null;
+   if(!target.id)target.submitted=false;
+   if(fileEditor&&editorFile===target.file){const range=fileEditor.range(target.marker);if(target.id&&range){fileEditor.addNote({id:entry.id,...range,replace:target.marker?.startsWith('note-')?target.marker:undefined});target.marker=entry.id;}else if(!target.id){fileEditor.removeNote(target.marker);target.parent=null;}}
+   saveFailed=Boolean(noteChanges.size||draftChanges.size);remember();updateProgress();resultStatus(result);
+  }).catch(error=>{saveFailed=true;if(!noteChanges.has(target)&&target.comment===comment)noteChanges.set(target,comment);status(error.message,true);});
  }
 }
 function save(){
  if(readOnly())return;
  clearTimeout(commentTimer);const values={...decisions},notes={...comments};status('Saving…');
- saving=saving.catch(()=>{}).then(()=>post('/save',values,notes)).then(result=>{saveFailed=Boolean(draftChanges.size);if(!saveFailed)status(savedMessage());}).catch(e=>{saveFailed=true;status(e.message,true);});
+ saving=saving.catch(()=>{}).then(()=>post('/save',values,notes)).then(result=>{saveFailed=Boolean(draftChanges.size||noteChanges.size);if(!saveFailed)status(savedMessage());}).catch(e=>{saveFailed=true;status(e.message,true);});
 }
 function setChoices(members,value,scope='edit'){
  if(editing||readOnly())return;
@@ -93,11 +114,12 @@ function discussionEntry(entry,withLocation=false){
  if(entry.author!=='agent')item.append(node('div','discussion-speaker',entry.current?'You (awaiting response)':'You'));
  item.append(node('p','discussion-text',entry.comment));
  for(const reply of entry.replies)item.append(node('div','discussion-speaker','Agent response'),node('p','discussion-text',reply.text));
- const context=node('details','discussion-context');context.append(node('summary','','Original edit and context'));
+ const context=node('details','discussion-context');context.append(node('summary','',entry.kind==='source'?'Original text and context':'Original edit and context'));
  context.append(node('div','comment-meta',`Source comparison: ${entry.base.slice(0,7)} to ${entry.source_proposed.slice(0,7)}`));
  const source=node('div','exact-edit');
- if(entry.before)source.append(node('span','word-label','Original'),node('del','',displayText(entry.before)));
- if(entry.proposed)source.append(node('span','word-label','Proposal'),node('ins','',displayText(entry.proposed)));
+ if(entry.kind==='source')source.append(node('pre','discussion-original',entry.before));
+ else{if(entry.before)source.append(node('span','word-label','Original'),node('del','',displayText(entry.before)));
+ if(entry.proposed)source.append(node('span','word-label','Proposal'),node('ins','',displayText(entry.proposed)));}
  if(entry.revised!==undefined&&entry.revised!==null)source.append(node('span','word-label','Your revision'),node('pre','',entry.revised));
  const paragraph=node('pre','discussion-original',entry.context_before||'');
  context.append(source,paragraph);item.append(context);return item;
@@ -109,12 +131,17 @@ function renderFeedback(){
  const content=$('feedback-list');content.replaceChildren();
  const current=currentFeedback(data,comments),entries=[...current,...data.history],query=$('feedback-search').value.trim().toLowerCase();
  const filtered=entries.filter(entry=>[entry.file,entry.title,entry.comment,...entry.replies.map(reply=>reply.text)].filter(Boolean).join(' ').toLowerCase().includes(query));
- $('feedback-count').textContent=`${current.length} current ${current.length===1?'comment':'comments'}, ${data.history.length} earlier ${data.history.length===1?'discussion':'discussions'}`;
+ $('feedback-count').textContent=`${entries.length} ${entries.length===1?'discussion':'discussions'}`;
  for(const entry of filtered){
   const item=discussionEntry(entry,true),destination=locations.find(([fi,hi,ei])=>{
    const h=data.files[fi].hunks[hi];return entry.target?.id===h.id||entry.target?.id===h.edits[ei].id;
   });
-  if(destination)item.append(button('Go to revision',()=>{
+  if(entry.kind==='source')item.append(button('Open in manuscript',async()=>{
+   $('feedback').close();await switchScope('manuscript');const index=data.files.findIndex(file=>file.path===entry.file);
+   if(index<0){status('This file is absent from the selected manuscript. Its original text remains in the comment.');return;}
+   pendingNoteId=entry.id;active=index;passage=edit=0;render();if(fileEditor){fileEditor.goTo(entry.id);selectSourceNote(entry.id);pendingNoteId=null;}
+  },'discussion-link'));
+  else if(destination)item.append(button('Go to revision',()=>{
    $('feedback').close();[active,passage,edit]=destination;render();
    openComment(entry.target.kind==='passage');
   },'discussion-link'));
@@ -124,6 +151,7 @@ function renderFeedback(){
  if(!filtered.length)content.append(node('p','muted',query?'No matching feedback.':'No feedback yet. Use Comment to leave a note.'));
 }
 function renderDiscussion(){
+ if(fileEditor&&(data.scope==='manuscript'||noteTarget))return renderSourceDiscussion();
  const host=$('discussion');host.replaceChildren();
  const h=currentHunk(),g=currentEdit();
  if(!h||!g){host.hidden=true;document.body.classList.remove('has-discussion');return;}
@@ -145,8 +173,46 @@ function renderDiscussion(){
   area.addEventListener('blur',save);host.append(area);
  }
 }
+function sourceNoteTarget(entry){
+ const range=fileEditor.range(entry.id)||fileEditor.selection();
+ const latest=data.history.filter(item=>item.origin_id===entry.origin_id).at(-1)||entry;
+ return {...range,file:editorFile,source:editorSource,text:fileEditor.text(),parent:latest.id,
+  id:latest.kind==='source'&&latest.author==='user'&&!latest.replies.length?latest.id:null,marker:entry.id,comment:latest.kind==='source'&&latest.author==='user'&&!latest.replies.length?latest.comment:''};
+}
+async function selectSourceNote(id){
+ const path=editorFile,selection=++noteSelection;saveNotes();await saving;if(saveFailed||!fileEditor||editorFile!==path||selection!==noteSelection)return;const entry=data.history.find(entry=>entry.id===id);if(!entry)return;
+ noteTarget=sourceNoteTarget(entry);discussionOpen=true;renderDiscussion();remember();
+}
+function commentSelection(){
+ if(!fileEditor||editing)return;
+ ++noteSelection;saveNotes();const marker='note-'+crypto.randomUUID();
+ noteTarget={...fileEditor.selection(),file:editorFile,source:editorSource,text:fileEditor.text(),marker,comment:''};
+ fileEditor.addNote({id:marker,...noteTarget});discussionOpen=true;renderSourceDiscussion();$('source-comment')?.focus();
+}
+function renderSourceDiscussion(){
+ const host=$('discussion');host.replaceChildren();
+ const entries=data.history.filter(entry=>entry.file===editorFile&&entry.comment.trim());
+ if(discussionOpen===false||(!entries.length&&!noteTarget)){host.hidden=true;document.body.classList.remove('has-discussion');return;}
+ host.hidden=false;document.body.classList.add('has-discussion');
+ const heading=node('div','discussion-head'),selector=node('select');selector.setAttribute('aria-label','Manuscript comments');
+ const placeholder=node('option','','Comments');placeholder.value='';selector.append(placeholder);
+ const threads=new Map();entries.forEach(entry=>threads.set(entry.origin_id,entry));
+ for(const entry of threads.values()){const option=node('option','',`Line ${entry.line}: ${(entry.before||entry.comment).replace(/\s+/g,' ').slice(0,65)}`);option.value=entry.id;selector.append(option);}
+ const current=entries.find(entry=>entry.id===(noteTarget?.id||noteTarget?.parent));selector.value=current?[...threads.values()].find(entry=>entry.origin_id===current.origin_id)?.id||'':'';
+ selector.addEventListener('change',()=>{if(selector.value){fileEditor.goTo(selector.value);selectSourceNote(selector.value);}});
+ const close=button('×',()=>{++noteSelection;saveNotes();discussionOpen=false;renderSourceDiscussion();fileEditor.focus();},'icon');close.setAttribute('aria-label','Close discussion');heading.append(selector,close);host.append(heading);
+ if(!noteTarget){host.append(button('Comment selection',commentSelection));return;}
+ const selected=noteTarget.text.slice(noteTarget.start,noteTarget.end);if(selected)host.append(node('pre','discussion-quote',selected.slice(0,240)));
+ if(current)for(const entry of entries.filter(entry=>entry.origin_id===current.origin_id&&entry.id!==noteTarget.id))host.append(discussionEntry(entry));
+ const area=node('textarea');area.id='source-comment';area.rows=5;area.maxLength=20000;area.setAttribute('aria-label',current?'Manuscript comment':'New manuscript comment');area.placeholder=current&&!noteTarget.id?'Follow-up…':'Comment…';
+ const target=noteTarget;area.value=target.comment??'';
+ area.addEventListener('input',()=>setNoteText(target,area.value));
+ area.addEventListener('blur',saveNotes);host.append(area);
+}
 function renderSelection(context=$('selection')){
- const file=currentFile(),h=currentHunk();if(!context||!file||!h)return;
+ const file=currentFile(),h=currentHunk();if(!context||!file)return;
+ if(data.scope==='manuscript'){context.replaceChildren(node('span','context-name',niceName(file.path)));context.title=file.path;return;}
+ if(!h)return;
  context.replaceChildren(node('span','context-name',niceName(file.path)),node('span','context-location',`Passage ${passage+1}/${file.hunks.length}`));
  if(h.edits.length>1)context.append(node('span','context-location',`Edit ${edit+1}/${h.edits.length}`));
  context.title=`${file.path}:${h.line}`;
@@ -155,53 +221,55 @@ async function openEditor(position){
  position=typeof position==='number'?position:undefined;
  if(editing||readOnly()||openingEditor)return;
  if(fileEditor){fileEditor.focus();return;}
- const file=currentFile(),group=currentEdit();if(!file||!group)return;
+ const file=currentFile(),group=currentEdit();if(!file||(data.scope!=='manuscript'&&!group))return;
  const scope=data.scope;openingEditor=true;
  try{
- saveDrafts();save();await saving;
+ saveNotes();saveDrafts();save();await saving;
  if(saveFailed||draftChanges.size||currentFile()?.path!==file.path){status('Resolve the save error before editing.',true);return;}
  let doc;
  try{const response=await fetch('/editor?file='+encodeURIComponent(file.path));doc=await response.json();if(!response.ok)throw new Error(doc.error);if(doc.revision!==data.revision)throw new Error('The review changed. Reload before editing.');}
  catch(error){status(error.message,true);return;}
- if(fileEditor||data.scope!==scope||currentFile()?.path!==file.path||currentEdit()?.id!==group.id)return;
+ if(fileEditor||data.scope!==scope||currentFile()?.path!==file.path||currentEdit()?.id!==group?.id)return;
  const draft=drafts[file.path];
  editorFile=file.path;editorSource=doc.source;editorInitial=doc.original;
- const text=doc.text,ranges=doc.ranges.map(range=>({...range,current:range.id===group.id}));
- if(draft)position=ranges.find(range=>range.id===group.id)?.from;
+ const text=doc.text,ranges=[...doc.notes,...doc.ranges].map(range=>({...range,current:range.id===group?.id}));
+ if(draft&&position===undefined)position=ranges.find(range=>range.id===group?.id)?.from;
  const card=$('passage-'+passage);card.replaceChildren();
  document.body.classList.add('editing-file');
  const bar=node('div','editor-toolbar');
- bar.append(button('Return to review',()=>closeEditor(),'quiet'),button('Discussion',()=>openComment(commentScope==='passage'),'quiet'));
+ if(data.scope!=='manuscript')bar.append(button('Return to review',()=>closeEditor(),'quiet'));
+ const annotate=button('Comment selection',commentSelection,'quiet');annotate.title='Comment on selected text or the current line (⌘/Ctrl+Shift+M)';bar.append(annotate,button('Discussion',()=>{if(data.scope==='manuscript'||noteTarget){discussionOpen=true;renderSourceDiscussion();}else openComment(commentScope==='passage');},'quiet'));
  const discard=button('Discard draft',()=>{delete drafts[file.path];retainDraft(file.path,null);saveDrafts();closeEditor();},'quiet');discard.id='discard-file-draft';discard.hidden=!draft;
  const submit=button('Save changes',saveFile,'primary');submit.id='save-file';submit.disabled=text===editorInitial;bar.append(node('span','spacer'),discard,submit);card.append(bar);
  const surface=node('div','file-editor');surface.id='file-source';card.append(surface);
  document.querySelector('.decisionbar')?.remove();document.querySelector('.edit-list')?.closest('details')?.remove();
- fileEditor=createEditor(surface,{text,ranges,position:position??ranges.find(range=>range.id===group.id)?.from??0,
+ fileEditor=createEditor(surface,{text,ranges,position:position??ranges.find(range=>range.id===group?.id)?.from??0,
   onChange:text=>{if(text===editorInitial){delete drafts[file.path];retainDraft(file.path,null);}else{const draft={file:file.path,source:editorSource,text};drafts[file.path]=draft;retainDraft(file.path,draft);}discard.hidden=!drafts[file.path];submit.disabled=text===editorInitial;},
-  onSelect:id=>{if(currentEdit()?.id===id)return;const hi=file.hunks.findIndex(h=>h.edits.some(g=>g.id===id));if(hi>=0){passage=hi;edit=file.hunks[hi].edits.findIndex(g=>g.id===id);renderSelection();renderDiscussion();remember();}},
-  onSave:saveFile,onClose:closeEditor});
+  onSelect:id=>{if(data.history.some(entry=>entry.id===id)){selectSourceNote(id);return;}if(currentEdit()?.id===id)return;const hi=file.hunks.findIndex(h=>h.edits.some(g=>g.id===id));if(hi>=0){passage=hi;edit=file.hunks[hi].edits.findIndex(g=>g.id===id);renderSelection();renderDiscussion();remember();}},
+  onSave:saveFile,onClose:()=>{if(data.scope==='manuscript')fileEditor.focus();else closeEditor();},onComment:commentSelection,onAgentRequest:copyAgentRequest});
  renderDiscussion();
- }finally{openingEditor=false;}
+ if(pendingNoteId){const identifier=pendingNoteId;pendingNoteId=null;fileEditor.goTo(identifier);selectSourceNote(identifier);}
+ }finally{openingEditor=false;if(data.scope==='manuscript'&&!fileEditor&&!editing&&currentFile()?.path!==file.path)openEditor();}
 }
 function closeEditor(redraw=true){
- saveDrafts();fileEditor?.destroy();fileEditor=null;editorFile=null;document.body.classList.remove('editing-file');
+ ++noteSelection;currentUI();saveNotes();saveDrafts();fileEditor?.destroy();fileEditor=null;editorFile=null;noteTarget=null;discussionOpen=null;document.body.classList.remove('editing-file');
  if(redraw){render();focusSelection();}
 }
 async function saveFile(){
  if(!fileEditor||editing||readOnly())return;
  const text=fileEditor.text(),path=editorFile,source=editorSource,line=currentHunk()?.line||1;
- if(text===editorInitial){closeEditor();return;}
+ if(text===editorInitial){if(data.scope!=='manuscript')closeEditor();return;}
  const draft={file:path,source,text};drafts[path]=draft;retainDraft(path,draft);saveDrafts();
  fileEditor.setReadOnly(true);setBusy(true);status('Saving changes…');
  try{
-  save();await saving;if(saveFailed||draftChanges.size)throw new Error('Resolve the save error before saving source.');
+  saveNotes();save();await saving;if(saveFailed||draftChanges.size||noteChanges.size)throw new Error('Resolve the save error before saving source.');
   saving=saving.then(()=>post('/file',{...decisions},{...comments},{file:path,source,text}));
   const result=await saving;
-  data=result.data;decisions=data.decisions;comments=data.comments;drafts=data.drafts;locations=editLocations(data);
+  if(data.scope==='manuscript'){const response=await fetch('/data?scope=manuscript');if(!response.ok)throw new Error('Changes saved; reload to refresh the manuscript.');data=await response.json();}else data=result.data;decisions=data.decisions;comments=data.comments;drafts=data.drafts;locations=editLocations(data);
   active=Math.max(0,data.files.findIndex(f=>f.path===path));passage=Math.max(0,data.files[active]?.hunks.findIndex(h=>h.line>=line)||0);edit=0;
   closeEditor(false);saveFailed=false;remember();render();resultStatus(result);watchPreviews();
  }catch(error){status(error.message,true);fileEditor?.setReadOnly(false);}
- finally{setBusy(false);if(fileEditor)fileEditor.focus();else focusSelection();}
+ finally{setBusy(false);if(data.scope==='manuscript'&&!fileEditor)render();if(fileEditor)fileEditor.focus();else focusSelection();}
 }
 function updateSidebar(){
  const aside=$('files');aside.replaceChildren();aside.append(node('div','nav-label','Manuscript'));let supporting=false;
@@ -210,22 +278,23 @@ function updateSidebar(){
   const done=f.edits.filter(g=>choice(g.id)!=='pending').length;
   const b=button('',()=>{active=i;passage=edit=0;render();focusSelection();},'file'+(i===active?' active':''));b.title=f.path;b.setAttribute('aria-label',f.path);
   if(i===active)b.setAttribute('aria-current','true');
-  b.append(node('span','file-name',niceName(f.path)),node('span','file-count',readOnly()?`${f.edits.length} changes`:`${done}/${f.edits.length}`));aside.append(b);
+  b.append(node('span','file-name',niceName(f.path)));if(data.scope!=='manuscript')b.append(node('span','file-count',readOnly()?`${f.edits.length} changes`:`${done}/${f.edits.length}`));aside.append(b);
  });
 }
 function updateProgress(){
  const all=data.files.flatMap(f=>f.edits),progress=reviewProgress(data.files,decisions);
  const accepted=all.filter(g=>groupStatus(g)==='accept').length,rejected=all.filter(g=>groupStatus(g)==='reject').length;
- const count=Object.values(comments).filter(c=>c.trim()).length;
+ const count=Object.values(comments).filter(c=>c.trim()).length+data.history.filter(entry=>entry.kind==='source'&&entry.author==='user'&&!entry.replies.length&&entry.comment.trim()).length;
  const draftCount=Object.keys(drafts).length;
  $('draft-status').hidden=!Object.keys(drafts).length;$('draft-status').textContent=`${Object.keys(drafts).length} ${Object.keys(drafts).length===1?'draft':'drafts'}`;
  $('progress').disabled=readOnly()||!progress.complete;
  $('progress').textContent=readOnly()?`${progress.total} changes since baseline`:progress.complete?'Review complete':`${progress.done} of ${progress.total} reviewed`;
+ $('progress').hidden=data.scope==='manuscript';
  $('progress').title=readOnly()?'Original baseline to selected manuscript':`${accepted} accepted, ${rejected} rejected, ${all.length-accepted-rejected} undecided, ${count} ${count===1?'comment':'comments'}`;
- $('review-summary').hidden=readOnly()||!progress.total||!progress.complete;
+ $('review-summary').hidden=data.scope==='manuscript'||readOnly()||!progress.total||!progress.complete;
  $('review-state').textContent=`${staleReview?'Reload to continue':saveFailed||draftChanges.size?'Changes need saving':data.applied?'Applied to manuscript':'Ready to apply'}${count?`. ${count} ${count===1?'comment':'comments'}`:''}${draftCount?`. ${draftCount} ${draftCount===1?'draft':'drafts'}`:''}`;
  $('handoff-hint').textContent=draftCount?'Save or discard your file drafts before requesting text revisions.':'Paste the request into your agent’s chat.';
- $('copy-request-header').hidden=readOnly()||progress.complete||!count;
+ $('copy-request-header').hidden=readOnly()||(data.scope!=='manuscript'&&progress.complete&&progress.total>0)||!count;
  $('copy-request').className=data.applied?'primary':'quiet';
  const finish=$('finish-review');finish.hidden=false;
  finish.textContent=data.applied?'Applied':'Apply review';finish.disabled=Boolean(data.applied)||Boolean(draftCount);$('apply').disabled=Boolean(draftCount)||editing;
@@ -302,6 +371,14 @@ function render(){
  $('apply').hidden=$('next').hidden=readOnly();
  for(const id of ['passage-actions','file-actions'])$(id).closest('.dialog-section').hidden=readOnly();
  $('snapshot').textContent=`${data.base.slice(0,7)} to ${data.proposed.slice(0,7)}`;
+ if(data.scope==='manuscript'){
+  updateSidebar();updateProgress();remember();const main=$('main');main.replaceChildren();main.classList.remove('rendered');
+  if(!currentFile()){main.append(node('p','muted','No manuscript text files in this version.'));return;}
+  const bar=node('div','contextbar'),context=node('div','context');context.id='selection';renderSelection(context);bar.append(context);main.append(bar);
+  const card=node('section','passage selected-passage');card.id='passage-'+passage;card.setAttribute('aria-label','Manuscript source');main.append(card);
+  const statusLine=node('div','statusline'),message=node('span');message.id='status';message.setAttribute('role','status');statusLine.append(message);main.append(statusLine);
+  const position=positions.manuscript||{};if(!editing)openEditor(position.file===currentFile().path?position.cursor||0:0);return;
+ }
  if(!data.files.length){$('main').replaceChildren(node('h2','',readOnly()?'No accumulated changes':'No changes this round'),node('p','muted',readOnly()?'The selected manuscript matches the original baseline.':'The selected draft matches this round’s starting version. Earlier comments remain in All feedback.'));updateSidebar();updateProgress();renderDiscussion();return;}
  const oldStatus=$('status')?.textContent||'',oldError=$('status')?.classList.contains('error');
  const open=new Set([...document.querySelectorAll('main details[open]')].map(d=>d.dataset.key));
@@ -377,13 +454,17 @@ function movePassage(direction){
 }
 function moveFile(direction){if(editing)return;active=Math.max(0,Math.min(data.files.length-1,active+direction));passage=edit=0;render();focusSelection();}
 function openComment(wholePassage=false){
+ if(data.scope==='manuscript'){if(fileEditor)commentSelection();return;}
  commentScope=wholePassage?'passage':'edit';discussionKey=currentEdit()?.id;discussionOpen=true;renderDiscussion();
  const area=$('comment-'+(wholePassage?currentHunk()?.id:currentEdit()?.id));area?.focus();
 }
 async function resumeDraft(){
  if(readOnly())await switchScope('round');
  const destination=locations.find(([fi])=>Object.hasOwn(drafts,data.files[fi].path));
- if(destination){[active,passage,edit]=destination;render();openEditor();}
+ if(destination){[active,passage,edit]=destination;render();openEditor();return;}
+ await switchScope('manuscript');
+ const file=data.files.findIndex(file=>Object.hasOwn(drafts,file.path));
+ if(file>=0){active=file;passage=edit=0;render();openEditor();}
  else{
   const section=$('retained-drafts');section.replaceChildren();section.hidden=false;
   section.append(node('h3','','Retained source drafts'),node('p','','These drafts no longer have a matching passage. Copy the source into your manuscript or a file editor, then discard the retained draft.'));
@@ -402,18 +483,18 @@ function toggleFiles(){document.body.classList.toggle('wide');remember();}
 function help(){$('shortcuts').showModal();}
 async function switchScope(scope){
  if(!data||editing||scope===data.scope)return;
- if(fileEditor)closeEditor(false);
+ currentUI();if(fileEditor)closeEditor(false);
  setBusy(true);status('Loading comparison…');
- const from=data.scope;positions[from]={active,passage,edit,view,overrides};
+ const from=data.scope;
  try{
-  saveDrafts();save();await saving;if(saveFailed||draftChanges.size)throw new Error('Resolve the save error before changing comparisons.');status('Loading comparison…');
+  saveNotes();saveDrafts();save();await saving;if(saveFailed||draftChanges.size||noteChanges.size)throw new Error('Resolve the save error before changing comparisons.');status('Loading comparison…');
   const response=await fetch('/data?scope='+scope);if(!response.ok)throw new Error('Could not load this comparison.');
   data=await response.json();decisions=data.decisions;comments=data.comments;drafts=data.drafts;locations=editLocations(data);
   const position=positions[scope]||{};active=Math.max(0,Math.min(position.active||0,data.files.length-1));passage=position.passage||0;edit=position.edit||0;view=position.view||'auto';overrides=position.overrides||{};
   render();focusSelection();status(readOnly()?'Press T to return to this round.':'Saved locally');
   if(['queued','rendering'].includes(data.preview_status))watchPreviews();
  }catch(error){$('comparison').value=from;status(error.message,true);}
- finally{setBusy(false);}
+ finally{setBusy(false);if(data.scope==='manuscript'&&!fileEditor)render();}
 }
 function nextUndecided(){
  const index=locationIndex();for(let step=1;step<=locations.length;step++){
@@ -428,12 +509,12 @@ document.addEventListener('keydown',event=>{
  if(typing){if(event.key==='Escape'||(event.key==='Enter'&&(event.metaKey||event.ctrlKey))){event.preventDefault();
   if(target.closest('.cm-editor'))return;
   save();target.blur();if(fileEditor)fileEditor.focus();else focusSelection();return;}return;}
- if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)&&!event.altKey&&!readOnly()&&reviewProgress(data.files,decisions).complete){event.preventDefault();if(!event.repeat&&!data.applied&&data.files.length)applyChoices();return;}
+ if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)&&!event.altKey&&!readOnly()&&reviewProgress(data.files,decisions).total&&reviewProgress(data.files,decisions).complete){event.preventDefault();if(!event.repeat&&!data.applied&&data.files.length)applyChoices();return;}
  const k=event.key.toLowerCase();
- if(!currentEdit()&&!['q','m','?','b','t'].includes(k))return;
+ if(!currentEdit()&&!['q','m','?','b','t','r','c','e','[',']'].includes(k))return;
  if(readOnly()&&['a','s','u','e','c','g'].includes(k)){event.preventDefault();status('Use This round to review or edit the latest changes.');return;}
  if(event.repeat&&['a','s','u'].includes(k)){event.preventDefault();return;}
- const decision=decisionShortcut(event);
+ const decision=currentEdit()?decisionShortcut(event):null;
  if(decision){
   event.preventDefault();
   const targets={edit:[currentEdit().id],passage:currentHunk().edits.map(g=>g.id),file:currentFile().edits.map(g=>g.id)};
@@ -479,8 +560,8 @@ $('response-file').addEventListener('change',async event=>{
  }catch(error){status(error.message,true);$('response-error').textContent=error.message;}finally{event.target.value='';}
 });
 async function copyAgentRequest(){
- try{if(readOnly()){await switchScope('round');if(readOnly())throw new Error('Return to this round before copying an agent request.');}saveDrafts();save();await saving;if(saveFailed||draftChanges.size)throw new Error('Comments could not be saved.');if(Object.keys(drafts).length)throw new Error('Save or discard your file drafts before requesting a revision.');
-  const request=agentRequest(data,reviewProgress(data.files,decisions).complete);
+ try{if(readOnly()){await switchScope('round');if(readOnly())throw new Error('Return to this round before copying an agent request.');}saveNotes();saveDrafts();save();await saving;if(saveFailed||draftChanges.size||noteChanges.size)throw new Error('Comments could not be saved.');if(Object.keys(drafts).length)throw new Error('Save or discard your file drafts before requesting a revision.');
+  const progress=reviewProgress(data.files,decisions),request=agentRequest(data,progress.complete||progress.total===0);
   if(window.webkit?.messageHandlers?.copyText)window.webkit.messageHandlers.copyText.postMessage(request);else await navigator.clipboard.writeText(request);
   $('actions').close();$('feedback').close();status('Agent request copied. Paste it into your chat.');}
  catch(e){$('actions').close();$('feedback').close();status(e.message,true);}
@@ -491,14 +572,14 @@ async function ready(){
   const r=await fetch('/data');if(!r.ok)throw new Error('Could not load review snapshot.');data=await r.json();decisions=data.decisions;comments=data.comments;
   locations=editLocations(data);
   const ui=data.ui;
-  positions=ui.positions||{};const position=positions.round||{};
+  if(ui.scope&&ui.scope!==data.scope){const response=await fetch('/data?scope='+ui.scope);if(!response.ok)throw new Error('Could not restore the manuscript view.');data=await response.json();decisions=data.decisions;comments=data.comments;locations=editLocations(data);}
+  pendingNoteId=ui.note;positions=ui.positions||{};const position=positions[data.scope]||{};
   active=Math.max(0,Math.min(position.active||0,data.files.length-1));passage=position.passage||0;edit=position.edit||0;
   drafts=data.drafts;view=position.view||'auto';overrides=position.overrides||{};previewZoom=ui.previewZoom||100;
   document.body.classList.toggle('wide',Boolean(ui.wide));
   zoomPreview(0);$('snapshot').textContent=`${data.base.slice(0,7)} to ${data.proposed.slice(0,7)}`;
   if(data.library_url){const link=$('library');link.href=data.library_url;link.hidden=false;}
   render();focusSelection();status('Saved locally');
-  if(ui.scope==='baseline')await switchScope('baseline');
   if(['queued','rendering'].includes(data.preview_status))watchPreviews();
  }catch(e){$('main').append(node('p','error',e.message));}
 }
@@ -512,9 +593,9 @@ async function watchPreviews(){
  }catch{setTimeout(watchPreviews,5000);}
 }
 window.flushReview=async()=>{
- if(!data)return;if(editing)throw new Error('Wait for the current operation to finish.');saveDrafts();save();await saving;
- if(staleReview){const retained=await fetch('/retain',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({revision:data.revision,decisions,comments,drafts})});if(!retained.ok)throw new Error('Could not retain your unsaved changes. Try again before reloading.');}
- if((saveFailed||draftChanges.size)&&!staleReview)throw new Error('Your latest review could not be saved.');
+ if(!data)return;if(editing)throw new Error('Wait for the current operation to finish.');saveNotes();saveDrafts();save();await saving;
+ if(staleReview){const retained=await fetch('/retain',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({revision:data.revision,decisions,comments,drafts,notes:[...noteChanges].map(([target,comment])=>({...target,comment}))})});if(!retained.ok)throw new Error('Could not retain your unsaved changes. Try again before reloading.');}
+ if((saveFailed||draftChanges.size||noteChanges.size)&&!staleReview)throw new Error('Your latest review could not be saved.');
  clearTimeout(uiTimer);const response=await fetch('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui:currentUI()})});
  if(!response.ok)throw new Error('Could not save your review position.');
 };

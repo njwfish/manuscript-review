@@ -25,7 +25,7 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                 self.response(Path(__file__).with_name(filename).read_bytes(), mime)
             elif urlsplit(self.path).path == '/data':
                 scope = parse_qs(urlsplit(self.path).query).get('scope', ['round'])[0]
-                if scope not in ('round', 'baseline'):
+                if scope not in ('round', 'baseline', 'manuscript'):
                     return self.response({'error': 'Unknown comparison scope.'}, status=400)
                 result = session.view(scope)
                 self.response(result)
@@ -42,7 +42,7 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                     self.response(session.report(), attachment='manuscript-review-feedback.json')
             elif urlsplit(self.path).path == '/selected.patch':
                 scope = parse_qs(urlsplit(self.path).query).get('scope', ['round'])[0]
-                if scope not in ('round', 'baseline'):
+                if scope not in ('round', 'baseline', 'manuscript'):
                     return self.response({'error': 'Unknown comparison scope.'}, status=400)
                 self.response(session.selected_patch(scope), 'text/plain', attachment='manuscript-selected.patch')
             elif self.path.startswith(('/assets/', '/baseline-assets/')) and re.fullmatch(r'[A-Za-z0-9_-]+\.svg', self.path.rsplit('/', 1)[-1]):
@@ -67,6 +67,8 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                     result = session.save_ui(request.get('ui'))
                 elif self.path == '/draft':
                     result = session.save_draft(request)
+                elif self.path == '/note':
+                    result = session.save_note(request)
                 elif self.path == '/retain':
                     session.store.backup_request(request)
                     result = {'message': 'Unsaved changes retained.'}

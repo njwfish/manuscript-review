@@ -132,11 +132,11 @@ dialog::backdrop{background:rgb(0 0 0/.25);backdrop-filter:blur(2px)}
 </style>
 </head>
 <body>
-<header><h1>Manuscript Review</h1><div class="header-actions"><button id="setup" class="quiet">Setup</button><button id="import" class="quiet">Import review</button><button id="new" class="primary">Compare versions <span class="key">N</span></button></div></header>
+<header><h1>Manuscript Review</h1><div class="header-actions"><button id="setup" class="quiet">Setup</button><button id="import" class="quiet">Import review</button><button id="new" class="quiet">Compare versions</button><button id="open-manuscript" class="primary">Open manuscript <span class="key">N</span></button></div></header>
 <main><h2>Manuscripts</h2><div id="reviews"></div><p id="message" role="status" aria-live="polite"></p></main>
 <dialog id="create">
  <form id="create-form">
- <div class="dialog-head"><h2>Compare manuscript versions</h2><button type="button" class="quiet close">Close</button></div>
+ <div class="dialog-head"><h2 id="create-title">Compare manuscript versions</h2><button type="button" class="quiet close">Close</button></div>
  <div class="source-tabs" role="group" aria-label="Manuscript location"><button type="button" id="local-mode" aria-pressed="true">Local folder</button><button type="button" id="github-mode" aria-pressed="false">GitHub repository</button></div>
  <div id="local-source">
   <div class="field"><label for="repo">Manuscript folder</label><div class="input-row"><input id="repo" required placeholder="Choose or paste a folder path" autocomplete="off"><button id="browse-repo" type="button" hidden>Choose…</button><button id="inspect" type="button">Show versions</button></div></div>
@@ -155,8 +155,8 @@ dialog::backdrop{background:rgb(0 0 0/.25);backdrop-filter:blur(2px)}
    <div class="field"><label for="proposed">Compare to</label><select id="proposed" required disabled></select></div>
   </div>
   <p class="hint" id="comparison-summary" role="status"></p>
-  <div class="field"><label for="entry">LaTeX document</label><select id="entry"></select><p class="hint">Used for equation and algorithm previews.</p></div>
  </div>
+ <div class="field" id="entry-field" hidden><label for="entry">LaTeX document</label><select id="entry"></select></div>
  <p class="form-error" id="create-error" role="alert"></p>
  <div class="footer"><button id="create-submit" class="primary" hidden>Review changes</button></div>
  </form>

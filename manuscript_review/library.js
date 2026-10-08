@@ -1,7 +1,7 @@
 'use strict';
 import {manuscriptReviews} from './review_model.js';
 let token,inspected=null,polling=false;
-let repositoryInfo=null;
+let repositoryInfo=null,openingManuscript=false;
 const $=id=>document.getElementById(id);
 const node=(tag,cls,text)=>{const element=document.createElement(tag);if(cls)element.className=cls;if(text!==undefined)element.textContent=text;return element;};
 const native=window.webkit?.messageHandlers?.chooseFolder;
@@ -36,11 +36,11 @@ window.showSetup=showSetup;
 function sourceMode(github){
  $('local-source').hidden=github;$('github-source').hidden=!github;$('repo').required=!github;
  $('local-mode').setAttribute('aria-pressed',!github);$('github-mode').setAttribute('aria-pressed',github);
- inspected=null;repositoryInfo=null;$('base').disabled=$('proposed').disabled=true;$('versions').hidden=$('create-submit').hidden=$('repo-choice-field').hidden=true;$('create-error').textContent='';
+ inspected=null;repositoryInfo=null;$('base').disabled=$('proposed').disabled=true;$('entry-field').hidden=$('versions').hidden=$('create-submit').hidden=$('repo-choice-field').hidden=true;$('create-error').textContent='';
  $(github?'github-url':'repo').focus();
 }
-function create(repo){sourceMode(false);if(repo)$('repo').value=repo;$('create').showModal();$('repo').focus();if(repo)inspect();}
-async function openReview(id){try{const result=await post('/open',{id});window.location.assign(result.url);}catch(error){message(error.message,true);}}
+function create(repo,manuscript=false){openingManuscript=manuscript;$('create-title').textContent=manuscript?'Open manuscript':'Compare manuscript versions';$('inspect').textContent=manuscript?'Open folder':'Show versions';$('create-submit').textContent=manuscript?'Open manuscript':'Review changes';sourceMode(false);if(repo)$('repo').value=repo;$('create').showModal();$('repo').focus();if(repo)inspect();}
+async function openReview(id,scope){try{const result=await post('/open',{id,scope});window.location.assign(result.url);}catch(error){message(error.message,true);}}
 async function waitForJob(id){
  for(;;){
   const response=await fetch('/jobs/'+id);if(!response.ok)throw new Error('Could not read the operation status.');const job=await response.json();
@@ -49,16 +49,16 @@ async function waitForJob(id){
   await new Promise(resolve=>setTimeout(resolve,500));
  }
 }
-async function openPrepared(id){
+async function openPrepared(id,scope){
  message('Preparing comparison…');const job=await waitForJob(id);
- message(job.reused?'No new source changes. Reopened the current round.':`${job.edits} new edits. Earlier rounds preserved.`);await refresh();await openReview(job.review);
+ message(job.reused?'No new source changes. Reopened the current round.':`${job.edits} new edits. Earlier rounds preserved.`);await refresh();await openReview(job.review,scope);
 }
 async function updateReview(id,b){
  b.disabled=true;
  try{const result=await post('/update',{id});await openPrepared(result.job);}catch(error){message(error.message,true);}finally{b.disabled=false;}
 }
 function roundStatus(review){
- if(!review.total)return 'No changes';
+ if(!review.total)return 'Manuscript';
  if(review.done!==review.total)return `${review.done} of ${review.total} reviewed`;
  return review.applied?'Applied to manuscript':'Ready to apply';
 }
@@ -95,7 +95,7 @@ async function refresh(){
  const expanded=new Set([...document.querySelectorAll('.review-history[open]')].map(history=>history.dataset.repo));
  $('reviews').replaceChildren(...manuscriptReviews(data.reviews).map(reviewCard));
  document.querySelectorAll('.review-history').forEach(history=>{history.open=expanded.has(history.dataset.repo);});
- if(!data.reviews.length){const empty=node('div','empty');empty.append(node('p','','No manuscripts yet. Use Compare versions to choose a folder or GitHub repository.'));$('reviews').append(empty);}
+ if(!data.reviews.length){const empty=node('div','empty');empty.append(node('p','','No manuscripts yet. Open a folder or compare versions.'));$('reviews').append(empty);}
  if(data.reviews.some(r=>['queued','rendering'].includes(r.preview_status))&&!polling){polling=true;setTimeout(async()=>{polling=false;try{await refresh();}catch(error){message(error.message,true);}},2500);}
 }
 function versionChoices(){
@@ -116,21 +116,21 @@ function versionChoices(){
  comparisonSummary();
 }
 function comparisonSummary(){
- if(!repositoryInfo)return;
+ if(!repositoryInfo)return;if(openingManuscript){$('create-submit').disabled=false;return;}
  const from=$('base').value,to=$('proposed').value,same=from&&to&&repositoryInfo.trees[from]===repositoryInfo.trees[to==='working'?repositoryInfo.working_version:to];
  $('create-submit').disabled=!from||!to||same;
  $('comparison-summary').textContent=same?'These versions match. Choose an earlier version to see changes.':`${from.slice(0,7)} to ${to==='working'?'working files':to.slice(0,7)}`;
 }
 async function inspect(){
- $('inspect').disabled=true;$('inspect').textContent='Loading…';inspected=null;repositoryInfo=null;$('base').disabled=$('proposed').disabled=true;$('versions').hidden=$('create-submit').hidden=true;$('create-error').textContent='';
+ $('inspect').disabled=true;$('inspect').textContent='Loading…';inspected=null;repositoryInfo=null;$('base').disabled=$('proposed').disabled=true;$('entry-field').hidden=$('versions').hidden=$('create-submit').hidden=true;$('create-error').textContent='';
  try{const info=await post('/inspect',{repo:$('repo').value});
   if(info.repositories){const placeholder=node('option','','Choose a repository…');placeholder.value='';placeholder.disabled=placeholder.selected=true;$('repo-choice').replaceChildren(placeholder,...info.repositories.map(path=>{const option=node('option','',path);option.value=path;return option;}));$('repo-choice-field').hidden=false;$('repo-choice').focus();return;}
   inspected=info.repo;repositoryInfo=info;$('fetch').hidden=!info.has_origin;$('repo').value=info.repo;$('commit-filter').value='';$('base').replaceChildren();$('proposed').replaceChildren();versionChoices();$('repo-choice-field').hidden=true;
-  $('entry').replaceChildren(...[...info.entries,''].map(entry=>{const o=node('option','',entry||'Word changes only');o.value=entry;return o;}));
-  $('versions').hidden=false;$('create-submit').hidden=false;$('base').disabled=$('proposed').disabled=false;$('base').focus();
- }catch(error){$('create-error').textContent=error.message;}finally{$('inspect').disabled=false;$('inspect').textContent='Show versions';}
+  $('entry').replaceChildren(...[...info.entries,''].map(entry=>{const o=node('option','',entry||(openingManuscript?'No typeset previews':'Word changes only'));o.value=entry;return o;}));
+  $('versions').hidden=openingManuscript;$('entry-field').hidden=false;$('create-submit').hidden=false;$('base').disabled=$('proposed').disabled=false;$(openingManuscript?'entry':'base').focus();
+ }catch(error){$('create-error').textContent=error.message;}finally{$('inspect').disabled=false;$('inspect').textContent=openingManuscript?'Open folder':'Show versions';}
 }
-$('new').addEventListener('click',()=>create());$('inspect').addEventListener('click',inspect);
+$('new').addEventListener('click',()=>create());$('open-manuscript').addEventListener('click',()=>create(undefined,true));$('inspect').addEventListener('click',inspect);
 $('local-mode').addEventListener('click',()=>sourceMode(false));$('github-mode').addEventListener('click',()=>sourceMode(true));
 $('repo-choice').addEventListener('change',()=>{if($('repo-choice').value){$('repo').value=$('repo-choice').value;inspect();}});
 $('commit-filter').addEventListener('input',versionChoices);for(const id of ['base','proposed'])$(id).addEventListener('change',comparisonSummary);
@@ -150,13 +150,13 @@ $('repo').addEventListener('input',()=>{inspected=null;repositoryInfo=null;$('ba
 $('repo').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();inspect();}});
 $('create-form').addEventListener('submit',async event=>{
  event.preventDefault();if(!$('github-source').hidden)return clone();if(!inspected)return inspect();$('create-submit').disabled=true;$('create-error').textContent='';
- try{const result=await post('/prepare',{repo:inspected,base:$('base').value,base_label:$('base').selectedOptions[0].textContent,proposed:$('proposed').value,entry:$('entry').value});$('create').close();await openPrepared(result.job);}catch(error){if($('create').open)$('create-error').textContent=error.message;else message(error.message,true);}finally{$('create-submit').disabled=false;}
+ try{const request=openingManuscript?{repo:inspected,entry:$('entry').value}:{repo:inspected,base:$('base').value,base_label:$('base').selectedOptions[0].textContent,proposed:$('proposed').value,entry:$('entry').value};const result=await post(openingManuscript?'/manuscript':'/prepare',request);$('create').close();await openPrepared(result.job,openingManuscript?'manuscript':undefined);}catch(error){if($('create').open)$('create-error').textContent=error.message;else message(error.message,true);}finally{$('create-submit').disabled=false;}
 });
 $('import').addEventListener('click',()=>{$('import-error').textContent='';$('import-dialog').showModal();$('source').focus();});
 $('import-form').addEventListener('submit',async event=>{event.preventDefault();$('import-submit').disabled=true;try{await post('/import',{source:$('source').value});$('import-dialog').close();await refresh();message('Imported a separate copy of the review.');}catch(error){$('import-error').textContent=error.message;}finally{$('import-submit').disabled=false;}});
 document.querySelectorAll('.close').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 if(native){for(const id of ['repo','source','directory']){$('browse-'+id).hidden=false;$('browse-'+id).addEventListener('click',()=>native.postMessage({field:id}));}}
 window.folderChosen=(field,path)=>{$(field).value=path;if(field==='repo')inspect();};
-document.addEventListener('keydown',event=>{if(event.defaultPrevented||event.metaKey||event.ctrlKey||event.altKey||event.target.matches('input,textarea,select')||document.querySelector('dialog[open]'))return;if(event.key.toLowerCase()==='n'){event.preventDefault();create();}});
+document.addEventListener('keydown',event=>{if(event.defaultPrevented||event.metaKey||event.ctrlKey||event.altKey||event.target.matches('input,textarea,select')||document.querySelector('dialog[open]'))return;if(event.key.toLowerCase()==='n'){event.preventDefault();create(undefined,true);}});
 window.addEventListener('focus',()=>refresh().catch(error=>message(error.message,true)));
 refresh().catch(error=>message(error.message,true));

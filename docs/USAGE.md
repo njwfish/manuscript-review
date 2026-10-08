@@ -1,5 +1,11 @@
 # Advanced usage
 
+## Reading and annotating
+
+**Open manuscript** starts from working files or resumes the repository’s latest saved review. **Manuscript** shows the whole selected source, including unchanged files. Select text and press **⌘/Ctrl+Shift+M** to comment; with no selection, the comment refers to the current line. Save manual edits before copying an agent request with **⌘/Ctrl+Shift+R**. The agent reads the same feedback record, proposes a new round, and appends responses.
+
+Source comments retain their original quote even if later edits replace it. Their field stays editable until a response arrives, then accepts a follow-up. **All feedback** includes these exchanges. Switch to **This round** to decide new proposals, or **Since baseline** to inspect accumulated changes.
+
 ## Exports and imports
 
 **Review tools → Export feedback** saves the decisions, current comments, and discussion as JSON. **Export selected patch** saves the selected source changes as a Git patch. An agent with the installed skill can read the library directly; exports also provide a record to inspect outside the app.

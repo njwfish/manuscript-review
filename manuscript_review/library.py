@@ -124,7 +124,9 @@ class Library:
                 edits = [g for f in snapshot['files'] for g in f['edits']]
                 done = sum(choices.get(g['id'], 'pending') != 'pending' for g in edits)
                 results.append({**metadata, 'total': len(edits), 'done': done, 'applied': is_applied(record),
-                                'comments': sum(bool(text.strip()) for text in record['comments'].values()),
+                                'comments': sum(bool(text.strip()) for text in record['comments'].values()) + sum(
+                                    entry['kind'] == 'source' and entry['author'] == 'user' and not entry['replies']
+                                    and bool(entry['comment'].strip()) for entry in record['history']),
                                 'drafts': len(record['drafts']),
                                 'files': len(snapshot['files']), 'skipped': snapshot.get('skipped', [])})
         return sorted(results, key=lambda r: r['created'], reverse=True)
@@ -152,6 +154,9 @@ class Library:
                     saved = previous_store.read()
                 if saved['snapshot']['repo'] != repo:
                     raise ValueError('Earlier feedback belongs to a different repository.')
+                if request.get('manuscript'):
+                    self.jobs[job] = self.prepared_result(previous_id, reused=True)
+                    return
                 if saved['drafts']:
                     raise ValueError('Save or discard the active source drafts before starting another round.')
                 if 'expected_revision' in request and request['expected_revision'] != saved['revision']:
@@ -166,7 +171,12 @@ class Library:
                     if pinned != starting:
                         raise ValueError('The starting version belongs to a different review.')
                     base_ref = starting
+            if request.get('manuscript'):
+                starting, head = working_snapshot(repo, parent=saved['result'] if saved else None)
+                base_ref = starting
             proposed_ref = request.get('proposed', 'working').strip()
+            if request.get('manuscript'):
+                proposed_ref = starting
             base = git(repo, 'rev-parse', '--verify', base_ref + '^{commit}').decode().strip()
             if proposed_ref == 'working':
                 proposed, source_head = working_snapshot(repo, parent=base)
@@ -175,6 +185,8 @@ class Library:
                 # A branch comparison may be viewed/exported anywhere. Applying
                 # still requires its actual proposed contents and unchanged HEAD.
                 source_head = proposed
+            if request.get('manuscript'):
+                source_head = head
             entry = request.get('entry', '')
             if entry:
                 relative = Path(entry)
@@ -197,7 +209,7 @@ class Library:
                     return
             snapshot = build_snapshot(repo, base, proposed, text_only=True)
             snapshot.update({'source_head': source_head, 'entry': entry})
-            if not snapshot['files'] and not previous_id:
+            if not snapshot['files'] and not previous_id and not request.get('manuscript'):
                 raise ValueError('No changed text files between these versions.')
             if not snapshot['files'] and request.get('require_changes'):
                 raise ValueError('No reviewable source changes in this pass. Add a reply in the existing round instead.')
@@ -227,7 +239,10 @@ class Library:
                     with previous_store.transaction():
                         if previous_store.read()['revision'] != saved['revision']:
                             raise ValueError('The earlier review changed while preparing this round. Try again.')
-                atomic_json(directory / 'review.json', new_record(snapshot, metadata, choices, comments, history, baseline=baseline))
+                record = new_record(snapshot, metadata, choices, comments, history, baseline=baseline)
+                if request.get('manuscript'):
+                    record['ui']['scope'] = 'manuscript'
+                atomic_json(directory / 'review.json', record)
                 self.jobs[job] = self.prepared_result(identifier)
         except Exception as error:
             message = error.stderr.decode(errors='replace').strip() if isinstance(error, subprocess.CalledProcessError) and isinstance(error.stderr, bytes) else str(error)
@@ -243,6 +258,12 @@ class Library:
                 self.preview(result['review'])
         threading.Thread(target=work, daemon=True).start()
         return job
+
+    def manuscript_request(self, repo, entry=''):
+        repo = inspect_repo(str(Path(repo).expanduser().resolve()))['repo']
+        previous = next((review for review in self.listing() if review['repo'] == repo), None)
+        return {'repo': repo, 'entry': entry, 'manuscript': True,
+                'previous': previous['id'] if previous else None}
 
     def preview(self, identifier):
         with self.preview_lock:
@@ -277,8 +298,16 @@ class Library:
         atomic_json(destination / 'review.json', record)
         return identifier
 
-    def open(self, identifier):
+    def open(self, identifier, scope=None):
         with self.lock:
+            if scope is not None:
+                if scope not in ('round', 'baseline', 'manuscript'):
+                    raise ValueError('Unknown manuscript view.')
+                store = ReviewStore(self.directory(identifier))
+                with store.transaction():
+                    record = store.read()
+                    record['ui']['scope'] = scope
+                    store.commit(record)
             if identifier not in self.servers:
                 server = create_server(self.directory(identifier), library_url=self.url,
                                        review_context=lambda: self.review_context(identifier))
@@ -325,8 +354,10 @@ def create_library_server(library, port=0):
                     result = {'job': library.repository_job(fetch_repository, repo)}
                 elif self.path == '/prepare':
                     result = {'job': library.start(request)}
+                elif self.path == '/manuscript':
+                    result = {'job': library.start(library.manuscript_request(request['repo'], request.get('entry', '')))}
                 elif self.path == '/open':
-                    result = {'url': library.open(request['id'])}
+                    result = {'url': library.open(request['id'], request.get('scope'))}
                 elif self.path == '/update':
                     metadata = library.metadata(request['id'])
                     result = {'job': library.start({**metadata, 'proposed': 'working', 'previous': request['id']})}

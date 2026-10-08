@@ -22,6 +22,9 @@ def main():
     compare.add_argument('--base', required=True)
     compare.add_argument('--proposed', default='working')
     compare.add_argument('--entry', default='')
+    manuscript = commands.add_parser('open', help='Open a manuscript for source editing and comments without a diff.')
+    manuscript.add_argument('--repo', required=True, type=Path)
+    manuscript.add_argument('--entry', default='')
     listing = commands.add_parser('list', help='List saved reviews, optionally for one repository.')
     listing.add_argument('--repo', type=Path)
     feedback = commands.add_parser('feedback', help='Read choices, notes, and earlier replies.')
@@ -54,9 +57,10 @@ def main():
             starting, _ = working_snapshot(repo)
             git(repo, 'update-ref', 'refs/manuscript-review/inputs/' + starting, starting)
             result = {'repo': repo, 'starting_version': starting}
-        elif args.command == 'compare':
-            library.prepare({'repo': str(args.repo), 'base': args.base, 'proposed': args.proposed,
-                             'entry': args.entry}, 'agent')
+        elif args.command in ('compare', 'open'):
+            request = (library.manuscript_request(args.repo, args.entry) if args.command == 'open' else
+                       {'repo': str(args.repo), 'base': args.base, 'proposed': args.proposed, 'entry': args.entry})
+            library.prepare(request, 'agent')
             result = library.jobs['agent']
             if result['status'] == 'error':
                 raise ValueError(result['error'])

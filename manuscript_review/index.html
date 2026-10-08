@@ -214,6 +214,7 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .discussion-original{font:12px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .discussion-link{background:none;border:0;box-shadow:none;padding:0;margin-top:10px;font-size:12px;color:var(--accent)}
 .discussion-link:hover{text-decoration:underline}
+.discussion-quote{font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:var(--muted);margin:0 0 18px;padding:0 0 14px;border-bottom:1px solid var(--line)}
 
 /* Status line */
 .statusline{display:flex;margin-top:14px;min-height:18px;font-size:11px;color:var(--faint)}
@@ -273,7 +274,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <a id="library" hidden>Library</a>
  <button id="hide-files" class="icon" title="Toggle file list (B)" aria-label="Toggle file list (B)"><svg width="15" height="13" viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="1" y="1" width="13" height="11" rx="2.5"/><line x1="5.4" y1="1" x2="5.4" y2="12"/></svg></button>
  <h1 id="manuscript-title">Manuscript review</h1><span id="round-state" class="muted" hidden></span>
- <select id="comparison" class="comparison-select" aria-label="Comparison"><option value="round">This round</option><option value="baseline">Since baseline</option></select>
+ <select id="comparison" class="comparison-select" aria-label="Comparison"><option value="manuscript">Manuscript</option><option value="round">This round</option><option value="baseline">Since baseline</option></select>
  <span class="spacer"></span>
  <button id="progress" class="quiet" disabled></button>
  <button id="draft-status" class="quiet" hidden></button>
@@ -309,6 +310,8 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <tr><th>Ctrl+A / Ctrl+S / Ctrl+U</th><td>Decide the whole file</td></tr>
  <tr><th>E</th><td>Edit the file at this passage</td></tr>
  <tr><th>Shift+E</th><td>Resume a saved file draft</td></tr>
+ <tr><th>⌘/Ctrl+Shift+M</th><td>Comment on selected text or the current line</td></tr>
+ <tr><th>⌘/Ctrl+Shift+R</th><td>Copy an agent request from the editor</td></tr>
  <tr><th>C / Shift+C</th><td>Discussion for edit / passage</td></tr>
  <tr><th>Q</th><td>All saved feedback and responses</td></tr>
  <tr><th>R</th><td>Copy an agent request to paste into your chat</td></tr>

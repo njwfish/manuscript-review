@@ -1,3 +1,7 @@
+**Open manuscript** reads and edits the whole manuscript without requiring a diff. Select any text and press **⌘/Ctrl+Shift+M** to leave a comment in the sidebar; **⌘/Ctrl+Shift+R** copies the agent handoff. Comments keep their original source context through manual edits and later rounds, and responses retain the original exchange. Opening the same repository resumes its saved review, choices, and drafts.
+
+Version 0.11 libraries use the same record format and require no migration.
+
 Click proposed text or a proposed LaTeX preview to edit the full file at that passage. The monospace editor occupies the review surface, with change highlights, undo/redo, find, and discussion in a collapsible sidebar. Save writes only manual changes and refreshes the word diff; unrelated decisions and discussion survive. Escape retains a file draft.
 
 **Existing version 0.10 libraries need an explicit format upgrade.** Quit the app, replace it, then run:
