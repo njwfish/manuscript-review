@@ -702,6 +702,7 @@ async function ready(){
   if(embedded){document.body.classList.add('wide');$('comparison').querySelector('option[value=manuscript]')?.remove();
    const round=$('round-state'),control=button(round.textContent,()=>runHostCommand('rounds'),'quiet');control.id=round.id;control.hidden=round.hidden;control.title='Choose review round';round.replaceWith(control);
    $('compare-saved').hidden=false;
+   $('host-tools').hidden=false;
    $('apply-shortcut').querySelector('td').textContent='Save comment; apply completed review';$('pdf-shortcut-hint').hidden=false;
   }
   render();focusSelection();status('Saved locally');
@@ -730,6 +731,7 @@ $('draft-status').addEventListener('click',resumeDraft);
 $('progress').addEventListener('click',()=>{$('review-summary').scrollIntoView({block:'start'});(data.applied?$('copy-request'):$('finish-review')).focus({preventScroll:true});});
 async function runHostCommand(name){try{await hostCommand(name);}catch(error){status(error.message,true);}}
 $('compare-saved').addEventListener('click',()=>runHostCommand('reviewSavedChanges'));
+for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
 $('reload-review').addEventListener('click',async()=>{try{await window.flushReview();window.location.reload();}catch(error){status(error.message,true);}});
 if(embedded)window.addEventListener('message',async event=>{
  if(event.source)return;

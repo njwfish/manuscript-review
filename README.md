@@ -2,17 +2,32 @@
 
 Read and annotate a manuscript, or review revisions one word change at a time, with highlighted LaTeX previews, full-file editing, and comments that stay with each round.
 
+**VS Code is the primary interface and the target for production releases.** The extension
+includes the review engine, PDF viewer, and agent skill. Use the native source editor
+and comments alongside focused word and PDF comparisons. The standalone app remains
+available and uses the same review records.
+
 The app is designed for authors reviewing substantial edits from students, collaborators, or agents. In comparisons, text opens as a short excerpt with the exact additions and deletions highlighted. Equations and algorithms open side by side as typeset LaTeX. **PDF pages** shows the full original and proposed pages with the current edit highlighted. Reviews stay on your computer; an agent can read your saved feedback and prepare another round through the bundled skill.
 
 ![A sample manuscript review](docs/images/review.png)
 
 ## Install
 
-Download the [macOS app](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** to **Applications**. The app supports Apple Silicon Macs on macOS 13 or later and includes Python. Git is required; LaTeX and Poppler are optional for typeset previews.
+Build the current [VS Code preview](vscode/README.md#build) to obtain its `.vsix`, then
+install it through **Extensions → Install from VSIX…**. It runs independently
+on macOS or Linux with Git and Python 3.12 or later. LaTeX and Poppler enable rendered
+previews. Run **Manuscript Review: Open manuscript review**, or **Compare manuscript
+versions** to choose a baseline and proposal from Git history. **Setup and agent skill**
+checks prerequisites and installs the bundled skill for your agent. The extension is
+currently a preview while native interface verification is completed.
 
-See [Installation](docs/INSTALL.md) for prerequisites, first launch, the agent skill, and running from source on macOS or Linux.
+For the standalone interface, download the [macOS app](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** to **Applications**. It supports Apple Silicon Macs on macOS 13 or later and includes Python.
 
-## Review a manuscript
+See the [VS Code guide](vscode/README.md) for its review cycle and shortcuts, and
+[Installation](docs/INSTALL.md) for either interface's prerequisites. The interface
+guide below describes the standalone app.
+
+## Review in the standalone app
 
 Start with manuscript text sources in a Git repository with at least one commit; [prepare a plain manuscript folder](docs/INSTALL.md#prepare-a-manuscript-folder) if needed. **Open manuscript** opens the whole selected manuscript for reading, editing, and comments, even when there are no changes to compare. Reopening the same repository resumes its latest saved review, including choices and drafts. To bring in subsequent changes made outside the app, use **New round** or **Compare versions**.
 
@@ -89,9 +104,9 @@ For an initial referee report, ask the agent to anchor its actionable points as 
 
 ## Development
 
-The [VS Code preview](vscode/README.md) uses the native source editor and comments,
-with the shared focused-review interface and an adapted LaTeX Workshop PDF viewer.
-It builds separately as a VSIX; the standalone app remains the stable release.
+The [VS Code extension](vscode/README.md) builds as a self-contained VSIX. Keep core
+features available in the extension; the standalone app uses the same engine and
+remains available during the transition to VS Code production releases.
 
 See [Development](docs/DEVELOPMENT.md) for tests, native builds, and releases, and [Architecture](ARCHITECTURE.md) for the record model and transaction boundaries. The service uses Python's standard library, with a small JavaScript interface and a Swift macOS wrapper.
 

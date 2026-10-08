@@ -4,4 +4,8 @@ tool_root=$(CDPATH= cd -P "$(dirname "$0")/../../.." && pwd)
 if [ -x "$tool_root/Backend/ManuscriptReviewBackend" ]; then
     exec "$tool_root/Backend/ManuscriptReviewBackend" agent "$@"
 fi
-exec "$tool_root/.venv/bin/manuscript-review-agent" "$@"
+if [ -x "$tool_root/.venv/bin/manuscript-review-agent" ]; then
+    exec "$tool_root/.venv/bin/manuscript-review-agent" "$@"
+fi
+export PYTHONPATH="$tool_root"
+exec "${MANUSCRIPT_REVIEW_PYTHON:-python3}" -m manuscript_review.agent "$@"

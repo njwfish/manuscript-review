@@ -69,7 +69,9 @@ export function sourceRange(file,edit,view,decisions){
 
 export function agentRequest(data,complete){
  const scope=!data.files.some(file=>file.edits.length)?'Use the current manuscript as the starting draft.':complete?'Use my completed accept/reject decisions as the starting draft. If text changes are needed, apply these choices when necessary before beginning the pass; preserve outside edits.':'My decisions are still in progress. Respond to my comments now, and leave manuscript revisions until I finish reviewing.';
- return `Use $manuscript-review for review ${data.id} in ${data.repo}, saved at ${data.feedback_path}. Read its decisions, comments, manual edits, and earlier replies. Respond to my comments and make only the requested surgical revisions. Treat existing prose as settled wording; a style guide alone does not authorize rewriting it. ${scope} For text changes, use begin before editing and finish to create a new review round, then add responses there. For replies only, add responses to this review without creating a new round. Preserve the original baseline ${data.baseline} and earlier rounds, and open the result in Manuscript Review.`;
+ const tools=data.agent_launcher?` Agent commands are bundled at ${data.agent_launcher}.`:'';
+ const result=data.interface==='vscode'?'Open the resulting round in the Manuscript Review VS Code extension using vscode://njwfish.manuscript-review/review/NEW_REVIEW_ID.':'Open the result in Manuscript Review.';
+ return `Use $manuscript-review for review ${data.id} in ${data.repo}, saved at ${data.feedback_path}.${tools} Read its decisions, comments, manual edits, and earlier replies. Respond to my comments and make only the requested surgical revisions. Treat existing prose as settled wording; a style guide alone does not authorize rewriting it. ${scope} For text changes, use begin before editing and finish to create a new review round, then add responses there. For replies only, add responses to this review without creating a new round. Preserve the original baseline ${data.baseline} and earlier rounds. ${result}`;
 }
 
 export function decisionShortcut(event){

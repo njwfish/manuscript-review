@@ -237,3 +237,11 @@ test('PDF iframe messages cannot impersonate responses from the extension host',
     receive({source: null, data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Trusted'}});
     assert.equal(await request, 'Trusted');
 });
+
+test('copied agent requests receive host tooling metadata without putting it into the review record',async t=>{
+    const f=await fixture(t),p=await f.open(),record={revision:1,id:'a'.repeat(24)};
+    f.runtime.request=async()=>({...record});
+    await p.receive({type:'review-request',id:'data',action:'request',path:'/data?scope=round'});
+    assert.equal(p.messages.at(-1).data.data.interface,'vscode');
+    assert.deepEqual(record,{revision:1,id:'a'.repeat(24)});
+});

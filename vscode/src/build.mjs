@@ -13,4 +13,9 @@ await cp(join(root,'../manuscript_review'),join(destination,'runtime/manuscript_
  recursive:true,filter:file=>!file.includes('__pycache__')&&!file.endsWith('.pyc')
 });
 await cp(join(root,'../LICENSE'),join(destination,'runtime/LICENSE'));
+await cp(join(root,'README.md'),join(destination,'README.md'));
+for(const file of ['README.md','ARCHITECTURE.md','docs','skills/manuscript-review'])
+ await cp(join(root,'..',file),join(destination,'runtime',file),{recursive:true});
+await mkdir(join(destination,'runtime/vscode'),{recursive:true});
+await cp(join(root,'README.md'),join(destination,'runtime/vscode/README.md'));
 await buildViewer(join(destination,'viewer'));

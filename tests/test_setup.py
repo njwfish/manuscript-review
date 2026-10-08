@@ -66,6 +66,18 @@ class SetupTests(unittest.TestCase):
         self.assertIn('already', install_skill('codex', self.home)['message'])
         self.assertFalse((self.home / '.agents').exists())
 
+    def test_extension_installs_its_stable_skill_source(self):
+        stored = self.root / 'Extension storage/skills/manuscript-review'
+        stored.mkdir(parents=True)
+        (stored / 'SKILL.md').write_text('Extension skill')
+        install_skill('codex', self.home, source=stored)
+        target = self.home / '.agents/skills/manuscript-review'
+        self.assertEqual(target.resolve(), stored.resolve())
+        self.assertIn('already', install_skill('codex', self.home, source=stored)['message'])
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            install_skill('codex', self.home)
+        self.assertEqual(target.resolve(), stored.resolve())
+
     def test_unknown_agent_or_missing_bundle_cannot_create_a_link(self):
         with self.assertRaisesRegex(ValueError, 'Choose Codex'):
             install_skill('../../elsewhere', self.home)

@@ -7,6 +7,7 @@ from .session import ReviewSession
 from .repositories import working_snapshot
 from .comparison import git
 from . import __version__
+from .setup import install_skill, setup_status
 
 
 def main():
@@ -14,6 +15,10 @@ def main():
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--home', type=Path, default=default_home())
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('setup', help='Report prerequisites without opening the review library.')
+    installation = commands.add_parser('install-skill', help='Install the bundled skill for an agent.')
+    installation.add_argument('--agent', required=True, choices=('codex', 'claude'))
+    installation.add_argument('--source', type=Path)
     commands.add_parser('migrate', help='Upgrade a v5 library to file drafts; quit the app first.')
     checkpoint = commands.add_parser('checkpoint', help='Pin the actual manuscript before the first revision.')
     checkpoint.add_argument('--repo', required=True, type=Path)
@@ -54,8 +59,12 @@ def main():
     finish.add_argument('--revision', required=True, type=int)
     finish.add_argument('--from', dest='starting_version', required=True)
     args = parser.parse_args()
-    library = Library(args.home)
     try:
+        if args.command in ('setup', 'install-skill'):
+            result = {'setup': setup_status, 'install-skill': lambda: install_skill(args.agent, source=args.source)}[args.command]()
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+        library = Library(args.home)
         if args.command == 'migrate':
             from .migrations.v5 import upgrade
             result = {'upgraded': upgrade(args.home), 'originals': 'migration-v5/review.json'}

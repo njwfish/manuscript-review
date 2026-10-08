@@ -49,6 +49,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/library-data':
             return self.reply({'token': 'library-secret', 'reviews': []})
+        if self.path == '/setup':
+            return self.reply({'python': sys.executable, 'git': True, 'preview_tools': {}, 'agents': []})
         if self.path.startswith('/jobs/'):
             job = jobs[self.path[6:]]
             if job['pending']:
@@ -73,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         global revision, opened
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        library = self.path in ('/inspect', '/open', '/manuscript', '/update', '/prepare')
+        library = self.path in ('/inspect', '/open', '/manuscript', '/update', '/prepare', '/clone', '/fetch', '/import')
         token = 'library-secret' if library else 'review-secret'
         if self.headers.get('X-Review-Token') != token:
             return self.reply({'error': 'missing token'}, 403)
@@ -82,7 +84,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'url': url})
         if self.path == '/inspect':
             return self.reply({'repo': body['repo']})
-        if self.path in ('/manuscript', '/update', '/prepare'):
+        if self.path == '/import':
+            return self.reply({'review': '${reviewId}'})
+        if self.path in ('/manuscript', '/update', '/prepare', '/clone', '/fetch'):
             name = 'b' * 24
             result = {'status': 'error', 'error': 'Cannot prepare this manuscript.'} if body.get('repo') == 'fail' else {'status': 'ready', 'review': '${reviewId}'}
             jobs[name] = {'pending': 100000 if body.get('repo') == 'wait' else 1, 'result': result}
@@ -135,7 +139,7 @@ test('tokens stay in the extension host and ordered writes preserve explicit rev
 test('the boundary refuses source writes, arbitrary URLs, and unsafe assets', async t => {
     const {runtime} = await synthetic(t);
     await runtime.open(reviewId);
-    for (const path of ['/file', '/draft', '/explanations', '//example.com/', 'http://example.com/']) {
+    for (const path of ['/file', '/explanations', '//example.com/', 'http://example.com/']) {
         await assert.rejects(runtime.request(path, {}), /unavailable/);
     }
     await assert.rejects(runtime.request('/apply', {}), /source editor check/);
@@ -312,4 +316,12 @@ test('the bundled Python service preserves source while comments travel into the
     assert.equal(git('rev-parse', 'HEAD'), head);
     assert.deepEqual(await readFile(join(repo, '.git/index')), index);
     assert.deepEqual(await readFile(join(home, 'reviews', job.review, 'review.json')), prior);
+});
+
+test('repository jobs and saved imports use the bundled library service',async t=>{
+    const {runtime}=await synthetic(t);
+    for(const route of ['/clone','/fetch'])assert.deepEqual(await runtime.prepare(route,{repo:'ready'}),{status:'ready',review:reviewId});
+    assert.deepEqual(await runtime.library('/import',{source:'review.json'}),{review:reviewId});
+    await runtime.open(reviewId);
+    assert.equal((await runtime.request('/draft',{revision:3,id:'main.tex',draft:null})).revision,4);
 });

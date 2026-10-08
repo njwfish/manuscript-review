@@ -10,6 +10,23 @@ npm ci
 
 Node.js runs the client model, editor, and save-queue checks in the test suite. To change the editor, edit `frontend/editor.js` and regenerate the checked-in bundle with `npm run build`. Both CI and release builds check that regeneration produces the same bundle. Without Node, client checks are skipped. Use an isolated library for write tests. The [architecture](../ARCHITECTURE.md) describes persistence and source-write boundaries.
 
+## Build the VS Code extension
+
+VS Code is the primary product. Build and test its adapters from `vscode/`:
+
+```sh
+npm ci
+npm test
+npm run package
+```
+
+The VSIX includes the shared Python engine, interface, comparison viewer, and agent
+skill. Python remains a workspace-host prerequisite. The extension version is in
+`vscode/package.json`; the package filename uses that version. Verify the extracted
+VSIX with an isolated library and real LaTeX before distribution, then check the
+native editor, comments, word and PDF navigation, Apply, and setup in an extension
+development host. Promote a preview to a production release after those checks pass.
+
 ## Build the macOS app
 
 Build on Apple Silicon with Xcode Command Line Tools and Python 3.12 or later:

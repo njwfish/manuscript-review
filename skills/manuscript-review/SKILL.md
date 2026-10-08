@@ -1,17 +1,17 @@
 ---
 name: manuscript-review
-description: Open and annotate manuscripts, prepare comparisons in the Manuscript Review app, integrate external reviewer feedback, read saved decisions and comments, and create follow-up revisions with responses. Use when the user asks to review manuscript changes in this app or work through its saved feedback.
+description: Open and annotate manuscripts in Manuscript Review for VS Code or the standalone app, prepare comparisons, integrate external reviewer feedback, read saved decisions and comments, and create follow-up revisions with responses. Use when the user asks to review manuscript changes in either interface or work through its saved feedback.
 metadata:
   short-description: Work through saved manuscript review feedback
 ---
 
 # Manuscript Review
 
-The app and its agent commands share the review library, so use them to preserve the author's decisions, source drafts, and discussion. Saved reviews live in `~/Library/Application Support/Manuscript Review` on macOS, or `~/.local/share/manuscript-review` on Linux unless `XDG_DATA_HOME` is set. The app's [README](../../README.md) describes the interface; read its [architecture](../../ARCHITECTURE.md) when changing the implementation.
+VS Code is the primary interface. Its extension includes the review engine and agent commands; the standalone app is optional and uses the same records. Use these commands to preserve the author's decisions, source drafts, and discussion. Saved reviews live in `~/Library/Application Support/Manuscript Review` on macOS, or `~/.local/share/manuscript-review` on Linux unless `XDG_DATA_HOME` is set. The [README](../../README.md) describes the interfaces; read the [architecture](../../ARCHITECTURE.md) when changing the implementation.
 
 ## Find and read the review
 
-Use the executable at `scripts/review-agent` beside this skill, resolving its absolute path from the loaded `SKILL.md`. The launcher works from any directory and uses the app's bundled runtime or the source checkout's `.venv`. In the examples, replace `/path/to/skill` with this skill's actual directory:
+Use the command launcher named in a copied agent request, or `scripts/review-agent` beside this skill, resolving its absolute path from the loaded `SKILL.md`. The launcher works from any directory. The extension retains its engine and Python path in VS Code storage; the standalone launcher uses its bundled runtime. A source checkout uses its `.venv`, or `MANUSCRIPT_REVIEW_PYTHON` when supplied. In the examples, replace `/path/to/skill` with this skill's actual directory:
 
 ```sh
 "/path/to/skill/scripts/review-agent" list --repo /absolute/path/to/manuscript
@@ -40,7 +40,7 @@ Keep the returned `revision` and `starting_version`. Begin checks that reviewed 
 "/path/to/skill/scripts/review-agent" apply --review REVIEW_ID --revision SAVED_REVISION
 ```
 
-Reread feedback after applying and run begin with the current review. Otherwise, use the app’s **New round** to compare the saved selection against the working files, then read that round’s feedback and begin with its review ID. Never bypass the check or overwrite outside edits. A copied request from an unfinished review asks for responses while the author continues deciding; defer source revisions until they finish.
+Reread feedback after applying and run begin with the current review. Otherwise, use **Compare saved changes** in VS Code, or **New round** in the standalone app, to compare the saved selection against the working files, then read that round’s feedback and begin with its review ID. Never bypass the check or overwrite outside edits. A copied request from an unfinished review asks for responses while the author continues deciding; defer source revisions until they finish.
 
 Edit the working files within the requested scope and run the manuscript’s relevant build checks. Stage any newly created source files before finishing; snapshots include tracked files and staged new files. Save the pass as a new review round using the values from begin:
 
@@ -71,16 +71,18 @@ If a feedback ledger exists, update its affected rows after the pass using the s
 
 ## Show the result
 
-Open the installed **Manuscript Review.app** with the available app tool, or run the source checkout's `.venv/bin/manuscript-review --review REVIEW_ID`. Use the Library to open a new round; **This round** shows the latest pass and **Since baseline** shows accumulated selected changes. **T** switches between them. Reload an already-open review after importing comments or replies. Use **C** for the attached discussion and **Q** to search current comments and saved exchanges, including notes whose edits disappeared. **Copy agent request**, or **R**, gives the author a prompt to paste into their agent’s chat; the app itself retains only comments and responses. The README lists editing and decision shortcuts.
+Return a VS Code link of the form `vscode://njwfish.manuscript-review/review/REVIEW_ID` with the actual new ID, or use **Manuscript Review: Open manuscript review** to select the round. **Reload review** refreshes an already-open round after importing comments or replies. Keep the same configured library when opening a result. **This round** shows the latest pass and **Since baseline** shows accumulated selected changes; **T** switches between them in focused review. **C** opens attached discussion and **Q** searches comments and saved exchanges, including notes whose edits disappeared. **Copy agent request**, or **R** in focused review, gives the author a prompt for their agent's chat. The interface retains only comments and responses.
 
-To read and comment on an entire manuscript without requiring changes, use **Library → Open manuscript**, or:
+When the author uses the standalone interface, open **Manuscript Review.app** with the available app tool, or run the source checkout's `.venv/bin/manuscript-review --review REVIEW_ID`. Its Library opens new rounds and retains the same discussion and baseline.
+
+To read and comment without requiring changes, use **Open manuscript review** in VS Code, **Library → Open manuscript** in the standalone app, or:
 
 ```sh
 "/path/to/skill/scripts/review-agent" open --repo /absolute/path/to/manuscript
 ```
 
-Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. **Manuscript** in the comparison selector opens all supported text sources. The author selects text and presses **⌘/Ctrl+Shift+M** to comment, saves manual edits, then uses **Copy agent request** or **⌘/Ctrl+Shift+R** from the editor. Use the discussion arrows or **⌘/Ctrl+Shift+[ / ]** to step through comments across files. **View change** opens the attached diff. Source comments use the same begin, finish, and respond operations above.
+Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then saves and uses **Compare saved changes** before copying an agent request. **⌘/Ctrl+Alt+[ / ]** steps through native comments across files. **View change** opens the attached diff. The standalone app's **Manuscript** view opens supported text sources in its editor; its comment navigation uses **⌘/Ctrl+Shift+[ / ]**. Source comments use the same begin, finish, and respond operations above.
 
-To start a comparison, use **Library → Compare versions**: choose a local folder or clone a GitHub repository into a chosen folder, then select commits or saved checkpoints from the two version dropdowns. **Fetch latest commits** updates remote history without changing working files.
+To start a comparison in VS Code, use **Compare manuscript versions** and pick commits or saved checkpoints. **Clone manuscript from GitHub** opens the cloned folder; **Fetch manuscript history** updates remote history without merging. The standalone app provides these operations through **Library → Compare versions**.
 
 For a library outside the default location, put `--home /absolute/path/to/library` before the subcommand. A copied request includes the review’s saved path; derive the library directory from that path when necessary. Test write operations in an isolated library rather than on the user's live review.

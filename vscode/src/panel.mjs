@@ -17,8 +17,8 @@ body.vscode-review{
 .vscode-review.vscode-light,.vscode-review.vscode-high-contrast-light{--del:#b0303f;--delbg:#f9edee;--ins:#1e7a47;--insbg:#eaf5ed;--notice:#fdf4dc}
 .vscode-review.vscode-dark,.vscode-review.vscode-high-contrast{--del:#ff8fa0;--delbg:#46262c;--ins:#86dba5;--insbg:#20392b;--notice:#3d3420}
 .vscode-review #library,.vscode-review #hide-files,.vscode-review #draft-status,
-.vscode-review #copy-request-header,.vscode-review #copy-request-feedback,
-.vscode-review #import-responses,.vscode-review [data-standalone]{display:none}
+ .vscode-review #copy-request-header,.vscode-review #copy-request-feedback,
+.vscode-review [data-standalone]{display:none}
 .vscode-review .review-summary{padding-block:10px}
 .vscode-review header{backdrop-filter:none}
 .vscode-review #round-state{cursor:pointer}
@@ -48,7 +48,7 @@ export function webviewHTML(html,webview,assets,vscode){
   .replace('src="/app.js"','src="'+uri('app.js')+'"');
 }
 
-export function createPanel(vscode,context,runtime,{onSource,onChange,onApply,onCommand}){
+export function createPanel(vscode,context,runtime,{onSource,onChange,onApply,onCommand,agentLauncher}){
  let panel,waiting=new Map(),loaded,resolveLoaded,rejectLoaded,selection,revision,pending=0,changedRevision,ready=false;
  const assets=path.join(context.extensionPath,'dist','runtime','manuscript_review');
  const viewer=path.join(context.extensionPath,'dist','viewer');
@@ -79,7 +79,7 @@ export function createPanel(vscode,context,runtime,{onSource,onChange,onApply,on
    const actions={
     request:async()=>{
      pending++;
-     try{const data=await (message.path==='/apply'?onApply(message.body):runtime.request(message.path,message.body));if(origin===panel)revision=Math.max(revision??-1,data.data?.revision??data.revision??-1);if(message.body)onChange();return {status:200,data};}
+     try{const data=await (message.path==='/apply'?onApply(message.body):runtime.request(message.path,message.body));if(message.path.startsWith('/data')){data.agent_launcher=agentLauncher;data.interface='vscode';}if(origin===panel)revision=Math.max(revision??-1,data.data?.revision??data.revision??-1);if(message.body)onChange();return {status:200,data};}
      catch(error){return {status:error.status||500,data:{error:error.message,stale:Boolean(error.stale)}};}
      finally{if(!--pending)reconcile();}
     },

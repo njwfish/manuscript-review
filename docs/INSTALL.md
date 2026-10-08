@@ -1,5 +1,22 @@
 # Installation
 
+## VS Code extension
+
+VS Code is the primary interface. [Build the preview](../vscode/README.md#build) to
+obtain `vscode/dist/manuscript-review-0.1.2.vsix`, then install it through **Extensions →
+Install from VSIX…**. The extension includes the engine, comparison viewer, and agent
+skill. Its workspace host needs macOS or Linux, Git, and Python 3.12 or later. Set
+**Manuscript Review: Python Path** when `python3` refers to a different interpreter.
+LaTeX and Poppler enable typeset previews, as described below.
+
+Run **Manuscript Review: Setup and agent skill** to check prerequisites and install
+the bundled skill for Codex or Claude Code. **Open manuscript review** opens a local
+manuscript; **Clone manuscript from GitHub** clones into a chosen directory and opens
+that folder. **Compare manuscript versions** selects commits or saved checkpoints.
+The [VS Code guide](../vscode/README.md) covers editing, comments, review rounds, and
+Apply. Reviews use the default library unless **Library Directory** is set; an existing
+library retains its choices, replies, and history. The standalone app is optional.
+
 ## macOS app
 
 Download the app ZIP from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** into **Applications**. Open the app to start reviewing. The app supports Apple Silicon Macs running macOS 13 or later and includes its Python runtime.
@@ -28,7 +45,12 @@ To update, quit the app and replace it with the new release. Your review library
 
 The skill gives an agent the commands and review cycle needed to read your comments, append responses, and create another round. It requires an agent with local filesystem and shell access on the same machine as your manuscript and review library.
 
-Open **Library → Setup** and click **Install skill** beside Codex or Claude Code. The app links its bundled skill into the agent’s personal skills directory, preserving any existing skill. Start a new agent session after installing.
+In VS Code, run **Setup and agent skill** and choose your agent. The extension retains
+its command engine in VS Code storage and links the bundled skill into the agent's
+personal directory. Extension updates refresh this stable skill directory. In the
+standalone app, use **Library → Setup** and click **Install skill** beside Codex or
+Claude Code. Both installers preserve existing personal skills; replace an older link
+explicitly when changing installations. Start a new agent session after installing.
 
 For manual setup with Codex, link the bundled skill into its [personal skills directory](https://developers.openai.com/codex/skills):
 
@@ -87,6 +109,13 @@ mkdir -p ~/.claude/skills
 Keep the checkout and its `.venv` in place while using the linked skill. See [Development](DEVELOPMENT.md) to build the native app.
 
 ## Upgrade an existing library
+
+For the VS Code extension, run **Setup and agent skill → Copy agent command**. Setup
+prepares its command launcher even when an older library cannot open. Close VS Code
+and any standalone review windows, paste that command into a terminal, and append
+`migrate`. For another library, append `--home /absolute/path/to/library migrate`
+instead. Reopen the extension after migration. The command preserves original records
+and leaves manuscript files unchanged.
 
 Version 0.11 uses full-file source drafts. Before opening an existing version 0.10 library in the updated app, quit the old app, replace it, and run:
 

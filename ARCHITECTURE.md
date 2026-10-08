@@ -1,6 +1,6 @@
 # Manuscript Review architecture
 
-The native app hosts one Python service and one web interface. All application code lives in `manuscript_review/`; there are no repository-specific wrappers or alternate implementations. The runtime uses Python's standard library.
+VS Code is the primary interface. Its extension bundles and starts the Python review service, hosts focused comparisons and PDF review, and uses the native editor and comments for manuscript work. The standalone app remains another interface to the same service and review records. Shared review operations live in `manuscript_review/`; VS Code adapters live in `vscode/`. The Python runtime uses its standard library.
 
 ## The review record
 
@@ -48,6 +48,23 @@ through `host.js` to the shared focused-review client. Navigation stays in webvi
 Apply checks unsaved repository buffers immediately before sending its queued transaction;
 the review engine retains its source, revision, and Git checks. Comparing saved source
 checks buffers both before flushing the focused panel and before creating the new round.
+
+The extension's setup, repository comparison, library, Apply, response imports, and
+agent workflow use the shared operations directly. Git comparisons select commits or
+checkpoints through native pickers. Source drafts from the shared library can open as
+untitled editor copies or be explicitly discarded; opening a copy leaves its saved
+record and the working file intact. New editor drafts use VS Code's own buffer and
+recovery behavior. Saved edits become a new round through the shared update operation.
+
+The agent skill, command engine, and referenced guides ship in the VSIX. Setup reports
+prerequisites without opening a review library, so its commands remain available for
+explicit migrations. On setup or opening a review,
+the extension copies its engine into a versioned directory in VS Code global storage
+and refreshes one stable skill directory there. The skill launcher captures that engine
+path and its Python interpreter and is published by atomic rename. Installed agent links target the stable directory;
+earlier engine copies remain available through extension upgrades. Review data lives
+in the review library, independently of extension storage. Agent result links select
+an exact round through the extension's URI handler.
 
 The extension bundles a pinned adaptation of LaTeX Workshop's PDF viewer. Its parent
 bridge supplies immutable comparison PDF bytes and the existing normalized change

@@ -5,8 +5,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 
 const identifier = /^[a-f0-9]{24}$/;
 const scopes = new Set(['round', 'baseline', 'manuscript']);
-const libraryWrites = new Set(['/inspect', '/prepare', '/manuscript', '/update', '/open']);
-const reviewWrites = new Set(['/editor', '/note', '/save', '/apply', '/ui', '/responses', '/retain']);
+const libraryWrites = new Set(['/inspect', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
+const reviewWrites = new Set(['/editor', '/note', '/save', '/apply', '/draft', '/ui', '/responses', '/retain']);
 
 function localURL(value) {
     if (typeof value !== 'string' || !/^http:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*\/$/.test(value)) {
@@ -222,10 +222,10 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
     }
 
     async function prepare(path, body) {
-        if (!['/manuscript', '/update', '/prepare'].includes(path)) throw new Error('Choose a manuscript preparation operation.');
+        if (!['/manuscript', '/update', '/prepare', '/clone', '/fetch'].includes(path)) throw new Error('Choose a manuscript preparation operation.');
         const result = await library(path, body);
         if (!identifier.test(result.job)) throw new Error('The manuscript service returned an invalid preparation job.');
-        const deadline = Date.now() + 120_000;
+        const deadline = Date.now() + (['/clone', '/fetch'].includes(path) ? 320_000 : 120_000);
         while (!stopped && Date.now() < deadline) {
             const job = await library(`/jobs/${result.job}`);
             if (job.status === 'ready') return job;

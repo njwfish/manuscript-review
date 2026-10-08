@@ -1,8 +1,9 @@
 {
   "name": "manuscript-review",
   "displayName": "Manuscript Review",
+  "activationEvents": ["onUri"],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -93,6 +94,41 @@
         "command": "manuscriptReview.viewCommentChange",
         "title": "View change",
         "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.compare",
+        "title": "Compare manuscript versions",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.clone",
+        "title": "Clone manuscript from GitHub",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.fetch",
+        "title": "Fetch manuscript history",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.library",
+        "title": "Browse review library",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.import",
+        "title": "Import saved review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.setup",
+        "title": "Setup and agent skill",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.sourceDrafts",
+        "title": "Saved source drafts",
+        "category": "Manuscript Review"
       }
     ],
     "configuration": {
@@ -107,7 +143,7 @@
         "manuscriptReview.libraryDirectory": {
           "type": "string",
           "default": "",
-          "description": "Review library directory. Leave empty to share the standalone app library.",
+          "description": "Review library directory. Leave empty to use the default user library.",
           "scope": "machine-overridable"
         }
       }
@@ -200,7 +236,7 @@
   "scripts": {
     "build": "node src/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.1.vsix"
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.2.vsix"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

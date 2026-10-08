@@ -38,16 +38,16 @@ def agent_status(agent, home, source):
 def setup_status(home=None):
     home, source = Path(home or Path.home()), skill_directory()
     tools = {name: shutil.which(name) for name in ('latexmk', 'pdflatex', 'pdftocairo', 'pdftotext', 'pdfinfo')}
-    return {'git': git_available(), 'preview_tools': tools, 'skill_available': (source / 'SKILL.md').is_file(),
+    return {'python': sys.executable, 'git': git_available(), 'preview_tools': tools, 'skill_available': (source / 'SKILL.md').is_file(),
             'agents': [agent_status(agent, home, source) for agent in AGENTS]}
 
 
-def install_skill(agent, home=None):
+def install_skill(agent, home=None, source=None):
     if agent not in AGENTS:
         raise ValueError('Choose Codex or Claude Code.')
-    home, source = Path(home or Path.home()), skill_directory()
+    home, source = Path(home or Path.home()), Path(source) if source else skill_directory()
     if not (source / 'SKILL.md').is_file():
-        raise ValueError('The bundled skill is missing. Use the app release or a source checkout.')
+        raise ValueError('The bundled skill is missing. Reinstall Manuscript Review or use a source checkout.')
     status = agent_status(agent, home, source)
     if status['linked']:
         return {'message': f'{status["name"]} already has this skill.'}
