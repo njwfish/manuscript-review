@@ -29,7 +29,6 @@
  --selection:rgb(11 105 212/.14);
  --shadow:0 .5px 2px rgb(0 0 0/.12);
  --header-h:48px;
- --serif:ui-serif,"New York",Georgia,serif;
  --mono:ui-monospace,"SF Mono",Menlo,monospace;
 }
 @media(prefers-color-scheme:dark){
@@ -131,7 +130,7 @@ h2{font-size:19px;font-weight:600;letter-spacing:-.2px;margin:0 0 6px}
 
 /* Passage text */
 .passage{outline:0;scroll-margin-bottom:110px}
-.passage-body{font:19px/1.9 var(--serif);white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
+.passage-body{font:14px/1.8 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
 .passage-body.code{font:13px/1.75 var(--mono);background:var(--bg);border-radius:8px;padding:18px 20px}
 .ellipsis{color:var(--faint)}
 del{color:var(--del);background:var(--delbg);text-decoration:line-through;text-decoration-thickness:1px;border-radius:2px}
@@ -181,7 +180,7 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .detail{margin-top:16px;font-size:12.5px}
 .detail summary{color:var(--muted);width:fit-content}
 .detail summary:hover{color:var(--ink)}
-.detail .passage-body{margin-top:14px;font-size:15px}
+.detail .passage-body{margin-top:14px;font-size:13px}
 .edit-list{list-style:none;padding:8px 0;margin:0}
 .edit-list li+li{border-top:1px solid var(--line)}
 .edit-option{display:block;width:100%;padding:11px 0;text-align:left;background:transparent;border:0;border-radius:0;box-shadow:none;font:12.5px/1.7 var(--mono);overflow-wrap:anywhere;white-space:pre-wrap}
@@ -195,7 +194,7 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .source-editor summary:hover,.discussion-panel summary:hover{color:var(--ink)}
 .source-editor[open],.discussion-panel[open]{background:var(--bg);border-radius:10px;padding:14px 18px 16px}
 .source-editor textarea{display:block;width:100%;resize:vertical;margin-top:8px}
-.source-area{font:12.5px/1.7 var(--mono);tab-size:2}
+.source-area{font:14px/1.7 var(--mono);tab-size:2}
 .revision-controls{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .revision-controls button{font-size:12px}
 .field-label{display:block;font-size:11px;color:var(--faint);margin-top:12px}
@@ -249,7 +248,6 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  main{padding:24px 28px 18px}
  .shell{grid-template-columns:200px minmax(0,1fr)}
  .typeset-pair{gap:10px}
- .passage-body{font-size:18px}
 }
 @media(max-width:650px){
  header{padding:0 8px;gap:2px}
@@ -261,7 +259,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  aside{position:static;height:auto;max-height:230px;border-right:0;border-bottom:1px solid var(--line)}
  main,main.rendered{padding:20px 16px}
  .typeset-pair{grid-template-columns:minmax(0,1fr);gap:16px}
- .passage-body{font-size:17px}
+ .passage-body{font-size:13px}
  .passage-body.code{padding:14px}
  .decisionbar{flex-wrap:wrap}
  .decisionbar button{font-size:12px;padding:5px 10px}

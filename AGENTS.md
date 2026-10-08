@@ -8,6 +8,9 @@ with spacing and alignment, without middle-dot or bullet separators. Avoid decor
 badges, emoji, gradients, nested cards, and generic helper copy. Use color for source
 changes, focus, actions, and status.
 
+Use monospace for all raw manuscript text and source editing, including LaTeX prose
+and inline math. Typeset previews retain the manuscript's own typography.
+
 Read ARCHITECTURE.md before changing review persistence or source writes. Use the
 same ReviewSession and Library operations from the UI and agent commands. Preserve
 earlier rounds, the fixed baseline, author choices, drafts, and discussion.
