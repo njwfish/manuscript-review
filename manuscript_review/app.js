@@ -164,9 +164,9 @@ async function savePassage(){
  finally{area.readOnly=false;editing=false;document.body.classList.remove('saving-passage');}
 }
 function updateSidebar(){
- const aside=$('files');aside.replaceChildren();aside.append(node('div','nav-label','Manuscript & references'));let supporting=false;
+ const aside=$('files');aside.replaceChildren();aside.append(node('div','nav-label','Manuscript'));let supporting=false;
  data.files.forEach((f,i)=>{
-  if(f.supporting&&!supporting){aside.append(node('div','nav-label','Supporting files'));supporting=true;}
+  if(f.supporting&&!supporting){aside.append(node('div','nav-label','Supporting'));supporting=true;}
   const done=f.edits.filter(g=>choice(g.id)!=='pending').length;
   const b=button('',()=>{active=i;passage=edit=0;render();focusSelection();},'file'+(i===active?' active':''));b.title=f.path;b.setAttribute('aria-label',f.path);
   if(i===active)b.setAttribute('aria-current','true');
@@ -180,11 +180,11 @@ function updateProgress(){
  const draftCount=Object.keys(drafts).length;
  $('draft-status').hidden=!Object.keys(drafts).length;$('draft-status').textContent=`${Object.keys(drafts).length} ${Object.keys(drafts).length===1?'draft':'drafts'}`;
  $('progress').disabled=readOnly()||!progress.complete;
- $('progress').textContent=readOnly()?`${progress.total} accumulated changes`:progress.complete?'Review complete':`${progress.done} / ${progress.total} reviewed`;
- $('progress').title=readOnly()?'Original baseline → selected manuscript':`${accepted} accepted · ${rejected} rejected · ${all.length-accepted-rejected} undecided · ${count} comments`;
+ $('progress').textContent=readOnly()?`${progress.total} changes since baseline`:progress.complete?'Review complete':`${progress.done} of ${progress.total} reviewed`;
+ $('progress').title=readOnly()?'Original baseline → selected manuscript':`${accepted} accepted · ${rejected} rejected · ${all.length-accepted-rejected} undecided · ${count} ${count===1?'comment':'comments'}`;
  $('review-summary').hidden=readOnly()||!progress.total||!progress.complete;
  $('review-state').textContent=`${staleReview?'Review changed · Reload to continue':saveFailed||draftChanges.size?'Changes need saving':'Choices saved'} · ${data.applied?'Manuscript applied':'Ready to apply'}${count?` · ${count} ${count===1?'comment':'comments'}`:''}${draftCount?` · ${draftCount} ${draftCount===1?'draft':'drafts'}`:''}`;
- $('handoff-hint').textContent=draftCount?'Save or discard your passage drafts before requesting text revisions.':'Copy an agent request and paste it into your chat to respond to comments or refine the manuscript.';
+ $('handoff-hint').textContent=draftCount?'Save or discard your passage drafts before requesting text revisions.':'Paste the request into your agent’s chat.';
  $('copy-request-header').hidden=readOnly()||progress.complete||!count;
  $('copy-request').className=data.applied?'primary':'quiet';
  const finish=$('finish-review');finish.hidden=false;
@@ -264,9 +264,14 @@ function render(){
  const h=currentHunk(),g=currentEdit(),display=shownView(h);
  updateSidebar();updateProgress();remember();
  bulkControls('passage-actions',h.edits.map(g=>g.id),'passage');bulkControls('file-actions',f.edits.map(g=>g.id),'file');
- const main=$('main');main.replaceChildren();main.append(node('div','mobile-identity',$('manuscript-title').textContent),node('div','file-path',f.path),node('h2','',niceName(f.path)));
- const context=node('div','context',`File ${active+1} of ${data.files.length} · Passage ${passage+1} of ${f.hunks.length} · Original line ${h.line}`);context.id='selection';context.setAttribute('aria-live','polite');main.append(context);
- const bar=node('div','reviewbar');bar.append(node('span','counter',`Edit ${edit+1} of ${h.edits.length}`));
+ const main=$('main');main.replaceChildren();main.classList.toggle('rendered',display==='rendered');
+ const bar=node('div','contextbar'),context=node('div','context');context.id='selection';context.setAttribute('aria-live','polite');
+ const parts=[`passage ${passage+1} of ${f.hunks.length}`];
+ if(data.files.length>1)parts.unshift(`file ${active+1} of ${data.files.length}`);
+ if(h.edits.length>1)parts.push(`edit ${edit+1} of ${h.edits.length}`);
+ context.append(node('span','context-name',niceName(f.path)),document.createTextNode(` · ${parts.join(' · ')}`));
+ context.title=`${f.path} · original line ${h.line}`;
+ bar.append(context);
  const prev=button('‹',()=>moveEdit(-1),'nav-button');prev.setAttribute('aria-label','Previous edit (D)');prev.disabled=locationIndex()===0;
  const next=button('›',()=>moveEdit(1),'nav-button');next.setAttribute('aria-label','Next edit (F)');next.disabled=locationIndex()===locations.length-1;bar.append(prev,next);
  const mode=node('select','view-select');mode.setAttribute('aria-label','Review view');
@@ -302,13 +307,13 @@ function render(){
  if(readOnly()){
   controls.append(node('span','muted','Selected manuscript since the original baseline'),button('Return to this round',()=>switchScope('round')));main.append(controls);
   const history=selectedFeedback();if(history.length){const panel=node('details','discussion');panel.dataset.key='cumulative-discussion';panel.append(node('summary','','Discussion'));history.forEach(entry=>panel.append(discussionEntry(entry)));main.append(panel);}
-  main.append(allEdits(h));
+  if(h.edits.length>1)main.append(allEdits(h));
  }else{
   for(const entry of selectedExplanations()){const explanation=discussionEntry(entry);explanation.classList.add('rationale');main.append(explanation);}
-  controls.append(accept,reject,revise,comment,reset,node('span','decision-state',{pending:'Undecided',accept:'Accepted',reject:'Rejected'}[s]));main.append(controls);
-  main.append(sourceEditor(h),discussionPanel(h,g),allEdits(h));
+  controls.append(accept,reject,revise,comment,reset,node('span','decision-state state-'+s,{pending:'Undecided',accept:'Accepted',reject:'Rejected'}[s]));main.append(controls);
+  main.append(sourceEditor(h),discussionPanel(h,g));if(h.edits.length>1)main.append(allEdits(h));
  }
- const foot=node('div','statusline');foot.append(node('span','',readOnly()?'D / F to move · T for this round · ? for shortcuts':'D / F to move · A / S to decide · ? for shortcuts'));const saveStatus=node('span','','');saveStatus.id='status';saveStatus.setAttribute('role','status');saveStatus.setAttribute('aria-live','polite');foot.append(saveStatus);main.append(foot);
+ const foot=node('div','statusline');const saveStatus=node('span','','');saveStatus.id='status';saveStatus.setAttribute('role','status');saveStatus.setAttribute('aria-live','polite');foot.append(saveStatus);main.append(foot);
  document.querySelectorAll('main details').forEach(d=>{if(open.has(d.dataset.key)){d.hidden=false;d.open=true;}});status(oldStatus,oldError);
 }
 function focusSelection(){if(!data.files.length)return;

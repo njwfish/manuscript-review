@@ -18,7 +18,7 @@ Start with manuscript text sources in a Git repository with at least one commit;
 
 Pick **Compare from** and **Compare to** from dropdowns of saved review checkpoints, branches, tags, and recent commits. Each commit shows its date, message, and short hash; use **Find a version** to filter them. **Working files** captures tracked files, including staged new files, without changing HEAD or the index. **Fetch latest commits** updates remote history without merging or changing your manuscript. Choose the LaTeX entry file for equation and algorithm previews.
 
-The Library shows one card per manuscript, with its latest review and earlier rounds under **History**. **Open latest** resumes the current round. **New round** compares working files against the latest selected draft and preserves the original baseline. Earlier choices are already part of the starting draft, so rejecting a new edit keeps that earlier wording. **Compare…** lets you choose another pair of versions.
+The Library shows one entry per manuscript, with its latest review and earlier rounds under **History**. **Open** resumes the current round. **New round** compares working files against the latest selected draft and preserves the original baseline. Earlier choices are already part of the starting draft, so rejecting a new edit keeps that earlier wording. **Compare…** lets you choose another pair of versions.
 
 The review opens in **This round**, showing only changes from its starting draft to its proposal. Switch to **Since baseline**, or press **T**, to inspect the selected manuscript against the original baseline. This cumulative view updates with your decisions; review decisions and passage edits belong to **This round**. Earlier comments and replies remain available beside matching edits and in **All feedback**. The app reopens your last review on launch.
 
@@ -30,7 +30,7 @@ Press **E** to edit the whole selected passage, starting from your current choic
 
 Press **C** to comment on an edit, or **Shift+C** for a passage note. The **Comment on** selector changes the scope. Earlier feedback and replies appear above the follow-up field. **Q** opens current comments and earlier discussion, with search. Replies append, so another revision pass can retain the full exchange.
 
-When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard passage drafts before applying. **More → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
+When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard passage drafts before applying. **Review tools (⋯) → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
 
 The macOS library lives in `~/Library/Application Support/Manuscript Review/`, separate from the app. Replacing the app preserves your saved reviews. [Advanced usage](docs/USAGE.md) covers exports, manual response imports, and recovery.
 

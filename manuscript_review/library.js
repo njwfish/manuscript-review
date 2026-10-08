@@ -26,7 +26,7 @@ async function loadSetup(){
    install.disabled=true;$('setup-message').textContent='';
    try{const result=await post('/install-skill',{agent:agent.id});await loadSetup();$('setup-message').className='form-error';$('setup-message').textContent=result.message;}
    catch(error){$('setup-message').className='form-error error';$('setup-message').textContent=error.message;install.disabled=false;}
-  });install.disabled=!info.skill_available;item.append(install);}
+  },'');install.disabled=!info.skill_available;item.append(install);}
   return item;
  }));
  if(!info.skill_available){$('setup-message').className='form-error error';$('setup-message').textContent='The bundled skill is unavailable. Install from the app release or a source checkout.';}
@@ -72,7 +72,7 @@ function reviewCard(rounds){
  const meta=node('div','meta',`${roundStatus(review)} · ${review.files} ${review.files===1?'file':'files'} · ${date}${rendering?' · Typesetting…':''}`);meta.title=review.repo;content.append(meta);
  if(review.preview_status==='error'){const detail=node('details'),summary=node('summary','','Typeset preview unavailable');detail.append(summary,node('pre','',review.preview_error||'Word changes are available.'));content.append(detail);}
  if(review.skipped?.length){const detail=node('details');detail.append(node('summary','',`${review.skipped.length} non-text or unsupported files omitted`),node('pre','',review.skipped.join('\n')));content.append(detail);}
- const controls=node('div','review-actions'),update=action('New round',()=>updateReview(review.id,update));update.title='Review working files against the latest selected draft';controls.append(action('Compare…',()=>create(review.repo)),update,action('Open latest',()=>openReview(review.id),'primary'));
+ const controls=node('div','review-actions'),update=action('New round',()=>updateReview(review.id,update));update.title='Review working files against the latest selected draft';const open=action('Open',()=>openReview(review.id),'primary');open.title='Open the latest round';controls.append(action('Compare…',()=>create(review.repo)),update,open);
  const top=node('div','review-current');top.append(content,controls);card.append(top);
  if(rounds.length>1){
   const history=node('details','review-history');history.dataset.repo=review.repo;
