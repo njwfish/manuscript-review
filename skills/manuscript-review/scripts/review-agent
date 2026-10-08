@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+tool_root=$(CDPATH= cd -P "$(dirname "$0")/../../.." && pwd)
+if [ -x "$tool_root/Backend/ManuscriptReviewBackend" ]; then
+    exec "$tool_root/Backend/ManuscriptReviewBackend" agent "$@"
+fi
+exec "$tool_root/.venv/bin/manuscript-review-agent" "$@"

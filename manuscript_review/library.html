@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manuscript Review</title>
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#f8f8f5,#171a19);--paper:light-dark(#fff,#222624);--ink:light-dark(#26352e,#ecf0ed);--muted:light-dark(#6a766e,#a9b5ad);--line:light-dark(#e1e6df,#3f4942);--accent:light-dark(#466353,#b2d3be);--error:light-dark(#a83245,#ffb8c1)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,sans-serif}button,input,select{font:inherit;color:inherit}button{cursor:pointer;border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:9px 15px}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:wait}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.primary{background:var(--ink);color:var(--paper);border-color:transparent}.quiet{background:transparent;border-color:transparent;color:var(--muted)}header{height:78px;display:flex;align-items:center;padding:0 32px;border-bottom:1px solid var(--line);background:var(--paper);gap:14px}h1{font-size:18px;font-weight:600;letter-spacing:-.3px;margin:0}.header-actions{margin-left:auto;display:flex;gap:8px}main{max-width:920px;padding:48px 32px;margin:auto}h2{font-size:27px;font-weight:500;letter-spacing:-.5px;margin:0 0 8px}.intro{color:var(--muted);margin:0 0 32px}.review{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:23px 25px;margin-bottom:15px}.review-current{display:flex;align-items:center;gap:22px}.review-content{min-width:0;flex:1}.review h3{font-size:18px;font-weight:500;margin:0 0 7px}.round-title{font-size:13px;color:var(--muted);margin-bottom:8px}.review-history{margin-top:20px;border-top:1px solid var(--line);padding-top:15px}.review-history summary{width:fit-content}.history-round{display:flex;align-items:center;gap:20px;border-top:1px solid var(--line);padding:16px 0}.history-round:first-of-type{margin-top:15px}.history-round:last-child{padding-bottom:0}.history-content{flex:1;min-width:0}.history-title{font-size:13px;color:var(--ink);margin-bottom:5px}.versions{font-size:13px;overflow-wrap:anywhere}.meta{font-size:12px;color:var(--muted);margin-top:8px}.review-actions{display:flex;gap:5px}.empty{border:1px dashed var(--line);border-radius:12px;padding:44px 28px;text-align:center}.empty p{color:var(--muted);margin:0 0 22px}.empty h3{font-size:19px;font-weight:500;margin:0 0 9px}#message{min-height:22px;margin-top:20px;color:var(--muted);font-size:13px}#message.error,.error{color:var(--error)}dialog{max-width:min(720px,94vw);width:720px;max-height:90vh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);padding:28px;box-shadow:0 15px 70px #0002}dialog::backdrop{background:#13261d50;backdrop-filter:blur(3px)}.dialog-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}.dialog-head h2{font-size:22px;margin:0}.field{margin-top:20px}.field label{display:block;font-size:12px;font-weight:500;margin-bottom:8px}.input-row{display:flex;gap:8px}input,select{width:100%;min-width:0;border:1px solid var(--line);border-radius:7px;padding:10px 12px;background:var(--bg)}.hint{font-size:12px;color:var(--muted);margin:7px 0 0}.footer{display:flex;justify-content:flex-end;margin-top:28px}.form-error{color:var(--error);font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;margin:18px 0 0}#versions[hidden]{display:none}.key{font-size:11px;opacity:.5;margin-left:8px}details{font-size:12px;color:var(--muted);margin-top:15px}summary{cursor:pointer}details pre{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:650px){header{padding:0 18px}.header-actions{gap:0}main{padding:30px 18px}.review{padding:20px}.review-current{align-items:flex-start;gap:12px;flex-wrap:wrap}.review-actions{margin-left:auto}}
+[hidden]{display:none!important}.source-tabs{display:flex;gap:8px}.source-tabs button{flex:1;background:transparent}.source-tabs button[aria-pressed=true]{background:var(--bg);border-color:var(--accent)}.version-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:15px}.review-actions{flex-wrap:wrap;justify-content:flex-end}@media(max-width:650px){.version-pair{grid-template-columns:minmax(0,1fr);gap:0}}
+</style>
+</head>
+<body>
+<header><h1>Manuscript Review</h1><div class="header-actions"><button id="import" class="quiet">Import review</button><button id="new" class="primary">Compare versions <span class="key">N</span></button></div></header>
+<main><h2>Your manuscripts</h2><p class="intro">Continue the latest review. Earlier rounds and discussion stay in its history.</p><div id="reviews"></div><p id="message" role="status" aria-live="polite"></p></main>
+<dialog id="create">
+ <form id="create-form">
+ <div class="dialog-head"><h2>Compare manuscript versions</h2><button type="button" class="quiet close">Close</button></div>
+ <div class="source-tabs" role="group" aria-label="Manuscript location"><button type="button" id="local-mode" aria-pressed="true">Local folder</button><button type="button" id="github-mode" aria-pressed="false">GitHub repository</button></div>
+ <div id="local-source">
+  <div class="field"><label for="repo">Manuscript folder</label><div class="input-row"><input id="repo" required placeholder="Choose or paste a folder path" autocomplete="off"><button id="browse-repo" type="button" hidden>Choose…</button><button id="inspect" type="button">Load history</button></div></div>
+ </div>
+ <div id="github-source" hidden>
+  <div class="field"><label for="github-url">GitHub repository URL</label><input id="github-url" type="text" placeholder="https://github.com/owner/manuscript" autocomplete="off"></div>
+  <div class="field"><label for="directory">Clone into folder</label><div class="input-row"><input id="directory" placeholder="Choose a destination folder" autocomplete="off"><button id="browse-directory" type="button" hidden>Choose…</button></div><p class="hint">Creates a new subfolder named after the repository.</p></div>
+  <div class="footer"><button type="button" id="clone">Clone and load history</button></div><p id="clone-status" class="hint" role="status"></p>
+ </div>
+ <div class="field" id="repo-choice-field" hidden><label for="repo-choice">Choose the manuscript repository</label><select id="repo-choice"></select></div>
+ <div id="versions" hidden>
+  <div class="footer" style="margin-top:15px"><button type="button" id="fetch" class="quiet" hidden>Fetch latest commits</button></div>
+  <div class="field"><label for="commit-filter">Find a version</label><input type="search" id="commit-filter" placeholder="Filter by commit message, date, or hash" autocomplete="off"></div>
+  <div class="version-pair">
+   <div class="field"><label for="base">Compare from</label><select id="base" required disabled></select></div>
+   <div class="field"><label for="proposed">Compare to</label><select id="proposed" required disabled></select></div>
+  </div>
+  <p class="hint" id="comparison-summary" role="status"></p>
+  <div class="field"><label for="entry">LaTeX document</label><select id="entry"></select><p class="hint">Used for equation and algorithm previews.</p></div>
+ </div>
+ <p class="form-error" id="create-error" role="alert"></p>
+ <div class="footer"><button id="create-submit" class="primary" hidden>Review changes</button></div>
+ </form>
+</dialog>
+<dialog id="import-dialog"><form id="import-form"><div class="dialog-head"><h2>Import a review</h2><button type="button" class="quiet close">Close</button></div><div class="field"><label for="source">Review folder</label><div class="input-row"><input id="source" required placeholder="Folder containing review.json"><button id="browse-source" type="button" hidden>Choose…</button></div><p class="hint">Copies its choices, comments, and previews into your library. The original remains available.</p></div><p class="form-error" id="import-error" role="alert"></p><div class="footer"><button class="primary" id="import-submit">Import review</button></div></form></dialog>
+<script type="module" src="/library.js"></script>
+</body>
+</html>

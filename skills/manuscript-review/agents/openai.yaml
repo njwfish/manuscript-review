@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manuscript Review"
+  short_description: "Work through saved manuscript review feedback"
+  default_prompt: "Use $manuscript-review to read my saved feedback and prepare the requested revisions."

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manuscript-review"
+dynamic = ["version"]
+description = "Local word-level manuscript review with typeset LaTeX, keyboard decisions, and comments"
+requires-python = ">=3.12"
+dependencies = []
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/njwfish/manuscript-review"
+Issues = "https://github.com/njwfish/manuscript-review/issues"
+
+[project.scripts]
+manuscript-review = "manuscript_review.library:main"
+manuscript-review-agent = "manuscript_review.agent:main"
+
+[tool.setuptools.package-data]
+manuscript_review = ["*.html", "*.js"]
+
+[tool.setuptools.dynamic]
+version = {attr = "manuscript_review.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["manuscript_review*"]
