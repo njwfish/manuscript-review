@@ -1,6 +1,8 @@
 'use strict';
 import {choiceFor,selectedSource,editLocations,feedbackForPassage,decisionShortcut,reviewProgress,editContext,currentFeedback,sourceRange,agentRequest,commentThreads,commentShortcut} from './review_model.js';
 import {createEditor} from './editor.js';
+import {request,openSource,imageSource,copyText,exportFile,reviewReady,pdfFrame} from './host.js';
+const embedded=Boolean(globalThis.acquireVsCodeApi);
 let data, decisions={}, comments={}, drafts={}, active=0, passage=0, edit=0;
 let view='auto', overrides={}, previewZoom=100, locations=[];
 let saving=Promise.resolve(), saveFailed=false, commentTimer;
@@ -31,12 +33,12 @@ const savedMessage=()=>data.scope!=='manuscript'&&reviewProgress(data.files,deci
 const currentUI=()=>{const scope=data?.scope||'round',previous=positions[scope]||{},file=editorFile||currentFile()?.path;positions[scope]={active:fileEditor?data.files.findIndex(item=>item.path===file):active,passage,edit,view,overrides,file,cursor:fileEditor?.position()??(previous.file===file?previous.cursor:0)};return {scope,positions,note:noteTarget?.id||noteTarget?.parent||commentId,previewZoom,wide:document.body.classList.contains('wide')};};
 function remember(){
  const ui=currentUI();
- if(data){clearTimeout(uiTimer);uiTimer=setTimeout(()=>fetch('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui})}).catch(()=>{}),400);}
+ if(data){clearTimeout(uiTimer);uiTimer=setTimeout(()=>request('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui})}).catch(()=>{}),400);}
 }
 function button(label,action,cls='quiet'){const b=node('button',cls,label);b.type='button';b.addEventListener('click',action);return b;}
 function keyButton(label,key,action,cls){const b=button(label,action,cls);b.append(node('span','key',key));b.setAttribute('aria-label',`${label} (${key})`);return b;}
 async function post(path,values,notes,extra={}){
- const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({decisions:values,comments:notes,revision:data.revision,...extra})});
+ const r=await request(path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({decisions:values,comments:notes,revision:data.revision,...extra})});
  const result=await r.json();if(!r.ok){if(result.stale){staleReview=true;$('review-notice').hidden=false;updateProgress();}throw new Error(result.error);}data.revision=result.revision;if(result.result)data.result=result.result;return result;
 }
 function retainDraft(id,text){
@@ -178,6 +180,7 @@ async function navigateComment(select){
   const entry=[...data.history,...currentFeedback(data,comments)].find(entry=>entry.id===identifier);
   if(!entry)return;
   if(entry.current){await showRevision(entry);return;}
+  if(embedded){await openSource({file:entry.file,comment:entry.id});return;}
   await switchScope('manuscript',entry.file);
   if(data.scope!=='manuscript')return;
   const index=data.files.findIndex(file=>file.path===entry.file);
@@ -269,6 +272,7 @@ function renderSelection(context=$('selection')){
  context.title=`${file.path}:${h.line}`;
 }
 async function openEditor(position){
+ if(embedded){saveNotes();save();await saving;if(saveFailed||noteChanges.size)return;await openSource({file:currentFile()?.path,edit:currentEdit()?.id,position:typeof position==='number'?position:undefined});return;}
  if(editing||readOnly())return;
  if(openingEditor)return openingEditor;
  const path=currentFile()?.path;
@@ -284,7 +288,7 @@ async function loadEditor(position){
  saveNotes();saveDrafts();save();await saving;
  if(saveFailed||draftChanges.size||currentFile()?.path!==file.path){status('Resolve the save error before editing.',true);return;}
  let doc;
- try{const response=await fetch('/editor?file='+encodeURIComponent(file.path));doc=await response.json();if(!response.ok)throw new Error(doc.error);if(doc.revision!==data.revision)throw new Error('The review changed. Reload before editing.');}
+ try{const response=await request('/editor?file='+encodeURIComponent(file.path));doc=await response.json();if(!response.ok)throw new Error(doc.error);if(doc.revision!==data.revision)throw new Error('The review changed. Reload before editing.');}
  catch(error){status(error.message,true);return;}
  if(fileEditor||data.scope!==scope||currentFile()?.path!==file.path||currentEdit()?.id!==group?.id)return;
  const draft=drafts[file.path];
@@ -321,7 +325,7 @@ async function saveFile(){
   saveNotes();save();await saving;if(saveFailed||draftChanges.size||noteChanges.size)throw new Error('Resolve the save error before saving source.');
   saving=saving.then(()=>post('/file',{...decisions},{...comments},{file:path,source,text}));
   const result=await saving;
-  if(data.scope==='manuscript'){const response=await fetch('/data?scope=manuscript');if(!response.ok)throw new Error('Changes saved; reload to refresh the manuscript.');data=await response.json();}else data=result.data;decisions=data.decisions;comments=data.comments;drafts=data.drafts;locations=editLocations(data);
+  if(data.scope==='manuscript'){const response=await request('/data?scope=manuscript');if(!response.ok)throw new Error('Changes saved; reload to refresh the manuscript.');data=await response.json();}else data=result.data;decisions=data.decisions;comments=data.comments;drafts=data.drafts;locations=editLocations(data);
   active=Math.max(0,data.files.findIndex(f=>f.path===path));passage=Math.max(0,data.files[active]?.hunks.findIndex(h=>h.line>=line)||0);edit=0;
   closeEditor(false);pendingNoteId=target?.id||target?.parent;saveFailed=false;remember();render();resultStatus(result);watchPreviews();
  }catch(error){status(error.message,true);fileEditor?.setReadOnly(false);}
@@ -393,7 +397,7 @@ function renderedPair(h){
   const pane=node('figure','typeset-pane'),caption=node('figcaption');
  caption.textContent=side==='before'?(readOnly()?'Baseline':'Original'):(readOnly()?'Selected':'Proposed');pane.append(caption);
   const r=h.rendered?.[side],scroll=node('div','image-scroll');
-  if(r?.asset){const image=node('img');image.src=(readOnly()?'/baseline-assets/':'/assets/')+r.asset;image.alt=`${side==='before'?'Original with deletions in red':'Revision with additions in green'}, passage ${passage+1}`;scroll.append(image);}
+  if(r?.asset){const image=node('img');imageSource(image,(readOnly()?'/baseline-assets/':'/assets/')+r.asset);image.alt=`${side==='before'?'Original with deletions in red':'Revision with additions in green'}, passage ${passage+1}`;scroll.append(image);}
   else scroll.append(node('p','render-note',['queued','rendering'].includes(data.preview_status)?'Typesetting your revision… Word changes are available.':'No typeset preview for this passage. Select Word changes.'));
   if(side==='after'&&!readOnly()){scroll.classList.add('editable-preview');scroll.addEventListener('click',()=>openEditor());}
   pane.append(scroll);pair.append(pane);
@@ -407,13 +411,20 @@ function pdfPair(group){
   const label=side==='before'?(readOnly()?'Baseline':'Original'):(readOnly()?'Selected':'Proposed');
   const marks=document?.edits[group.id]||[],numbers=[...new Set(marks.map(mark=>mark.page))];
   caption.textContent=label;pane.append(caption);
+  if(embedded&&document?.pdf){
+   const frame=node('iframe','pdf-viewer');frame.title=label+' PDF';
+   pane.append(frame);pair.append(pane);
+   const normalized=marks.map(mark=>{const page=document.pages[mark.page-1];return {...mark,bounds:mark.bounds?.map((value,index)=>Math.max(0,Math.min(1,value/(index%2?page.height:page.width))))??null};});
+   pdfFrame(frame,{path:(readOnly()?'/baseline-assets/':'/assets/')+document.pdf,marks:normalized,color:side==='before'?'removed':'added'}).catch(error=>{frame.replaceWith(node('p','render-note',error.message));});
+   continue;
+  }
   const scroll=node('div','image-scroll pdf-scroll');
   if(document?.pages.length&&!marks.length)scroll.append(node('p','render-note','No direct PDF location for this source edit.'));
   if(!document?.pages.length)scroll.append(node('p','render-note',['queued','rendering'].includes(data.preview_status)?'Typesetting your revision…':document?.error||data.preview_error||'Choose a LaTeX document in the Library to render its PDF.'));
   for(const number of numbers){
    const page=document.pages[number-1],frame=node('div','pdf-page'),image=node('img'),pageMarks=marks.filter(mark=>mark.page===number);
    frame.style.aspectRatio=`${page.width}/${page.height}`;
-   image.src=(readOnly()?'/baseline-assets/':'/assets/')+page.asset;image.alt=`${label}, PDF page ${number} of ${document.pages.length}`+(pageMarks.some(mark=>mark.bounds)?', selected edit highlighted':'');
+   imageSource(image,(readOnly()?'/baseline-assets/':'/assets/')+page.asset);image.alt=`${label}, PDF page ${number} of ${document.pages.length}`+(pageMarks.some(mark=>mark.bounds)?', selected edit highlighted':'');
    frame.append(image);
    if(!pageMarks.some(mark=>mark.bounds))scroll.append(node('p','render-note','PDF page located; highlight unavailable.'));
    for(const mark of pageMarks.filter(mark=>mark.bounds)){
@@ -585,7 +596,7 @@ async function switchScope(scope,path){
  const from=data.scope;
  try{
   saveNotes();saveDrafts();save();await saving;if(saveFailed||draftChanges.size||noteChanges.size)throw new Error('Resolve the save error before changing comparisons.');status('Loading comparison…');
-  const response=await fetch('/data?scope='+scope);if(!response.ok)throw new Error('Could not load this comparison.');
+  const response=await request('/data?scope='+scope);if(!response.ok)throw new Error('Could not load this comparison.');
   data=await response.json();decisions=data.decisions;comments=data.comments;drafts=data.drafts;locations=editLocations(data);
   const position=positions[scope]||{};active=Math.max(0,Math.min(position.active||0,data.files.length-1));passage=position.passage||0;edit=position.edit||0;view=position.view||'auto';overrides=position.overrides||{};
   if(path){const index=data.files.findIndex(file=>file.path===path);if(index>=0){active=index;passage=edit=0;}}
@@ -637,12 +648,13 @@ document.addEventListener('keydown',event=>{
 });
 $('next').addEventListener('click',nextUndecided);
 async function applyChoices(){
+ if(embedded){status('Apply the completed review in the standalone app. VS Code owns source saving in this preview.');return;}
  if(!data||editing||readOnly()||$('apply').disabled)return;if(fileEditor)closeEditor(false);setBusy(true);save();$('apply').disabled=$('finish-review').disabled=true;
  try{await saving;if(saveFailed||draftChanges.size)throw new Error('Resolve the save error before applying.');const result=await post('/apply',{...decisions},{...comments});data.applied=result.applied;$('actions').close();updateProgress();resultStatus(result);}
  catch(e){$('actions').close();status(e.message,true);}finally{setBusy(false);$('apply').disabled=false;updateProgress();}
 }
 $('apply').addEventListener('click',applyChoices);$('finish-review').addEventListener('click',applyChoices);
-async function download(path){try{save();await saving;if(saveFailed||draftChanges.size)throw new Error('Choices and comments could not be saved.');const a=node('a');a.href=path;a.download='';document.body.append(a);a.click();a.remove();}catch(e){status(e.message,true);}}
+async function download(path){try{save();await saving;if(saveFailed||draftChanges.size)throw new Error('Choices and comments could not be saved.');if(embedded){await exportFile(path);return;}const a=node('a');a.href=path;a.download='';document.body.append(a);a.click();a.remove();}catch(e){status(e.message,true);}}
 $('export').addEventListener('click',()=>download('/selected.patch?scope='+data.scope));$('choices').addEventListener('click',()=>download('/feedback.json'));
 $('comparison').addEventListener('change',event=>switchScope(event.target.value));
 $('help').addEventListener('click',help);$('hide-files').addEventListener('click',toggleFiles);$('more').addEventListener('click',()=>$('actions').showModal());
@@ -657,38 +669,40 @@ $('response-file').addEventListener('change',async event=>{
  const file=event.target.files[0];if(!file)return;
  try{const responses=JSON.parse(await file.text());saveDrafts();save();await saving;if(saveFailed||draftChanges.size)throw new Error('Save your current notes before importing responses.');
   const result=await post('/responses',{...decisions},{...comments},{responses});
-  if(readOnly()){const response=await fetch('/data?scope=baseline');if(!response.ok)throw new Error('Responses saved; reload to refresh discussion.');data=await response.json();decisions=data.decisions;comments=data.comments;drafts=data.drafts;}
+  if(readOnly()){const response=await request('/data?scope=baseline');if(!response.ok)throw new Error('Responses saved; reload to refresh discussion.');data=await response.json();decisions=data.decisions;comments=data.comments;drafts=data.drafts;}
   else{data.history=result.history;comments=result.comments;data.comments=comments;}render();$('actions').close();resultStatus(result,'Responses added to the discussion.');
  }catch(error){status(error.message,true);$('response-error').textContent=error.message;}finally{event.target.value='';}
 });
 async function copyAgentRequest(){
  try{if(readOnly()){await switchScope('round');if(readOnly())throw new Error('Return to this round before copying an agent request.');}saveNotes();saveDrafts();save();await saving;if(saveFailed||draftChanges.size||noteChanges.size)throw new Error('Comments could not be saved.');if(Object.keys(drafts).length)throw new Error('Save or discard your file drafts before requesting a revision.');
   const progress=reviewProgress(data.files,decisions),request=agentRequest(data,progress.complete||progress.total===0);
-  if(window.webkit?.messageHandlers?.copyText)window.webkit.messageHandlers.copyText.postMessage(request);else await navigator.clipboard.writeText(request);
+  if(window.webkit?.messageHandlers?.copyText)window.webkit.messageHandlers.copyText.postMessage(request);else await copyText(request);
   $('actions').close();$('feedback').close();status('Agent request copied. Paste it into your chat.');}
  catch(e){$('actions').close();$('feedback').close();status(e.message,true);}
 }
 for(const id of ['copy-request','copy-request-header','copy-request-more','copy-request-feedback'])$(id).addEventListener('click',copyAgentRequest);
 async function ready(){
  try{
-  const r=await fetch('/data');if(!r.ok)throw new Error('Could not load review snapshot.');data=await r.json();decisions=data.decisions;comments=data.comments;
+  const r=await request('/data');if(!r.ok)throw new Error('Could not load review snapshot.');data=await r.json();decisions=data.decisions;comments=data.comments;
   locations=editLocations(data);
   const ui=data.ui;
-  if(ui.scope&&ui.scope!==data.scope){const response=await fetch('/data?scope='+ui.scope);if(!response.ok)throw new Error('Could not restore the manuscript view.');data=await response.json();decisions=data.decisions;comments=data.comments;locations=editLocations(data);}
+  if(ui.scope&&ui.scope!==data.scope&&(!embedded||ui.scope!=='manuscript')){const response=await request('/data?scope='+ui.scope);if(!response.ok)throw new Error('Could not restore the manuscript view.');data=await response.json();decisions=data.decisions;comments=data.comments;locations=editLocations(data);}
   pendingNoteId=commentId=ui.note;positions=ui.positions||{};const position=positions[data.scope]||{};
   active=Math.max(0,Math.min(position.active||0,data.files.length-1));passage=position.passage||0;edit=position.edit||0;
   drafts=data.drafts;view=position.view||'auto';overrides=position.overrides||{};previewZoom=ui.previewZoom||100;
   document.body.classList.toggle('wide',Boolean(ui.wide));
   zoomPreview(0);$('snapshot').textContent=`${data.base.slice(0,7)} to ${data.proposed.slice(0,7)}`;
   if(data.library_url){const link=$('library');link.href=data.library_url;link.hidden=false;}
+  if(embedded){document.body.classList.add('wide');$('comparison').querySelector('option[value=manuscript]')?.remove();}
   render();focusSelection();status('Saved locally');
+  if(embedded)reviewReady();
   if(['queued','rendering'].includes(data.preview_status))watchPreviews();
- }catch(e){$('main').append(node('p','error',e.message));}
+ }catch(e){$('main').append(node('p','error',e.message));if(embedded)reviewReady(e.message);}
 }
 async function watchPreviews(){
  const scope=data.scope,proposed=data.proposed;
  try{
-  const r=await fetch('/data?scope='+scope);if(!r.ok)return;const fresh=await r.json();if(data.scope!==scope||data.proposed!==proposed)return;data.preview_status=fresh.preview_status;data.documents=fresh.documents;data.preview_error=fresh.preview_error;
+  const r=await request('/data?scope='+scope);if(!r.ok)return;const fresh=await r.json();if(data.scope!==scope||data.proposed!==proposed)return;data.preview_status=fresh.preview_status;data.documents=fresh.documents;data.preview_error=fresh.preview_error;
   fresh.files.forEach((f,fi)=>f.hunks.forEach((h,hi)=>{const target=data.files.find(file=>file.path===f.path)?.hunks.find(passage=>passage.id===h.id);if(target)target.rendered=h.rendered;}));
   if(['queued','rendering'].includes(data.preview_status))setTimeout(watchPreviews,2500);
   else if(!fileEditor&&!document.activeElement.matches('textarea,input,select'))render();
@@ -696,13 +710,26 @@ async function watchPreviews(){
 }
 window.flushReview=async()=>{
  if(!data)return;if(editing)throw new Error('Wait for the current operation to finish.');saveNotes();saveDrafts();save();await saving;
- if(staleReview){const retained=await fetch('/retain',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({revision:data.revision,decisions,comments,drafts,notes:[...noteChanges].map(([target,comment])=>({...target,comment}))})});if(!retained.ok)throw new Error('Could not retain your unsaved changes. Try again before reloading.');}
+ if(staleReview){const retained=await request('/retain',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({revision:data.revision,decisions,comments,drafts,notes:[...noteChanges].map(([target,comment])=>({...target,comment}))})});if(!retained.ok)throw new Error('Could not retain your unsaved changes. Try again before reloading.');}
  if((saveFailed||draftChanges.size||noteChanges.size)&&!staleReview)throw new Error('Your latest review could not be saved.');
- clearTimeout(uiTimer);const response=await fetch('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui:currentUI()})});
+ clearTimeout(uiTimer);const response=await request('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui:currentUI()})});
  if(!response.ok)throw new Error('Could not save your review position.');
 };
 $('library').addEventListener('click',async event=>{event.preventDefault();try{await window.flushReview();window.location.assign(data.library_url);}catch(error){status(error.message,true);}});
 $('draft-status').addEventListener('click',resumeDraft);
 $('progress').addEventListener('click',()=>{$('review-summary').scrollIntoView({block:'start'});(data.applied?$('copy-request'):$('finish-review')).focus({preventScroll:true});});
 $('reload-review').addEventListener('click',async()=>{try{await window.flushReview();window.location.reload();}catch(error){status(error.message,true);}});
+if(embedded)window.addEventListener('message',async event=>{
+ if(event.source)return;
+ const message=event.data;
+ if(message?.type==='review-command'&&message.action==='flush'){
+  try{await window.flushReview();window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:true}}));}
+  catch(error){window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:false,error:error.message}}));}
+ }
+ if(message?.type==='review-changed'){staleReview=true;$('review-notice').hidden=false;updateProgress();}
+ if(message?.type==='review-select'&&data){
+  try{await showRevision({file:message.file,id:message.note,target:{id:message.target,kind:message.kind||'edit'}});}
+  catch(error){status(error.message,true);}
+ }
+});
 ready();

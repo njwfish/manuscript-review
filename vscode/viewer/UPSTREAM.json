@@ -1,0 +1,17 @@
+{
+  "project": "LaTeX Workshop",
+  "repository": "https://github.com/James-Yu/LaTeX-Workshop",
+  "version": "10.19.0",
+  "commit": "52f8c9e87b710d17293c4e150a7378ebc9cb801e",
+  "pdfjs": "6.2.108",
+  "upstream_sha256": {
+    "viewer.html": "ebb7bc2a7d61e1d7ede9c2b9219fdd42b474e159d4b05953252ab1f6010f3d97",
+    "viewer.mjs": "93f24c724b050aae19848ae4c5f7386239af4acd3045aca685ef2e4cee728ef8",
+    "viewer.css": "8571da1d8f79b0aa68467a136982670ef75e812047f83faa08666a8670dbafa5",
+    "latexworkshop.css": "98bde03e4dae57531124a007ad2bc0844dac6557f6d7d4fb95caa4e6e9a161b4"
+  },
+  "core_js": {
+    "version": "3.49.0",
+    "license": "https://github.com/zloirock/core-js/blob/v3.49.0/LICENSE"
+  }
+}

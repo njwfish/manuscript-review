@@ -89,6 +89,10 @@ For an initial referee report, ask the agent to anchor its actionable points as 
 
 ## Development
 
+The [VS Code preview](vscode/README.md) uses the native source editor and comments,
+with the shared focused-review interface and an adapted LaTeX Workshop PDF viewer.
+It builds separately as a VSIX; the standalone app remains the stable release.
+
 See [Development](docs/DEVELOPMENT.md) for tests, native builds, and releases, and [Architecture](ARCHITECTURE.md) for the record model and transaction boundaries. The service uses Python's standard library, with a small JavaScript interface and a Swift macOS wrapper.
 
 ## License

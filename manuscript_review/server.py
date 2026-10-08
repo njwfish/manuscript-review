@@ -12,7 +12,7 @@ def create_server(directory, port=0, library_url=None, review_context=None):
     session = ReviewSession(directory, library_url, review_context)
     static = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
               '/review_model.js': ('review_model.js', 'text/javascript'),
-              '/editor.js': ('editor.js', 'text/javascript')}
+              '/editor.js': ('editor.js', 'text/javascript'), '/host.js': ('host.js', 'text/javascript')}
 
     class Handler(LocalHandler):
         content_security_policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"
@@ -59,7 +59,9 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                 return self.response({'error': 'Unexpected origin or review token.'}, status=403)
             try:
                 request = self.read_request()
-                if self.path == '/responses':
+                if self.path == '/editor':
+                    result = session.editor(request['file'], request['text'], request.get('point'))
+                elif self.path == '/responses':
                     result = session.import_responses(request['responses'], request['revision'])
                 elif self.path == '/explanations':
                     result = session.import_explanations(request['explanations'], request['revision'])

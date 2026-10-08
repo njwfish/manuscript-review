@@ -1,0 +1,210 @@
+{
+  "name": "manuscript-review",
+  "displayName": "Manuscript Review",
+  "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
+  "version": "0.1.0",
+  "publisher": "njwfish",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/njwfish/manuscript-review.git"
+  },
+  "engines": {
+    "vscode": "^1.114.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "manuscriptReview.open",
+        "title": "Open manuscript review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.focusedReview",
+        "title": "Focus review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.reviewSavedChanges",
+        "title": "Review saved source changes",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.refresh",
+        "title": "Reload review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.comment",
+        "title": "Comment on selection",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.previousComment",
+        "title": "Previous comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.nextComment",
+        "title": "Next comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.livePDF",
+        "title": "Show location in LaTeX Workshop PDF",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.reply",
+        "title": "Add comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.editComment",
+        "title": "Edit comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.saveComment",
+        "title": "Save comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.cancelComment",
+        "title": "Cancel edit",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.viewCommentChange",
+        "title": "View change",
+        "category": "Manuscript Review"
+      }
+    ],
+    "configuration": {
+      "title": "Manuscript Review",
+      "properties": {
+        "manuscriptReview.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python 3.12 or newer executable used by the local review service.",
+          "scope": "machine-overridable"
+        },
+        "manuscriptReview.libraryDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Review library directory. Leave empty to share the standalone app library.",
+          "scope": "machine-overridable"
+        }
+      }
+    },
+    "menus": {
+      "comments/commentThread/context": [
+        {
+          "command": "manuscriptReview.reply",
+          "when": "commentController == manuscript-review",
+          "group": "inline"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "manuscriptReview.editComment",
+          "when": "comment == manuscriptReview.editable",
+          "group": "inline"
+        }
+      ],
+      "comments/comment/context": [
+        {
+          "command": "manuscriptReview.saveComment",
+          "when": "comment == manuscriptReview.editing",
+          "group": "inline"
+        },
+        {
+          "command": "manuscriptReview.cancelComment",
+          "when": "comment == manuscriptReview.editing",
+          "group": "inline"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "manuscriptReview.viewCommentChange",
+          "when": "commentThread == manuscriptReview",
+          "group": "inline"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "manuscriptReview.comment",
+          "when": "manuscriptReview.source && resourceScheme == file",
+          "group": "navigation@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "manuscriptReview.reply",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.editComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.saveComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.cancelComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.viewCommentChange",
+          "when": "false"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "manuscriptReview.comment",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "manuscriptReview.source && editorTextFocus"
+      },
+      {
+        "command": "manuscriptReview.previousComment",
+        "key": "ctrl+shift+[",
+        "mac": "cmd+shift+[",
+        "when": "manuscriptReview.source && editorTextFocus"
+      },
+      {
+        "command": "manuscriptReview.nextComment",
+        "key": "ctrl+shift+]",
+        "mac": "cmd+shift+]",
+        "when": "manuscriptReview.source && editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node src/build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "@vscode/vsce": "^3.6.0",
+    "pdfjs-dist": "6.2.108"
+  }
+}

@@ -116,15 +116,18 @@ class ReviewSession:
             self.store.commit(record)
         return {'message': 'Review position saved.'}
 
-    def editor(self, path):
-        """The selected file and its retained draft, with exact editor highlights."""
+    def editor(self, path, text=None, point=None):
+        """Project review spans onto selected wording or an exact external buffer."""
         with self.store.transaction():
             record = self.store.read()
         file = document_file(record, path)
         projected = project_source(file, record['decisions'])
         original = projected.content or ''
         draft = record['drafts'].get(path)
-        text = draft['text'] if draft else original
+        if text is None:
+            text = draft['text'] if draft else original
+        elif not isinstance(text, str) or len(text) > 1_000_000:
+            raise ValueError('An editor buffer needs at most 1,000,000 characters.')
         mapping = SourceMap(original, text)
         def offset(point):
             return len(text[:point].encode('utf-16-le')) // 2
@@ -133,6 +136,11 @@ class ReviewSession:
             span = mapping.project(SourceSpan(*projected.ranges[group['id']]))
             ranges.append({'id': group['id'], 'from': offset(span.start), 'to': offset(span.end),
                            'rejected': record['decisions'].get(group['id']) == 'reject'})
+        baseline = SourceMap(file['before'] or '', text)
+        passages = []
+        for passage in file['hunks']:
+            span = baseline.project(SourceSpan(*passage['base_span']))
+            passages.append({'id': passage['id'], 'from': offset(span.start), 'to': offset(span.end)})
         notes = []
         sources = {}
         for entry in record['history']:
@@ -144,8 +152,12 @@ class ReviewSession:
                 sources[version] = SourceMap(read_blob(record['snapshot']['repo'], version, path) or '', text)
             span = sources[version].project(SourceSpan(anchor['start'], anchor['end']))
             notes.append({'id': entry['id'], 'from': offset(span.start), 'to': offset(span.end), 'note': True})
+        position = None
+        if point is not None:
+            start = source_point(original, point)
+            position = offset(mapping.project(SourceSpan(start, start)).start)
         return {'revision': record['revision'], 'file': path, 'source': draft['source'] if draft else record['result'],
-                'original': original, 'text': text, 'ranges': ranges, 'notes': notes}
+                'original': original, 'text': text, 'ranges': ranges, 'passages': passages, 'notes': notes, 'position': position}
 
     def save_note(self, request):
         """Use ordinary discussion entries for comments on any source selection."""

@@ -360,7 +360,11 @@ def create_library_server(library, port=0):
                     result = {'url': library.open(request['id'], request.get('scope'))}
                 elif self.path == '/update':
                     metadata = library.metadata(request['id'])
-                    result = {'job': library.start({**metadata, 'proposed': 'working', 'previous': request['id']})}
+                    update = {**metadata, 'proposed': 'working', 'previous': request['id'],
+                              'require_changes': request.get('require_changes', False)}
+                    if 'expected_revision' in request:
+                        update['expected_revision'] = request['expected_revision']
+                    result = {'job': library.start(update)}
                 elif self.path == '/import':
                     result = {'review': library.import_review(request['source'])}
                 elif self.path == '/install-skill':

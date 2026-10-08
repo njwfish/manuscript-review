@@ -38,6 +38,20 @@ Source segments locate manual intervals in the validated working projection, inc
 
 CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights. The small adapter in `frontend/editor.js` connects document changes to the existing review client. It owns no review persistence or manuscript writes. The bundle and dependency licenses are checked in; `npm run build` regenerates them without adding a runtime network dependency.
 
+The VS Code preview uses its native source editor and CommentController. The same
+`ReviewSession.editor` operation projects spans onto an exact external buffer without
+saving it; offsets use UTF-16 for both editors. VS Code owns source saves, and the
+existing library operation compares saved files as a new round. Decisions and comments
+use the same record transactions as the standalone app. The extension host keeps service
+tokens private, pins queued operations to their intended review, and passes requests
+through `host.js` to the shared focused-review client. Navigation stays in webview state.
+
+The extension bundles a pinned adaptation of LaTeX Workshop's PDF viewer. Its parent
+bridge supplies immutable comparison PDF bytes and the existing normalized change
+bounds. An overlay maps those bounds through PDF.js viewports as zoom and rotation
+change. The installed Workshop extension retains live compilation and SyncTeX; the
+adapted viewer owns neither. Viewer sources, provenance, and notices live in `vscode/`.
+
 ## Transactions
 
 `ReviewSession` coordinates operations; HTTP handlers route requests. `ReviewStore` owns persistence. Follow-up rounds compare the previous selected draft to a new proposal, keeping the original baseline separately pinned. Their identity includes both endpoints, the original baseline, the previous review ID, and its saved revision. The previous record remains unchanged. `result` is a reachable Git version of the projected decisions; note-only saves reuse it. **Since baseline** derives a read-only comparison from the original baseline to that result.

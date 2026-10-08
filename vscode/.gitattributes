@@ -1,0 +1,4 @@
+viewer/viewer.* linguist-vendored -whitespace
+viewer/latexworkshop.css linguist-vendored
+viewer/images/** linguist-vendored -whitespace
+viewer/locale/** linguist-vendored

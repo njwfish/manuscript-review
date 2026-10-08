@@ -13,6 +13,31 @@ from manuscript_review.comparison import git
 
 
 class LibraryTests(ReviewFixture):
+    def test_update_forwards_the_pinned_revision_and_refuses_an_empty_source_pass(self):
+        library = Library(self.root / 'library')
+        library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'initial')
+        identifier = library.jobs['initial']['review']
+        store = ReviewStore(library.directory(identifier))
+        before = store.path.read_bytes()
+        server = create_library_server(library)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            body = {'id': identifier, 'expected_revision': store.read()['revision'], 'require_changes': True}
+            request = Request(library.url + 'update', json.dumps(body).encode(),
+                              headers={'Content-Type': 'application/json', 'X-Review-Token': library.token})
+            with patch.object(library, 'start', return_value='captured') as start:
+                self.assertEqual(json.load(urlopen(request))['job'], 'captured')
+            prepared = start.call_args.args[0]
+            self.assertTrue(prepared['require_changes'])
+            self.assertEqual(prepared['expected_revision'], body['expected_revision'])
+            library.prepare(prepared, 'empty')
+            self.assertEqual(library.jobs['empty']['status'], 'error')
+            self.assertIn('No source changes', library.jobs['empty']['error'])
+            self.assertEqual(store.path.read_bytes(), before)
+            self.assertEqual(len(library.listing()), 1)
+        finally:
+            server.shutdown(); server.server_close()
+
     def test_passage_response_returns_library_context_after_releasing_the_record(self):
         library = Library(self.root / 'library')
         library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'one')
