@@ -56,6 +56,16 @@ class SetupTests(unittest.TestCase):
                     self.assertEqual(target.read_text(), 'Existing author file')
                 target.unlink()
 
+    def test_existing_codex_skill_is_recognized_without_creating_a_duplicate(self):
+        target = self.home / '.codex/skills/manuscript-review'
+        target.parent.mkdir(parents=True)
+        target.symlink_to(self.skill, target_is_directory=True)
+        status = setup_status(self.home)['agents'][0]
+        self.assertTrue(status['installed'])
+        self.assertEqual(status['path'], str(target))
+        self.assertIn('already', install_skill('codex', self.home)['message'])
+        self.assertFalse((self.home / '.agents').exists())
+
     def test_unknown_agent_or_missing_bundle_cannot_create_a_link(self):
         with self.assertRaisesRegex(ValueError, 'Choose Codex'):
             install_skill('../../elsewhere', self.home)

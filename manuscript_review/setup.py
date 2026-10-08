@@ -5,7 +5,8 @@ import sys
 from pathlib import Path
 
 
-AGENTS = {'codex': ('Codex', '.agents/skills'), 'claude': ('Claude Code', '.claude/skills')}
+AGENTS = {'codex': ('Codex', ('.agents/skills', '.codex/skills')),
+          'claude': ('Claude Code', ('.claude/skills',))}
 
 
 def skill_directory():
@@ -24,8 +25,10 @@ def git_available():
 
 
 def agent_status(agent, home, source):
-    name, folder = AGENTS[agent]
-    target = Path(home) / folder / 'manuscript-review'
+    name, folders = AGENTS[agent]
+    targets = [Path(home) / folder / 'manuscript-review' for folder in folders]
+    # Honor an existing personal installation before creating another link.
+    target = next((path for path in targets if path.exists() or path.is_symlink()), targets[0])
     occupied = target.exists() or target.is_symlink()
     installed = (target / 'SKILL.md').is_file()
     return {'id': agent, 'name': name, 'path': str(target), 'installed': installed,
