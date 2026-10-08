@@ -36,7 +36,9 @@ body.vscode-review{
 .vscode-review .focus-reading{line-height:1.85}
 .vscode-review .focus-reading .ellipsis{opacity:.3}
 .vscode-review .focus-return{margin-top:16px}
-.vscode-review .send-agent{margin-top:10px}
+.vscode-review .agent-composer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.vscode-review .agent-choice{color:var(--muted);padding-inline:0}
+.vscode-review .agent-choice::after{content:'';display:inline-block;width:5px;height:5px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg);vertical-align:3px;margin-left:8px}
 .vscode-review .contextbar{flex-wrap:wrap;row-gap:8px}
 .vscode-review .context{flex:1 1 160px}
 .vscode-review .decisionbar{flex-wrap:wrap;backdrop-filter:none}
@@ -76,7 +78,7 @@ export function webviewHTML(html,webview,assets,vscode,viewerOrigin){
   .replace('src="/app.js"','src="'+uri('app.js')+'"');
 }
 
-export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAgent,onChange,onApply,onCommand,agentLauncher}){
+export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAgent,onChange,onApply,onCommand,agentLauncher,agentLabel}){
  let panel,waiting=new Map(),loaded,resolveLoaded,rejectLoaded,selection,revision,pending=0,changedRevision,ready=false,viewerURL;
  const assets=path.join(context.extensionPath,'dist','runtime','manuscript_review');
 
@@ -109,7 +111,7 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAg
    const actions={
     request:async()=>{
      pending++;
-     try{const data=await (message.path==='/apply'?onApply(message.body):runtime.request(message.path,message.body));if(message.path.startsWith('/data')){data.agent_launcher=agentLauncher;data.interface='vscode';}if(origin===panel)revision=Math.max(revision??-1,data.data?.revision??data.revision??-1);if(message.body)onChange();return {status:200,data};}
+     try{const data=await (message.path==='/apply'?onApply(message.body):runtime.request(message.path,message.body));if(message.path.startsWith('/data')){data.agent_launcher=agentLauncher;data.agent_label=agentLabel?.();data.interface='vscode';}if(origin===panel)revision=Math.max(revision??-1,data.data?.revision??data.revision??-1);if(message.body)onChange();return {status:200,data};}
      catch(error){return {status:error.status||500,data:{error:error.message,stale:Boolean(error.stale)}};}
      finally{if(!--pending)reconcile();}
     },
@@ -152,6 +154,7 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAg
   }else{panel.reveal();await loaded;select();}
  }
  return {show,flush,unlock:id=>{if(id)panel?.webview.postMessage({type:'review-command',action:'unlock',id});},
+  setAgent:label=>panel?.webview.postMessage({type:'review-agent',label}),
   changed,
   refresh:async({flushed=false}={})=>{if(!panel)return;if(!flushed)await flush();await load(panel);},
   dispose:()=>{panel?.dispose();}

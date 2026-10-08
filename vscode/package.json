@@ -5,7 +5,7 @@
     "onUri"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -153,6 +153,12 @@
         "title": "Send to agent",
         "category": "Manuscript Review",
         "icon": "$(send)"
+      },
+      {
+        "command": "manuscriptReview.chooseAgent",
+        "title": "Choose comment agent",
+        "category": "Manuscript Review",
+        "icon": "$(chevron-down)"
       }
     ],
     "configuration": {
@@ -177,12 +183,12 @@
         {
           "command": "manuscriptReview.reply",
           "when": "commentController == manuscript-review",
-          "group": "inline"
+          "group": "inline@1"
         },
         {
           "command": "manuscriptReview.sendComment",
           "when": "commentController == manuscript-review",
-          "group": "inline@1"
+          "group": "inline@0"
         }
       ],
       "comments/comment/title": [
@@ -205,6 +211,11 @@
         }
       ],
       "comments/commentThread/title": [
+        {
+          "command": "manuscriptReview.chooseAgent",
+          "when": "commentController == manuscript-review",
+          "group": "inline@2"
+        },
         {
           "command": "manuscriptReview.viewCommentChange",
           "when": "commentThread == manuscriptReview",
@@ -300,6 +311,17 @@
     },
     "keybindings": [
       {
+        "command": "default:type",
+        "key": "shift+enter",
+        "args": {"text": "\n"},
+        "when": "commentEditorFocused && commentController == manuscript-review && !inComposition"
+      },
+      {
+        "command": "editor.action.submitComment",
+        "key": "enter",
+        "when": "commentEditorFocused && commentController == manuscript-review && !commentIsEmpty && !suggestWidgetVisible && !inComposition"
+      },
+      {
         "command": "manuscriptReview.comment",
         "key": "ctrl+shift+m",
         "mac": "cmd+shift+m",
@@ -351,7 +373,7 @@
   "scripts": {
     "build": "node src/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.5.vsix"
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.6.vsix"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

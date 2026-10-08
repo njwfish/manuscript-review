@@ -12,7 +12,7 @@ const draftChanges=new Map();
 let positions={};
 let fileEditor=null,editorFile=null,editorSource=null,editorInitial='',openingEditor=null,discussionOpen=null,discussionKey=null;
 let noteTarget=null,noteTimer,pendingNoteId=null,noteSelection=0,commentId=null;
-let navigatingComment=false;
+let navigatingComment=false,dispatchingComment=false;
 const noteChanges=new Map();
 const $=id=>document.getElementById(id);
 const node=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
@@ -139,9 +139,27 @@ function discussionEntry(entry,withLocation=false){
  return item;
 }
 async function sendAgentComment(identifier){
+ if(dispatchingComment)return;
+ dispatchingComment=true;
  const review=data.id;
- try{await window.flushReview();await openAgentTask(identifier,review);}
+ try{await window.flushReview();await openAgentTask(identifier,review);document.activeElement?.blur();$('main').tabIndex=-1;$('main').focus();}
  catch(error){status(error.message,true);}
+ finally{dispatchingComment=false;}
+}
+function agentComposer(area,identifier){
+ const bar=node('div','agent-composer');
+ const agent=button(data.agent_label||'Codex',async()=>{
+  try{data.agent_label=await hostCommand('chooseAgent');agent.textContent=data.agent_label;area.focus();}
+  catch(error){status(error.message,true);}
+ },'quiet agent-choice');agent.setAttribute('aria-label','Choose comment agent');
+ const send=button('Send',()=>sendAgentComment(identifier),'primary');send.title='Send to agent (Enter)';
+ const update=()=>{send.disabled=!area.value.trim();};update();area.addEventListener('input',update);
+ area.addEventListener('keydown',event=>{
+  if(event.key==='Enter'&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.isComposing&&area.value.trim()){
+   event.preventDefault();event.stopPropagation();void sendAgentComment(identifier);
+  }
+ });
+ bar.append(agent,send);return bar;
 }
 function showFeedback(){
  $('feedback-search').value='';renderFeedback();$('actions').close();$('feedback').showModal();
@@ -228,7 +246,7 @@ function renderDiscussion(){
   const area=node('textarea');area.id='comment-'+identifier;area.rows=5;area.maxLength=20000;area.value=comments[identifier]||'';area.setAttribute('aria-label',commentScope==='passage'?'Passage comment':'Edit comment');area.placeholder='Comment…';
   area.addEventListener('input',()=>{if(area.value)comments[identifier]=area.value;else delete comments[identifier];clearTimeout(commentTimer);commentTimer=setTimeout(save,350);updateProgress();});
   area.addEventListener('blur',save);host.append(area);
-  if(embedded){const send=button('Send to agent',()=>sendAgentComment(identifier),'quiet send-agent');send.disabled=!area.value.trim();area.addEventListener('input',()=>{send.disabled=!area.value.trim();});host.append(send);}
+  if(embedded)host.append(agentComposer(area,identifier));
  }
 }
 function sourceNoteTarget(entry){
@@ -771,6 +789,7 @@ $('reload-review').addEventListener('click',async()=>{try{await window.flushRevi
 if(embedded)window.addEventListener('message',async event=>{
  if(!hostMessage(event))return;
  const message=event.data;
+ if(message?.type==='review-agent'&&data){data.agent_label=message.label;document.querySelectorAll('.agent-choice').forEach(button=>{button.textContent=message.label;});}
  if(message?.type==='review-command'&&message.action==='flush'){
   try{await window.flushReview({lock:message.lock===true?message.id:null});window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:true}}));}
   catch(error){window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:false,error:error.message}}));}

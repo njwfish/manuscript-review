@@ -41,8 +41,26 @@ test('native agent tabs use public commands and keep the prepared prompt literal
  assert.deepEqual(clipboard,[]);
  await openAgent(vscode,{agent:'codex',prompt,column:2});
  assert.deepEqual(commands.slice(1),[['workbench.action.focusSecondEditorGroup'],['chatgpt.newCodexPanel']]);
- assert.deepEqual(clipboard,[prompt]);assert.match(information[0],/Paste.*Codex tab/);
+ assert.deepEqual(clipboard,[prompt]);assert.match(information.at(-1),/Paste.*Codex tab/);
  assert.deepEqual(activations,['anthropic.claude-code','openai.chatgpt']);
+});
+
+test('automatic sending binds each provider to one native composer without clipboard notifications',async()=>{
+ for(const agent of ['codex','claude']){
+  const commands=[],requests=[];
+  const vscode={extensions:{getExtension:()=>({activate:async()=>{}})},commands:{executeCommand:async(...args)=>commands.push(args)}};
+  await openAgent(vscode,{agent,prompt:'Exact request\nwith math \\alpha.',column:2,helper:'/native-send',submit:async(helper,request,open)=>{requests.push({helper,request});assert.equal(commands.length,0);await open();}});
+  assert.equal(requests[0].helper,'/native-send');assert.equal(requests[0].request.extension,agent==='codex'?'openai.chatgpt':'anthropic.claude-code');
+  assert.equal(requests[0].request.prompt,'Exact request\nwith math \\alpha.');
+  assert.ok(commands.some(([name])=>name===(agent==='codex'?'chatgpt.newCodexPanel':'claude-vscode.editor.open')));
+ }
+});
+
+test('missing native permission keeps a manual Claude request usable without retrying Send',async()=>{
+ const commands=[],warnings=[];
+ const vscode={extensions:{getExtension:()=>({activate:async()=>{}})},commands:{executeCommand:async(...args)=>commands.push(args)},window:{showWarningMessage:async text=>warnings.push(text)}};
+ const sent=await openAgent(vscode,{agent:'claude',prompt:'Saved comment',column:2,helper:'/helper',submit:async()=>{throw Object.assign(new Error('Enable Accessibility.'),{code:'permission'});}});
+ assert.equal(sent,false);assert.equal(commands.length,1);assert.match(warnings[0],/Accessibility.*Press Send/);
 });
 
 test('unavailable agent extensions fail without opening a different interface',async()=>{

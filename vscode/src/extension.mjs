@@ -13,9 +13,17 @@ import {manuscriptReviews} from '../../manuscript_review/review_model.js';
 
 let disposeExtension;
 export function activate(context){
+ const lifetime=new AbortController();
  const output=vscode.window.createOutputChannel('Manuscript Review');
  const decorations=createDecorations(vscode);
- let runtime,comments,panel,watcher,timer,opening,navigation,agentTools,viewer,starting,disposed=false,savingComment=false;
+ let runtime,comments,panel,watcher,timer,opening,navigation,agentTools,viewer,starting,disposed=false,sending=false;
+ const selectedAgent=()=>agents.find(agent=>agent.id===context.globalState.get('commentAgent'))||agents[0];
+ async function chooseAgent(){
+  const current=selectedAgent(),options=[current,...agents.filter(agent=>agent!==current)];
+  const agent=await vscode.window.showQuickPick(options,{title:'Comment agent',placeHolder:'Enter sends to this agent'});
+  if(agent){await context.globalState.update('commentAgent',agent.id);comments?.setAgent(agent.label);panel?.setAgent(agent.label);}
+  return selectedAgent().label;
+ }
  const subscriptions=[output];
  subscriptions.push(vscode.window.registerTreeDataProvider('manuscriptReview.start',{getTreeItem:item=>item,getChildren:()=>[]}));
  function updateSourceContext(){void vscode.commands.executeCommand('setContext','manuscriptReview.source',Boolean(sourceFile(runtime?.review,vscode.window.activeTextEditor?.document)));}
@@ -35,10 +43,11 @@ export function activate(context){
    agentTools=createAgentTools({extensionPath:context.extensionPath,storagePath:context.globalStorageUri.fsPath,version:context.extension.packageJSON.version,python});
    runtime=createRuntime({extensionPath:path.join(context.extensionPath,'dist'),python,home:config.get('libraryDirectory',''),output});
    viewer=createViewer(path.join(context.extensionPath,'dist','viewer'));
-   const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.repo),setup,sourceDrafts};
+   const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.repo),setup,sourceDrafts,chooseAgent};
    panel=createPanel(vscode,context,runtime,{viewer,onSource:openSource,onFocus:(file,edit)=>decorations.focus(file,edit),onAgent:sendToAgent,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
-    onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
+    agentLabel:()=>selectedAgent().label,onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
    comments=createComments(vscode,runtime,{onChange:()=>{panel.changed();},onReview:entry=>panel.show(entry),onProjection:(projection,data)=>decorations.update(projection,data),onAgent:sendToAgent});
+   comments.setAgent(selectedAgent().label);
   })().finally(()=>{starting=undefined;});
   return starting;
  }
@@ -107,12 +116,16 @@ export function activate(context){
  }
  async function focusReview(){if(await ensureReview())await panel.show();}
  async function sendToAgent(identifier,saveComment){
+  if(sending)throw new Error('Wait for the agent tab to finish opening.');
+  sending=true;
+  try{return await dispatchComment(identifier,saveComment);}finally{sending=false;}
+ }
+ async function dispatchComment(identifier,saveComment){
+  const origin=vscode.window.tabGroups.activeTabGroup,sourceEditor=vscode.window.activeTextEditor;
   const reviewId=runtime?.review?.id;
   if(!reviewId)throw new Error('Open the comment’s review before sending it to an agent.');
   if(!await ensureReview())return;
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
-  if(saveComment&&savingComment)throw new Error('Wait for the current comment to finish saving.');
-  if(saveComment)savingComment=true;
   let lock;
   try{
    lock=await panel.flush({lock:Boolean(saveComment)});
@@ -123,20 +136,21 @@ export function activate(context){
     if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
     await panel.refresh({flushed:true});
    }
-  }finally{if(saveComment){panel.unlock(lock);savingComment=false;}}
-  const previous=context.globalState.get('commentAgent');
-  const options=[...agents].sort((a,b)=>(b.id===previous)-(a.id===previous));
-  const agent=await vscode.window.showQuickPick(options,{title:'Send comment to',placeHolder:'Open a separate agent task beside the manuscript'});
-  if(!agent)return;
+  }finally{if(saveComment)panel.unlock(lock);}
+  const agent=selectedAgent();
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   await prepareTools();
   const data=await runtime.data('round'),report=await runtime.request('/feedback.json');
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   const dirty=vscode.workspace.textDocuments.some(document=>document.isDirty&&document.uri.scheme==='file'&&document.uri.fsPath.startsWith(data.repo+path.sep));
   const prompt=commentTask(data,report,identifier,{launcher:agentTools.launcher,skill:agentTools.skill,dirty});
-  const source=vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime.review,editor.document));
-  await openAgent(vscode,{agent:agent.id,repo:data.repo,prompt,column:source?source.viewColumn+1:vscode.ViewColumn.Beside});
-  await context.globalState.update('commentAgent',agent.id);
+  const helper=process.platform==='darwin'&&!vscode.env.remoteName?path.join(context.extensionPath,'dist','native-send'):undefined;
+  const sent=await openAgent(vscode,{agent:agent.id,prompt,helper,signal:lifetime.signal,column:Math.min(9,origin.viewColumn+1)});
+  // Restore only after confirmed submission; a failed handoff remains available to inspect.
+  if(sent&&!disposed&&runtime.review?.id===reviewId&&vscode.window.tabGroups.activeTabGroup.viewColumn===Math.min(9,origin.viewColumn+1)){
+   if(sourceEditor&&sourceFile(runtime.review,sourceEditor.document))await vscode.window.showTextDocument(sourceEditor.document,{viewColumn:origin.viewColumn,selection:sourceEditor.selection,preserveFocus:false});
+   else await panel.show();
+  }
   return true;
  }
  async function reviewManuscript(resource){
@@ -256,6 +270,7 @@ export function activate(context){
  command('fetch',fetchRepository);
  command('setup',setup);
  command('sourceDrafts',sourceDrafts);
+ command('chooseAgent',chooseAgent);
  command('library',reviewLibrary);
  command('import',importReview);
  command('comment',async()=>{const editor=vscode.window.activeTextEditor;if(await ensureReview())await comments.annotate(editor);});
@@ -267,7 +282,7 @@ export function activate(context){
  subscriptions.push(vscode.window.onDidChangeVisibleTextEditors(()=>{if(runtime?.review)refreshComments();}));
  subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor=>{updateSourceContext();if(sourceFile(runtime?.review,editor?.document))decorations.reveal();}));
  subscriptions.push(vscode.window.onDidChangeTextEditorSelection(event=>{if(sourceFile(runtime?.review,event.textEditor.document))decorations.reveal();}));
- disposeExtension=async()=>{disposed=true;await starting?.catch(()=>{});clearTimeout(timer);watcher?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();};
+ disposeExtension=async()=>{disposed=true;lifetime.abort();await starting?.catch(()=>{});clearTimeout(timer);watcher?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();};
  context.subscriptions.push({dispose:()=>{void disposeExtension();}});
 }
 export function deactivate(){return disposeExtension?.();}

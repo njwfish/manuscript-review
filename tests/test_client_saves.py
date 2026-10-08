@@ -6,6 +6,30 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_comment_enter_flushes_once_and_keeps_newlines_and_composition_in_the_editor(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('async function sendAgentComment'),app.indexOf('function showFeedback'));
+const events=[],handlers={},elements=[];let release;
+const gate=new Promise(resolve=>{release=resolve;});
+const make=()=>{const item={value:'Exact comment',append(...items){this.children=items;},setAttribute(){},addEventListener(name,fn){handlers[name]=fn;},focus(){events.push('focus');}};elements.push(item);return item;};
+const context={data:{id:'round',agent_label:'Claude Code'},dispatchingComment:false,
+ node:()=>make(),button:(label,action)=>({...make(),textContent:label,action}),
+ window:{flushReview:async()=>{events.push('flush');await gate;}},openAgentTask:async(id,review)=>events.push([id,review]),
+ document:{activeElement:{blur:()=>events.push('blur')}},$:()=>({focus:()=>events.push('focus')}),status:message=>events.push(message)};
+vm.createContext(context);vm.runInContext(source,context);const area=make();context.area=area;
+vm.runInContext("agentComposer(area,'discussion')",context);
+for(const extra of [{shiftKey:true},{ctrlKey:true},{metaKey:true},{altKey:true},{isComposing:true}]){
+ handlers.keydown({key:'Enter',...extra,preventDefault(){throw new Error('Must keep editing.');}});
+}
+assert.deepEqual(events,[]);
+let prevented=0;const enter={key:'Enter',preventDefault(){prevented++;},stopPropagation(){}};
+handlers.keydown(enter);handlers.keydown(enter);assert.equal(prevented,2);assert.deepEqual(events,['flush']);
+release();await new Promise(resolve=>setImmediate(resolve));
+assert.deepEqual(events,['flush',['discussion','round'],'blur','focus']);assert.equal(context.dispatchingComment,false);
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
     def test_native_send_locks_input_before_flushing_and_releases_only_its_own_busy_state(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 import {hostMessage} from './manuscript_review/host.js';

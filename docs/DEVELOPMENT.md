@@ -27,6 +27,14 @@ VSIX with an isolated library and real LaTeX before distribution, then check the
 native editor, comments, word and PDF navigation, Apply, and setup in an extension
 development host. Promote a preview to a production release after those checks pass.
 
+Build the distributable VSIX on macOS with Xcode Command Line Tools to compile its
+universal Accessibility helper for Apple Silicon and Intel. Linux builds omit that
+helper and use manual agent submission. Test automatic native sending from the
+actual extension host after granting VS Code Accessibility; a shell permission probe
+does not establish that host’s authorization. Use synthetic comments, verify the
+provider’s complete composer and its submitted message, and confirm that author
+focus and clipboard contents return. Never retry an uncertain Send.
+
 ## Build the macOS app
 
 Build on Apple Silicon with Xcode Command Line Tools and Python 3.12 or later:

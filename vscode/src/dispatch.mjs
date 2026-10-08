@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {shellQuote} from './agent.mjs';
+import {nativeSend} from './native-send.mjs';
 
 export const agents=[{id:'codex',label:'Codex',extension:'openai.chatgpt'},
  {id:'claude',label:'Claude Code',extension:'anthropic.claude-code'}];
@@ -29,19 +30,30 @@ ${scope}
 Read the current feedback and repository instructions first. Use begin before any source changes, then finish to publish a reviewable round. Keep the original baseline and earlier rounds. For replies only, use the existing round. Append only your final, concise explanation to discussion ${id} using respond; keep your working conversation in this agent session. Reread feedback before responding and respect its current revision. Return the resulting review link: vscode://njwfish.manuscript-review/review/REVIEW_ID.`;
 }
 
-export async function openAgent(vscode,{agent,prompt,column}){
+export async function openAgent(vscode,{agent,prompt,column,helper,signal,submit=nativeSend}){
  const provider=agents.find(item=>item.id===agent);
  if(!provider)throw new Error('Choose Codex or Claude Code.');
  const extension=vscode.extensions.getExtension(provider.extension);
  if(!extension)throw new Error(`Install the ${provider.label} VS Code extension to open its task tab.`);
  await extension.activate();
- if(agent==='claude'){
-  await vscode.commands.executeCommand('claude-vscode.editor.open',undefined,prompt,column,undefined,true);
- }else{
+ const open=async()=>{
+  if(signal?.aborted)throw new Error('The native agent request was cancelled.');
+  if(agent==='claude')return vscode.commands.executeCommand('claude-vscode.editor.open',undefined,prompt,column,undefined,true);
   const groups=['First','Second','Third','Fourth','Fifth','Sixth','Seventh','Eighth','Ninth'];
   if(groups[column-1])await vscode.commands.executeCommand(`workbench.action.focus${groups[column-1]}EditorGroup`);
   await vscode.commands.executeCommand('chatgpt.newCodexPanel');
-  await vscode.env.clipboard.writeText(prompt);
-  await vscode.window.showInformationMessage('Comment request copied. Paste it into the new Codex tab, then send.');
+ };
+ let permission;
+ if(helper){
+  try{await submit(helper,{extension:provider.extension,prompt},open,{signal});return true;}
+  catch(error){if(!['permission','ENOENT'].includes(error.code))throw error;permission=error;}
  }
+ await open();
+ if(agent==='codex'){
+  await vscode.env.clipboard.writeText(prompt);
+ }
+ const message=agent==='codex'?'Comment request copied. Paste it into the new Codex tab, then send.':'Comment request ready in Claude Code. Press Send to start.';
+ if(permission)await vscode.window.showWarningMessage(permission.message+' '+message);
+ else await vscode.window.showInformationMessage(message);
+ return false;
 }

@@ -102,11 +102,26 @@ exports, response imports, version comparison, the library, drafts, and setup.
 
 ## Work with an agent
 
-Use **Send to agent** on a saved comment, or beside the comment input to save and send
-it. Choose Codex or Claude Code; the extension opens that agent’s native extension
-tab beside the manuscript. Install and sign in to its VS Code extension first. Claude
-receives the prepared request; press Send to start. For Codex, paste the copied
-request into its fresh tab, then send. Your last choice appears first next time. Each task receives one saved comment,
+Press **Enter** in a comment to save it and open your selected agent’s task tab;
+**Shift+Enter** adds a newline. Choose Codex or Claude Code from the chooser beside
+Send, or the arrow in a native comment’s toolbar. The choice is remembered.
+**Add comment** saves a native comment without dispatching it. **Send to agent**
+also works on a saved comment.
+
+If another extension captures these keys in Markdown comment editors, add the scoped
+Enter and Shift+Enter bindings from this extension’s `package.json` to your user
+keyboard shortcuts. They apply only to Manuscript Review comments.
+
+Install and sign in to the agent’s VS Code extension first. The macOS preview includes
+experimental automatic sending through Accessibility: the helper attempts to verify
+the new native tab’s complete request and press its Send button once.
+Enable **Visual Studio Code** in **System Settings → Privacy
+& Security → Accessibility**. After confirmed submission, focus returns to your
+manuscript or review while the agent works beside it. Without that permission, or
+on other platforms and remote workspaces, Claude opens with the request prepared;
+Codex opens a fresh tab with the request copied for you to paste and send.
+
+Each task receives one saved comment,
 its review, and the bundled command launcher. It appends only its final response to
 the discussion; its working conversation stays in the agent tab.
 
@@ -127,6 +142,9 @@ shows the latest pass and **Since baseline** shows accumulated selected changes.
 Replies without source changes stay in the same round.
 
 ## Build
+
+Build on macOS with Xcode Command Line Tools to include the universal native sending
+helper. Builds on other platforms retain manual submission in the agent tab.
 
 From this repository's `vscode/` directory:
 

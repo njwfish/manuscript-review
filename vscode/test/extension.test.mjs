@@ -42,7 +42,7 @@ async function fixture(t,options={}) {
       async openTextDocument(requested){calls.push({kind:'document',file:requested.fsPath,content:requested.content,language:requested.language});if(requested.content!==undefined)return {uri:{scheme:'untitled'},getText:()=>requested.content};assert.equal(requested.fsPath,source);return doc;},
       createFileSystemWatcher(pattern){const watcher={pattern,onDidChange:event('record-change'),onDidCreate:event('record-create'),dispose(){this.disposed=true;}};watchers.push(watcher);return watcher;},
       onDidChangeTextDocument:event('document-change')},
-    window:{activeTextEditor:editor,visibleTextEditors:[editor],
+    window:{activeTextEditor:editor,visibleTextEditors:[editor],tabGroups:{activeTabGroup:{viewColumn:1}},
       registerTreeDataProvider(id,provider){calls.push({kind:'view',id,provider});return disposable();},
       createOutputChannel:()=>({appendLine:text=>output.push(text),dispose(){}}),
       async showErrorMessage(message){errors.push(message);},
@@ -65,13 +65,13 @@ async function fixture(t,options={}) {
     async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/feedback.json')return {comments:[],history:[],edits:[]};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
-  const panel={async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
+  const panel={setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
     async refresh(options){calls.push({kind:'panel-refresh',options});},changed(){calls.push({kind:'panel-change'});},dispose(){calls.push({kind:'dispose-panel'});}};
-  const comments={async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){calls.push({kind:'annotate',editor});},
+  const comments={setAgent(label){calls.push({kind:'comment-agent',label});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){calls.push({kind:'annotate',editor});},
     async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
   const {sourceFile}=await import('../src/comments.mjs');
   const adapters={
-    'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],commentTask:(data,report,id,tools)=>{calls.push({kind:'comment-task',data,report,id,tools});return 'Scoped comment request';},openAgent:async(_vscode,options)=>{calls.push({kind:'open-agent',options});}},
+    'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],commentTask:(data,report,id,tools)=>{calls.push({kind:'comment-task',data,report,id,tools});return 'Scoped comment request';},openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
     'test-python':{async resolvePython(configured){calls.push({kind:'resolve-python',configured});await options.onResolvePython?.(configured);return configured||'/automatic/python';}},
     'test-agent':{createAgentTools(configuration){calls.push({kind:'create-agent-tools',configuration});return {launcher:'/stored/skills/manuscript-review/scripts/review-agent',command:"'/stored/skills/manuscript-review/scripts/review-agent'",skill:'/stored/skills/manuscript-review',async setup(){await options.onToolsSetup?.(configuration);calls.push({kind:'prepare-tools',python:'/python'});return {python:'/python',git:true,preview_tools:{},agents:[{id:'codex',name:'Codex'}]};},async install(agent){calls.push({kind:'install-skill',agent});return {message:'Skill installed.'};}};}},
@@ -82,7 +82,7 @@ async function fixture(t,options={}) {
   };
   const preferences=new Map([['commentAgent',options.agent]]);
   const module={exports:{}},context={globalState:{get:key=>preferences.get(key),async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
-  vm.runInNewContext(await bundle,{exports:module.exports,module,require:name=>name==='vscode'?vscode:adapters[name]||nativeRequire(name),setTimeout,clearTimeout,console},{filename:'extension.cjs'});
+  vm.runInNewContext(await bundle,{exports:module.exports,module,require:name=>name==='vscode'?vscode:adapters[name]||nativeRequire(name),process,AbortController,setTimeout,clearTimeout,console},{filename:'extension.cjs'});
   module.exports.activate(context);t.after(()=>module.exports.deactivate());
   return {vscode,runtime,doc,editor,source,repo,calls,errors,contexts,events,watchers,deactivate:()=>module.exports.deactivate(),
     command:(name,...args)=>handlers.get('manuscriptReview.'+name)(...args),
@@ -266,7 +266,9 @@ test('live source PDF navigation delegates to Workshop without starting the revi
 
 test('review shortcuts and the comment context menu require the active manuscript source',async()=>{
   const manifest=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
-  assert.equal(manifest.contributes.keybindings.every(binding=>binding.when.includes('manuscriptReview.source')),true);
+  assert.equal(manifest.contributes.keybindings.filter(binding=>!binding.when.includes('commentEditorFocused')).every(binding=>binding.when.includes('manuscriptReview.source')),true);
+  const enter=manifest.contributes.keybindings.find(binding=>binding.key==='enter');assert.match(enter.when,/commentController == manuscript-review/);assert.match(enter.when,/!inComposition/);
+  const actions=manifest.contributes.menus['comments/commentThread/context'];assert.equal(actions.find(item=>item.group==='inline@0').command,'manuscriptReview.sendComment');
   const action=manifest.contributes.menus['editor/context'].find(action=>action.command==='manuscriptReview.comment');
   assert.match(action.when,/manuscriptReview\.source/);
 });
@@ -466,13 +468,29 @@ test('comment dispatch saves focused input, scopes unsaved source, and opens the
  assert.equal(await f.commentsCallbacks.onAgent('saved-comment'),true);
  const request=f.calls.find(call=>call.kind==='comment-task'),launch=f.calls.find(call=>call.kind==='open-agent');
  assert.equal(request.id,'saved-comment');assert.equal(request.data.id,reviewId);assert.equal(request.tools.dirty,true);
- assert.equal(launch.options.agent,'claude');assert.equal(launch.options.column,2);assert.equal(launch.options.repo,f.repo);
+ assert.equal(launch.options.agent,'claude');assert.equal(launch.options.column,2);
+ assert.equal(f.calls.filter(call=>call.kind==='pick').length,0);
  assert.ok(f.calls.findIndex(call=>call.kind==='flush')<f.calls.findIndex(call=>call.kind==='open-agent'));
 });
 
-test('cancelling the agent picker retains the comment without creating a task',async t=>{
- const f=await fixture(t);await f.command('open');await f.panelCallbacks.onAgent('saved-comment');
+test('cancelling provider choice preserves the preferred agent without creating a task',async t=>{
+ const f=await fixture(t,{agent:'claude'});await f.command('open');await f.command('chooseAgent');
  assert.equal(f.calls.some(call=>call.kind==='open-agent'),false);
+ await f.panelCallbacks.onAgent('saved-comment');assert.equal(f.calls.find(call=>call.kind==='open-agent').options.agent,'claude');
+});
+
+test('confirmed Send returns to the author’s source while manual or redirected handoffs retain their focus',async t=>{
+ for(const [sent,column] of [[true,2],[false,2],[true,3]]){
+  const f=await fixture(t,{agentSent:sent,onOpenAgent:vscode=>{vscode.window.tabGroups.activeTabGroup={viewColumn:column};}});
+  await f.command('open');await f.commentsCallbacks.onAgent('saved-comment');
+  assert.equal(f.calls.some(call=>call.kind==='show-source'),sent&&column===2);
+ }
+});
+
+test('extension deactivation cancels the owned native handoff',async t=>{
+ const f=await fixture(t);await f.command('open');await f.commentsCallbacks.onAgent('saved-comment');
+ const signal=f.calls.find(call=>call.kind==='open-agent').options.signal;assert.equal(signal.aborted,false);
+ await f.deactivate();assert.equal(signal.aborted,true);
 });
 
 test('a comment sent while navigation waits cannot move silently into another round',async t=>{
@@ -512,7 +530,7 @@ test('an overlapping native send cannot unlock the first comment save',async t=>
  const f=await fixture(t,{pick:items=>items[0]});await f.command('open');
  let release,entered;const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
  const first=f.commentsCallbacks.onAgent(undefined,async()=>{entered();await gate;return 'first-comment';});await began;
- await assert.rejects(f.commentsCallbacks.onAgent(undefined,async()=> 'second-comment'),/current comment.*saving/);
+ await assert.rejects(f.commentsCallbacks.onAgent(undefined,async()=> 'second-comment'),/agent tab.*opening/);
  assert.equal(f.calls.some(call=>call.kind==='unlock'),false);
  release();await first;assert.equal(f.calls.filter(call=>call.kind==='unlock').length,1);
  assert.equal(f.calls.find(call=>call.kind==='comment-task').id,'first-comment');

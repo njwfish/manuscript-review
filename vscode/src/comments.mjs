@@ -288,5 +288,5 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
     for(const subscription of subscriptions)subscription.dispose();
     threads.clear();pending.clear();
   }
-  return {refresh,annotate,move,dispose};
+  return {refresh,annotate,move,dispose,setAgent:label=>{controller.options={prompt:`Comment for ${label}…`,placeHolder:`Enter sends to ${label}. Shift+Enter adds a newline.`};}};
 }
