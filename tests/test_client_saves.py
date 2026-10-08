@@ -56,6 +56,7 @@ for(const fail of [false,true,'missing','new']){
   assert.equal(vm.runInContext('fileEditor',context),null);assert.equal(vm.runInContext('opened',context),true);assert.equal(vm.runInContext('commentId',context),'second');
  }
  vm.runInContext('clearTimeout(uiTimer);clearTimeout(noteTimer);clearTimeout(draftTimer);',context);
+ if(fail===true){vm.runInContext('saveFailed=false;draftChanges.clear();',context);await vm.runInContext("selectSourceNote('second')",context);assert.equal(vm.runInContext('noteTarget.id',context),'first');}
 }
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)

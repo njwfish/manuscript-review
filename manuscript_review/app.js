@@ -226,7 +226,7 @@ function sourceNoteTarget(entry){
   id:latest.kind==='source'&&latest.author==='user'&&!latest.replies.length?latest.id:null,marker:entry.id,comment:latest.kind==='source'&&latest.author==='user'&&!latest.replies.length?latest.comment:''};
 }
 async function selectSourceNote(id){
- const path=editorFile,selection=++noteSelection;saveNotes();await saving;if(saveFailed||!fileEditor||editorFile!==path||selection!==noteSelection)return;const entry=data.history.find(entry=>entry.id===id);if(!entry)return;
+ const path=editorFile,selection=++noteSelection;saveNotes();await saving;if(saveFailed||!fileEditor||editorFile!==path||selection!==noteSelection)return;const entry=data.history.find(entry=>entry.id===id&&entry.file===path);if(!entry)return;
  commentId=id;noteTarget=sourceNoteTarget(entry);discussionOpen=true;renderDiscussion();remember();
 }
 function commentSelection(){
