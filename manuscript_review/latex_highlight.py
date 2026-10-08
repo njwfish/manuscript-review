@@ -50,6 +50,7 @@ class Units:
     def __init__(self, source):
         self.source = source
         self.units = []
+        self.math_spans = []
 
     def whitespace(self, i):
         while i < len(self.source) and self.source[i].isspace():
@@ -145,6 +146,7 @@ class Units:
                 j = i + len(opener)
                 match = re.search(r'(?<!\\)' + re.escape(closer), s[j:end]) if closer.startswith('$') else re.search(re.escape(closer), s[j:end])
                 k = j + match.start() if match else end
+                self.math_spans.append((i, min(end, k + len(closer))))
                 self.parse(j, k, True)
                 i = k + len(closer)
                 continue
@@ -170,6 +172,7 @@ class Units:
                     if command == 'begin' and env in MATH_ENVS:
                         stop = s.find('\\end{' + env + '}', b, end)
                         if stop >= 0:
+                            self.math_spans.append((i, stop + len('\\end{' + env + '}')))
                             body = self.whitespace(b)
                             if env == 'array':
                                 if body < stop and s[body] == '[':

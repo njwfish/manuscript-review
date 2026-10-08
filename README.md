@@ -2,7 +2,7 @@
 
 Read and annotate a manuscript, or review revisions one word change at a time, with highlighted LaTeX previews, full-file editing, and comments that stay with each round.
 
-The app is designed for authors reviewing substantial edits from students, collaborators, or agents. In comparisons, text opens as a short excerpt with the exact additions and deletions highlighted. Equations and algorithms open side by side as typeset LaTeX. Reviews stay on your computer; an agent can read your saved feedback and prepare another round through the bundled skill.
+The app is designed for authors reviewing substantial edits from students, collaborators, or agents. In comparisons, text opens as a short excerpt with the exact additions and deletions highlighted. Equations and algorithms open side by side as typeset LaTeX. **PDF pages** shows the full original and proposed pages with the current edit highlighted. Reviews stay on your computer; an agent can read your saved feedback and prepare another round through the bundled skill.
 
 ![A sample manuscript review](docs/images/review.png)
 
@@ -26,9 +26,11 @@ The review opens in **This round**, showing only changes from its starting draft
 
 Use **Accept** or **A** to keep an edit, **Reject** or **S** to restore this round’s starting wording, and **Reset** or **U** to leave it undecided. Accepting or rejecting advances to the next edit; **D / F** moves backward or forward. Choices and comments save automatically. When the review is complete, **Apply review** writes the selected wording to your manuscript.
 
+Choose **PDF pages** from the review view to see each edit in the manuscript’s actual layout. Prose uses word highlights when the source and PDF text match clearly; equations and ambiguous text use their source-linked region. The exact word change remains below the pages. **D / F** moves through edits, **V** switches to word changes and back, and **PageUp / PageDown** scrolls both PDF panes. Zoom keeps the selected area visible.
+
 ## Edit and discuss
 
-Click proposed text, click a proposed LaTeX preview, or press **E** to edit the file at the current passage. The source editor replaces the passage display and shows the whole selected file in monospace, with change highlights. Scroll elsewhere to make additional changes; **⌘/Ctrl+F** finds text and standard undo/redo keys work throughout.
+Click proposed text, click a proposed LaTeX preview, or press **E** to edit the file at the current passage. The source editor replaces the passage display and shows the whole selected file in monospace, with change highlights. Selecting text reveals a small **Comment** button beside it; the existing keyboard shortcut opens the same sidebar. Scroll elsewhere to make additional changes; **⌘/Ctrl+F** finds text and standard undo/redo keys work throughout.
 
 **Save changes**, **⌘/Ctrl+S**, or **⌘/Ctrl+Enter** writes your manual changes and refreshes the diff against this round’s starting draft. Your new changes are accepted. Unrelated decisions and working-file text stay as they were; **Apply review** writes the remaining selected wording. Comments on revised edits move into discussion, and saving refreshes equation previews. **Esc** returns to review and retains the file draft across app restarts; Manuscript view stays in the editor. The draft indicator or **Shift+E** resumes it; **Discard draft** clears it. Save or discard a file draft before changing decisions in that file.
 
@@ -64,7 +66,8 @@ The macOS library lives in `~/Library/Application Support/Manuscript Review/`, s
 | ⌘/Ctrl+Shift+M | Comment on selected text or the current line |
 | ⌘/Ctrl+Shift+R | Copy an agent request from the source editor |
 | Esc | Return to review; keep source draft |
-| V | Switch word changes / rendered LaTeX |
+| V | Switch word changes / rendered view |
+| PageUp / PageDown | Scroll both PDF panes |
 | G | Next undecided edit |
 | ? | All shortcuts |
 | ⌘Shift+L / ⌘N | Library / compare versions in the native app |

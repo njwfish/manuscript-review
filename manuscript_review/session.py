@@ -15,6 +15,7 @@ from .previews import Previews
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
 from .documents import document_file, manuscript_files, source_point
+from .render_latex import RENDER_VERSION
 
 
 class ReviewSession:
@@ -84,12 +85,12 @@ class ReviewSession:
             decisions = {g['id']: 'accept' for f in snapshot['files'] for g in f['edits']}
             comments = {}
         manifest = read_json(self.directory / ('renders' if scope != 'baseline' else 'baseline-renders') / 'manifest.json', {})
-        valid = manifest.get('proposed') == snapshot['proposed'] and manifest.get('base') == snapshot['base']
+        valid = (manifest.get('base'), manifest.get('proposed'), manifest.get('renderer')) == (snapshot['base'], snapshot['proposed'], RENDER_VERSION)
         passages = manifest.get('passages', {}) if valid else {}
         status_key = 'preview_status' if scope != 'baseline' else 'baseline_preview_status'
         error_key = 'preview_error' if scope != 'baseline' else 'baseline_preview_error'
         preview_status = r['metadata'].get(status_key, 'queued' if snapshot['entry'] else 'none')
-        if scope == 'baseline' and not valid:
+        if not valid:
             preview_status = 'queued' if snapshot['entry'] else 'none'
         for f in snapshot['files']:
             for h in f['hunks']:
@@ -99,6 +100,7 @@ class ReviewSession:
                 'revision': r['revision'], 'decisions': decisions, 'comments': comments,
                 'history': history, 'drafts': r['drafts'], 'ui': r['ui'], 'round_id': round_id(snapshot),
                 'scope': scope, 'baseline': r['baseline'], 'result': r['result'],
+                'documents': manifest.get('documents', {}) if valid else {},
                 'preview_status': preview_status, 'preview_error': r['metadata'].get(error_key),
                 'proposal_label': (f'Selected manuscript ({r["result"][:7]})' if scope == 'baseline' else r['metadata']['proposal_label']),
                 'base_label': (r['metadata'].get('baseline_label', r['metadata']['base_label']) if scope == 'baseline' else r['metadata']['base_label']),

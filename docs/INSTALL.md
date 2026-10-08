@@ -14,7 +14,7 @@ xcode-select --install
 
 The distributed app is locally signed and has not been notarized. If macOS blocks the first launch, follow Apple's [instructions for opening a trusted app](https://support.apple.com/en-us/102445), or use the source installation below.
 
-For typeset equation and algorithm previews, install a TeX distribution such as [MacTeX](https://www.tug.org/mactex/) containing `latexmk` and `pdflatex`, plus Poppler's `pdftocairo`. An existing MacTeX installation usually supplies the TeX tools. With Homebrew, Poppler is:
+For typeset equation and algorithm previews, install a TeX distribution such as [MacTeX](https://www.tug.org/mactex/) containing `latexmk` and `pdflatex`, plus Poppler’s `pdftocairo`, `pdftotext`, and `pdfinfo` for full-page PDF highlights. An existing MacTeX installation usually supplies the TeX tools. With Homebrew, Poppler is:
 
 ```sh
 brew install poppler

@@ -37,7 +37,7 @@ def agent_status(agent, home, source):
 
 def setup_status(home=None):
     home, source = Path(home or Path.home()), skill_directory()
-    tools = {name: shutil.which(name) for name in ('latexmk', 'pdflatex', 'pdftocairo')}
+    tools = {name: shutil.which(name) for name in ('latexmk', 'pdflatex', 'pdftocairo', 'pdftotext', 'pdfinfo')}
     return {'git': git_available(), 'preview_tools': tools, 'skill_available': (source / 'SKILL.md').is_file(),
             'agents': [agent_status(agent, home, source) for agent in AGENTS]}
 

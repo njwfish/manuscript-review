@@ -80,6 +80,10 @@ class ManuscriptTests(ReviewFixture):
         record = self.session.store.read()
         record['metadata']['preview_status'] = 'ready'
         self.session.store.commit(record)
+        from manuscript_review.storage import atomic_json
+        from manuscript_review.render_latex import RENDER_VERSION
+        atomic_json(self.session.directory/'renders/manifest.json',
+                    {'base': record['snapshot']['base'], 'proposed': record['snapshot']['proposed'], 'renderer': RENDER_VERSION})
         self.assertEqual(self.session.view('manuscript')['preview_status'], 'ready')
         self.save_file(self.source()['text'].replace('We score', 'We carefully score', 1))
         self.assertEqual(self.session.selected_patch('manuscript'), self.session.selected_patch())

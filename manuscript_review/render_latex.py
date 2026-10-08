@@ -9,10 +9,14 @@ import re
 import subprocess
 import sys
 import tarfile
+from xml.etree.ElementTree import ParseError
 from pathlib import Path
 from .storage import atomic_json
 from .comparison import git
 from .latex_highlight import highlight_changes
+from .pdf_preview import document_preview
+
+RENDER_VERSION = 2
 
 SCAN = re.compile(r'%[^\n]*|\\(?:begin|end)\{[^}]+\}|\\[\[\]{}%$]|'
                   r'\\(?:begingroup|endgroup|bgroup|egroup)\b|\\[A-Za-z@]+|[{}]|\$\$?|\n[ \t]*\n')
@@ -91,8 +95,8 @@ def prepare_sources(data, directory, side):
     entry = root / data.get('entry', 'main.tex')
     if not entry.is_file():
         raise ValueError(f'LaTeX entry file not present in this version: {entry.relative_to(root)}')
-    if not entry.with_suffix('.aux').exists():
-        run(['latexmk', '-pdf', '-interaction=nonstopmode', '-halt-on-error', entry.name],
+    if not entry.with_suffix('.synctex.gz').exists():
+        run(['latexmk', '-g', '-pdf', '-synctex=1', '-interaction=nonstopmode', '-halt-on-error', entry.name],
             entry.parent, directory / (side + '-reference-build.log'))
     return root
 
@@ -125,7 +129,26 @@ def extra_macros(root, preamble):
 
 
 def typeset_side(data, directory, side):
-    root = prepare_sources(data, directory, side)
+    try:
+        root = prepare_sources(data, directory, side)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        data['documents'][side] = {'pages': [], 'edits': {}, 'error': str(error)}
+        return data
+    try:
+        data['documents'][side] = document_preview(data, directory, side, root, run)
+    except (OSError, ValueError, RuntimeError, ParseError, subprocess.SubprocessError) as error:
+        data['documents'][side] = {'pages': [], 'edits': {}, 'error': str(error)}
+    try:
+        return typeset_excerpts(data, directory, side, root)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        data['documents'][side]['excerpt_error'] = str(error)
+        for file in data['files']:
+            for passage in file['hunks']:
+                passage.get('rendered', {}).pop(side, None)
+        return data
+
+
+def typeset_excerpts(data, directory, side, root):
     entry = root / data.get('entry', 'main.tex')
     main = entry.read_text()
     preamble = main.split('\\begin{document}', 1)[0]
@@ -214,12 +237,14 @@ def render(directory, data_override=None):
     output = directory / 'renders'
     output.mkdir(exist_ok=True)
     data = data_override if data_override is not None else json.loads((directory / 'review.json').read_text())['snapshot']
+    data['documents'] = {}
     # Each worker writes only its own source directory and side of each manifest entry.
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(typeset_side, data, output, side) for side in ('before', 'after')]
         for future in futures:
             future.result()
-    manifest = {h['id']: h.get('rendered', {}) for f in data['files'] for h in f['hunks']}
+    manifest = {'passages': {h['id']: h.get('rendered', {}) for f in data['files'] for h in f['hunks']},
+                'documents': data.get('documents', {})}
     atomic_json(output / 'manifest.json', manifest)
     print(f'Preview manifest ready: {output}', flush=True, file=sys.stderr)
 

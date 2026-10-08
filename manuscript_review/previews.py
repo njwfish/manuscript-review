@@ -33,7 +33,7 @@ class Previews:
         threading.Thread(target=work, daemon=True).start()
 
     def render(self, scope='round'):
-        from .render_latex import render
+        from .render_latex import render, RENDER_VERSION
         store = self.session.store
         with self.lock:
             with store.transaction():
@@ -45,7 +45,7 @@ class Previews:
                 manifest = read_json(output / 'manifest.json', {})
                 status_key = 'preview_status' if scope == 'round' else 'baseline_preview_status'
                 error_key = 'preview_error' if scope == 'round' else 'baseline_preview_error'
-                if manifest.get('base') == snapshot['base'] and manifest.get('proposed') == snapshot['proposed']:
+                if (manifest.get('base'), manifest.get('proposed'), manifest.get('renderer')) == (snapshot['base'], snapshot['proposed'], RENDER_VERSION):
                     if record['metadata'].get(status_key) in ('queued', 'rendering'):
                         record['metadata'][status_key] = 'ready'
                         store.commit(record)
@@ -57,19 +57,23 @@ class Previews:
                 cache = store.directory / 'preview-cache' / '-'.join(generation)
                 cache.mkdir(parents=True, exist_ok=True)
                 render(cache, data_override=snapshot)
-                passages = read_json(cache / 'renders/manifest.json')
+                rendered = read_json(cache / 'renders/manifest.json')
                 output.mkdir(exist_ok=True)
-                for asset in (cache / 'renders').glob('*.svg'):
-                    (output / asset.name).write_bytes(asset.read_bytes())
-                result, error = 'ready', None
+                for asset in (cache / 'renders').iterdir():
+                    if asset.suffix in ('.svg', '.pdf'):
+                        (output / asset.name).write_bytes(asset.read_bytes())
+                failures = [document[key] for document in rendered.get('documents', {}).values()
+                            for key in ('error', 'excerpt_error') if document.get(key)]
+                available = any(document.get('pages') for document in rendered.get('documents', {}).values()) or any(rendered.get('passages', {}).values())
+                result, error = ('error' if failures and not available else 'ready'), '\n'.join(failures) or None
             except Exception as failure:
                 result, error = 'error', str(failure)
-                passages = {}
+                rendered = {}
             with store.transaction():
                 record = store.read()
                 current = ((record['snapshot']['base'], record['snapshot']['proposed']) if scope == 'round'
                            else (record['baseline'], record['result']))
                 if current == generation:
-                    atomic_json(output / 'manifest.json', {'base': generation[0], 'proposed': generation[1], 'passages': passages})
+                    atomic_json(output / 'manifest.json', {'base': generation[0], 'proposed': generation[1], 'renderer': RENDER_VERSION, **rendered})
                     record['metadata'].update({status_key: result, error_key: error})
                     store.commit(record)

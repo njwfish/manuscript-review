@@ -162,6 +162,13 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .typeset-pane figcaption{font-size:11px;color:var(--muted);margin:0 0 7px}
 .image-scroll{background:#fff;border:1px solid var(--line);border-radius:8px;overflow-x:auto;padding:14px;min-height:84px}
 .image-scroll img{display:block;width:calc(100% * var(--preview-zoom,1));max-width:none;height:auto}
+.pdf-scroll{max-height:calc(100vh - var(--header-h) - 260px);min-height:240px;overflow:auto;padding:0}
+.pdf-page{position:relative;width:calc(100% * var(--preview-zoom,1));background:#fff}
+.pdf-page img{width:100%}
+.pdf-mark{position:absolute;pointer-events:none;border-radius:2px;box-shadow:0 0 0 2px currentColor;opacity:.32}
+.pdf-mark.added{color:#16845a;background:#5bdc98}
+.pdf-mark.removed{color:#ad364b;background:#f68598}
+.pdf-page-number{text-align:center;color:var(--muted);font-size:11px;padding:8px}
 .render-note{font-size:12px;color:var(--muted);margin:8px 0}
 
 /* Whole-file source views */
@@ -324,7 +331,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <tr><th>B</th><td>Toggle file list</td></tr>
  <tr><th>+ / −</th><td>Enlarge / reduce typeset previews</td></tr>
  <tr><th>H / L or ← / →</th><td>Pan both previews left / right</td></tr>
- <tr><th>PageUp / PageDown</th><td>Scroll long passages</td></tr>
+ <tr><th>PageUp / PageDown</th><td>Scroll PDF panes or the passage</td></tr>
  <tr><th>G / M / ?</th><td>Next undecided / review tools / shortcuts</td></tr>
  </tbody></table><p>Holding a key does not repeat decisions. Shortcuts pause while typing. Tab and Enter work normally on controls.</p>
 </dialog>

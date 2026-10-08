@@ -1,6 +1,8 @@
-**Open manuscript** reads and edits the whole manuscript without requiring a diff. Select any text and press **⌘/Ctrl+Shift+M** to leave a comment in the sidebar; **⌘/Ctrl+Shift+R** copies the agent handoff. Comments keep their original source context through manual edits and later rounds, and responses retain the original exchange. Opening the same repository resumes its saved review, choices, and drafts.
+**PDF pages** shows the original and proposed manuscript pages with the current edit highlighted. Prose can be highlighted at word level; equations and ambiguous text use their source-linked region. The exact source change remains below the pages. **D / F** moves through edits, **V** switches to word changes, and **PageUp / PageDown** scrolls the PDF panes. Zoom keeps the highlighted area visible.
 
-Version 0.11 libraries use the same record format and require no migration.
+Selecting text in the source editor reveals a small **Comment** button beside the selection. It opens the existing sidebar and preserves the selected quote. **⌘/Ctrl+Shift+M** still works.
+
+Version 0.11 and 0.12 libraries use the same record format and require no migration.
 
 Click proposed text or a proposed LaTeX preview to edit the full file at that passage. The monospace editor occupies the review surface, with change highlights, undo/redo, find, and discussion in a collapsible sidebar. Save writes only manual changes and refreshes the word diff; unrelated decisions and discussion survive. Escape retains a file draft.
 

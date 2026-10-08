@@ -20,7 +20,7 @@ const currentHunk=()=>currentFile()?.hunks[passage];
 const currentEdit=()=>currentHunk()?.edits[edit];
 const selectedFeedback=()=>feedbackForPassage(data?.history||[],currentHunk()).filter(entry=>commentScope==='passage'||entry.target?.id===currentHunk()?.id||entry.target?.id===currentEdit()?.id);
 const needsMath=g=>g?.math||/\\(?:frac|sum|sqrt|int|prod|mathop)\b|\\begin\{(?:equation|align|algorithm)|\\\[/.test(g?.new||'');
-const shownView=h=>['auto','diff','rendered'].includes(view)?(overrides[h.id]||(view==='auto'?(needsMath(currentEdit())?'rendered':'diff'):view)):view;
+const shownView=h=>['auto','diff','rendered','pdf'].includes(view)?(overrides[h.id]||(view==='auto'?(needsMath(currentEdit())?'rendered':'diff'):view)):view;
 const niceName=path=>path.split('/').pop().replace(/\.[^.]+$/,'').replace(/[_-]/g,' ').replace(/^./,c=>c.toUpperCase());
 function status(message,error=false){$('status')&&($('status').textContent=message);if($('status'))$('status').className=error?'error':'';}
 function resultStatus(result,fallback){status(result.message||fallback);}
@@ -344,6 +344,44 @@ function renderedPair(h){
  }
  return pair;
 }
+function pdfPair(group){
+ const pair=node('div','typeset-pair pdf-pair');
+ for(const side of ['before','after']){
+  const document=data.documents?.[side],pane=node('figure','typeset-pane'),caption=node('figcaption');
+  const label=side==='before'?(readOnly()?'Baseline':'Original'):(readOnly()?'Selected':'Proposed');
+  const marks=document?.edits[group.id]||[],numbers=[...new Set(marks.map(mark=>mark.page))];
+  caption.textContent=label;pane.append(caption);
+  const scroll=node('div','image-scroll pdf-scroll');
+  if(document?.pages.length&&!marks.length)scroll.append(node('p','render-note','No direct PDF location for this source edit.'));
+  if(!document?.pages.length)scroll.append(node('p','render-note',['queued','rendering'].includes(data.preview_status)?'Typesetting your revision…':document?.error||data.preview_error||'Choose a LaTeX document in the Library to render its PDF.'));
+  for(const number of numbers){
+   const page=document.pages[number-1],frame=node('div','pdf-page'),image=node('img'),pageMarks=marks.filter(mark=>mark.page===number);
+   frame.style.aspectRatio=`${page.width}/${page.height}`;
+   image.src=(readOnly()?'/baseline-assets/':'/assets/')+page.asset;image.alt=`${label}, PDF page ${number} of ${document.pages.length}`+(pageMarks.some(mark=>mark.bounds)?', selected edit highlighted':'');
+   frame.append(image);
+   if(!pageMarks.some(mark=>mark.bounds))scroll.append(node('p','render-note','PDF page located; highlight unavailable.'));
+   for(const mark of pageMarks.filter(mark=>mark.bounds)){
+    const [left,top,right,bottom]=mark.bounds,box=node('span','pdf-mark '+(side==='before'?'removed':'added'));
+    box.style.left=left/page.width*100+'%';box.style.top=top/page.height*100+'%';
+    box.style.width=Math.max(1,right-left)/page.width*100+'%';box.style.height=Math.max(1,bottom-top)/page.height*100+'%';
+    box.title=mark.location?'Source-linked location':mark.precision==='words'?'Selected word change':'Source-linked typeset region';frame.append(box);
+   }
+   if(number===numbers[0])image.addEventListener('load',()=>{if(image.isConnected)focusPDF();});
+   scroll.append(frame,node('div','pdf-page-number',`Page ${number} of ${document.pages.length}`));
+  }
+  if(side==='after'&&!readOnly()){scroll.classList.add('editable-preview');scroll.addEventListener('click',()=>openEditor());}
+  pane.append(scroll);pair.append(pane);
+ }
+ return pair;
+}
+function focusPDF(){
+ document.querySelectorAll('.pdf-scroll').forEach(scroll=>{
+  const mark=scroll.querySelector('.pdf-mark');if(!mark)return;
+  const position=mark.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();
+  scroll.scrollTop=Math.max(0,scroll.scrollTop+position.top-viewport.top-scroll.clientHeight*.4);
+  scroll.scrollLeft=Math.max(0,scroll.scrollLeft+position.left-viewport.left-scroll.clientWidth*.4);
+ });
+}
 function exactEdit(g){
  const row=node('div','exact-edit');
  if(g.old)row.append(node('span','word-label','Removed'),node('del','',displayText(g.old)));
@@ -386,23 +424,26 @@ function render(){
  const h=currentHunk(),g=currentEdit(),display=shownView(h);
  updateSidebar();updateProgress();remember();
  bulkControls('passage-actions',h.edits.map(g=>g.id),'passage');bulkControls('file-actions',f.edits.map(g=>g.id),'file');
- const main=$('main');main.replaceChildren();main.classList.toggle('rendered',display==='rendered');
+ const main=$('main');main.replaceChildren();main.classList.toggle('rendered',['rendered','pdf'].includes(display));
  const bar=node('div','contextbar'),context=node('div','context');context.id='selection';context.setAttribute('aria-live','polite');
  renderSelection(context);
  bar.append(context);
  const prev=button('‹',()=>moveEdit(-1),'nav-button');prev.setAttribute('aria-label','Previous edit (D)');prev.disabled=locationIndex()===0;
  const next=button('›',()=>moveEdit(1),'nav-button');next.setAttribute('aria-label','Next edit (F)');next.disabled=locationIndex()===locations.length-1;bar.append(prev,next);
  const mode=node('select','view-select');mode.setAttribute('aria-label','Review view');
- [['auto','Auto view'],['diff','Word changes'],['rendered','Rendered LaTeX'],['before','Original file'],['after','Proposed file'],['selected','Selected file']].forEach(([value,label])=>{const o=node('option','',label);o.value=value;o.selected=value===view;mode.append(o);});
+ [['auto','Auto view'],['diff','Word changes'],['pdf','PDF pages'],['rendered','Rendered LaTeX'],['before','Original file'],['after','Proposed file'],['selected','Selected file']].forEach(([value,label])=>{const o=node('option','',label);o.value=value;o.selected=value===view;mode.append(o);});
  mode.addEventListener('change',()=>{view=mode.value;overrides={};render();focusSelection();});bar.append(mode);
- if(display==='rendered'&&f.path.endsWith('.tex')){
+ if(['rendered','pdf'].includes(display)&&f.path.endsWith('.tex')){
   const zoom=node('select','zoom-control');zoom.id='zoom';zoom.setAttribute('aria-label','Preview zoom');
   [100,125,150,175,200,225,250].forEach(value=>{const o=node('option','',value===100?'Fit':value+'%');o.value=value;o.selected=value===previewZoom;zoom.append(o);});
   zoom.addEventListener('change',()=>{previewZoom=Number(zoom.value);zoomPreview(0);});bar.append(zoom);
  }
  main.append(bar);
  const card=node('section','passage selected-passage');card.id='passage-'+passage;card.tabIndex=-1;card.setAttribute('aria-label',`Passage ${passage+1}, edit ${edit+1} of ${h.edits.length}`);
- if(!['auto','diff','rendered'].includes(view)){
+ if(display==='pdf'){
+  card.append(pdfPair(g));
+  const exact=node('div','selected-change');exact.append(node('span','selected-label','Selected edit'),exactEdit(g));card.append(exact);
+ }else if(!['auto','diff','rendered'].includes(view)){
   const content=view==='before'?f.before:view==='after'?f.after:selected(f);
   const p=node('pre');p.id='preview';
   if(content===null)p.textContent='File is absent in this version.';
@@ -476,8 +517,8 @@ async function resumeDraft(){
   else{section.hidden=true;$('actions').close();}
  }
 }
-function togglePassageView(){const h=currentHunk();overrides[h.id]=shownView(h)==='rendered'?'diff':'rendered';if(!['auto','diff','rendered'].includes(view))view='auto';render();focusSelection();}
-function zoomPreview(step){previewZoom=Math.max(100,Math.min(250,previewZoom+step));document.documentElement.style.setProperty('--preview-zoom',previewZoom/100);if($('zoom'))$('zoom').value=String(previewZoom);remember();}
+function togglePassageView(){const h=currentHunk();overrides[h.id]=['rendered','pdf'].includes(shownView(h))?'diff':view==='pdf'?'pdf':'rendered';if(!['auto','diff','rendered','pdf'].includes(view))view='auto';render();focusSelection();}
+function zoomPreview(step){previewZoom=Math.max(100,Math.min(250,previewZoom+step));document.documentElement.style.setProperty('--preview-zoom',previewZoom/100);if($('zoom'))$('zoom').value=String(previewZoom);focusPDF();remember();}
 function panPreview(step){document.querySelectorAll('.selected-passage .image-scroll').forEach(p=>p.scrollLeft+=step);}
 function toggleFiles(){document.body.classList.toggle('wide');remember();}
 function help(){$('shortcuts').showModal();}
@@ -499,7 +540,7 @@ async function switchScope(scope){
 function nextUndecided(){
  const index=locationIndex();for(let step=1;step<=locations.length;step++){
   const l=locations[(index+step)%locations.length],g=data.files[l[0]].hunks[l[1]].edits[l[2]];
-  if(choice(g.id)==='pending'){[active,passage,edit]=l;view=['auto','rendered','diff'].includes(view)?view:'auto';$('actions').open&&$('actions').close();render();focusSelection();return;}
+  if(choice(g.id)==='pending'){[active,passage,edit]=l;view=['auto','rendered','diff','pdf'].includes(view)?view:'auto';$('actions').open&&$('actions').close();render();focusSelection();return;}
  }status('All edits have a decision.');
 }
 document.addEventListener('keydown',event=>{
@@ -522,7 +563,8 @@ document.addEventListener('keydown',event=>{
  }
  if(event.metaKey||event.ctrlKey||event.altKey)return;
  let handled=true;
- if(k==='f'||k==='j'||event.key==='ArrowDown')event.shiftKey?movePassage(1):moveEdit(1);
+ if(document.querySelector('.pdf-scroll')&&['PageDown','PageUp'].includes(event.key))document.querySelectorAll('.pdf-scroll').forEach(pane=>pane.scrollTop+=(event.key==='PageDown'?1:-1)*pane.clientHeight*.8);
+ else if(k==='f'||k==='j'||event.key==='ArrowDown')event.shiftKey?movePassage(1):moveEdit(1);
  else if(k==='d'||k==='k'||event.key==='ArrowUp')event.shiftKey?movePassage(-1):moveEdit(-1);
  else if(k==='n')movePassage(1);else if(k==='p')movePassage(-1);
  else if(k===']')moveFile(1);else if(k==='[')moveFile(-1);
@@ -586,7 +628,7 @@ async function ready(){
 async function watchPreviews(){
  const scope=data.scope,proposed=data.proposed;
  try{
-  const r=await fetch('/data?scope='+scope);if(!r.ok)return;const fresh=await r.json();if(data.scope!==scope||data.proposed!==proposed)return;data.preview_status=fresh.preview_status;
+  const r=await fetch('/data?scope='+scope);if(!r.ok)return;const fresh=await r.json();if(data.scope!==scope||data.proposed!==proposed)return;data.preview_status=fresh.preview_status;data.documents=fresh.documents;data.preview_error=fresh.preview_error;
   fresh.files.forEach((f,fi)=>f.hunks.forEach((h,hi)=>{const target=data.files.find(file=>file.path===f.path)?.hunks.find(passage=>passage.id===h.id);if(target)target.rendered=h.rendered;}));
   if(['queued','rendering'].includes(data.preview_status))setTimeout(watchPreviews,2500);
   else if(!fileEditor&&!document.activeElement.matches('textarea,input,select'))render();

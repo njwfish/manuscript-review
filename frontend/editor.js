@@ -1,9 +1,28 @@
 import {EditorState, StateField, StateEffect, Compartment} from '@codemirror/state';
-import {EditorView, Decoration, keymap, lineNumbers, drawSelection} from '@codemirror/view';
+import {EditorView, Decoration, keymap, lineNumbers, drawSelection, showTooltip} from '@codemirror/view';
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {search, searchKeymap, closeSearchPanel} from '@codemirror/search';
 
 const noteEffect = StateEffect.define();
+const commentFocus = StateEffect.define();
+const focused = StateField.define({create:()=>true,update:(value,tr)=>tr.effects.find(effect=>effect.is(commentFocus))?.value??value});
+
+function selectionComment(onComment) {
+  return [focused, showTooltip.computeN([focused, 'selection', EditorState.readOnly], state => {
+    const range=state.selection.main;
+    if(range.empty||!state.field(focused)||state.readOnly)return [];
+    return [{pos:range.head,above:true,arrow:true,create:()=>{
+      const dom=document.createElement('div'),button=document.createElement('button');
+      dom.className='cm-comment-tooltip';button.type='button';button.textContent='Comment';
+      button.title='Comment on selected text (⌘/Ctrl+Shift+M)';
+      button.addEventListener('mousedown',event=>event.preventDefault());
+      button.addEventListener('click',onComment);dom.append(button);return {dom};
+    }}];
+  }),EditorView.domEventHandlers({
+    focus:(_,view)=>{view.dispatch({effects:commentFocus.of(true)});},
+    blur:(_,view)=>{view.dispatch({effects:commentFocus.of(false)});}
+  })];
+}
 const highlights = StateField.define({
   create: () => [],
   update: (value, transaction) => {
@@ -40,7 +59,7 @@ export function createEditor(parent, {text, ranges, position, onChange, onSelect
   const view = new EditorView({
     parent,
     state: createSourceState(text, ranges, position, [
-        history(), lineNumbers(), drawSelection(), EditorView.lineWrapping,
+        history(), lineNumbers(), drawSelection(), EditorView.lineWrapping, selectionComment(onComment),
         editable.of([EditorState.readOnly.of(false), EditorView.editable.of(true)]),
         search({top: true}),
         keymap.of([
@@ -56,7 +75,7 @@ export function createEditor(parent, {text, ranges, position, onChange, onSelect
           if (update.docChanged) {
             onChange(update.state.sliceDoc());
           }
-          if (update.selectionSet) {
+          if (update.selectionSet && update.state.selection.main.empty) {
             const point=update.state.selection.main.head,selected=update.state.field(highlights).find(range=>range.from<=point&&point<=range.to);
             if(selected)onSelect(selected.id);
           }
@@ -78,6 +97,8 @@ export function createEditor(parent, {text, ranges, position, onChange, onSelect
           '.review-rejected': {backgroundColor: 'var(--delbg)', color: 'var(--del)'},
           '.review-current': {borderBottom: '2px solid var(--accent)'},
           '.review-note': {textDecoration: 'underline', textDecorationStyle: 'dotted', textDecorationColor: 'var(--accent)', textUnderlineOffset: '4px'},
+          '.cm-tooltip.cm-comment-tooltip': {border: '1px solid var(--line)', borderRadius: '7px', backgroundColor: 'var(--control)', boxShadow: '0 3px 12px #0002'},
+          '.cm-comment-tooltip button': {fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', fontSize: '12px', padding: '6px 11px', border: 'none', background: 'none', color: 'var(--ink)'},
         })
       ])
   });
