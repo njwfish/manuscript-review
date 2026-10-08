@@ -404,16 +404,17 @@ function renderedPair(h){
  }
  return pair;
 }
-function pdfPair(group){
- const pair=node('div','typeset-pair pdf-pair');
+function pdfPair(group,pair=node('div','typeset-pair pdf-pair')){
  for(const side of ['before','after']){
+  const previous=pair.children[side==='before'?0:1];
   const document=data.documents?.[side],pane=node('figure','typeset-pane'),caption=node('figcaption');
   const label=side==='before'?(readOnly()?'Baseline':'Original'):(readOnly()?'Selected':'Proposed');
   const marks=document?.edits[group.id]||[],numbers=[...new Set(marks.map(mark=>mark.page))];
   caption.textContent=label;pane.append(caption);
   if(embedded&&document?.pdf){
-   const frame=node('iframe','pdf-viewer');frame.title=label+' PDF';
-   pane.append(frame);pair.append(pane);
+   const frame=previous?.querySelector('.pdf-viewer')||node('iframe','pdf-viewer');frame.title=label+' PDF';
+   if(previous?.contains(frame))previous.querySelector('figcaption').textContent=label;
+   else{pane.append(frame);if(previous)previous.replaceWith(pane);else pair.append(pane);}
    const normalized=marks.map(mark=>{const page=document.pages[mark.page-1];return {...mark,bounds:mark.bounds?.map((value,index)=>Math.max(0,Math.min(1,value/(index%2?page.height:page.width))))??null};});
    pdfFrame(frame,{path:(readOnly()?'/baseline-assets/':'/assets/')+document.pdf,marks:normalized,color:side==='before'?'removed':'added'}).catch(error=>{frame.replaceWith(node('p','render-note',error.message));});
    continue;
@@ -437,7 +438,7 @@ function pdfPair(group){
    scroll.append(frame,node('div','pdf-page-number',`Page ${number} of ${document.pages.length}`));
   }
   if(side==='after'&&!readOnly()){scroll.classList.add('editable-preview');scroll.addEventListener('click',()=>openEditor());}
-  pane.append(scroll);pair.append(pane);
+  pane.append(scroll);if(previous)previous.replaceWith(pane);else pair.append(pane);
  }
  return pair;
 }
@@ -493,7 +494,9 @@ function render(){
  document.body.classList.toggle('pdf-review',embedded&&display==='pdf');
  updateSidebar();updateProgress();remember();
  bulkControls('passage-actions',h.edits.map(g=>g.id),'passage');bulkControls('file-actions',f.edits.map(g=>g.id),'file');
- const main=$('main');main.replaceChildren();main.classList.toggle('rendered',['rendered','pdf'].includes(display));
+ const main=$('main'),existing=embedded&&display==='pdf'?main.querySelector('.selected-passage:has(.pdf-viewer)'):null;
+ if(existing){for(const child of [...main.children])if(child!==existing)child.remove();}else main.replaceChildren();
+ main.classList.toggle('rendered',['rendered','pdf'].includes(display));
  const bar=node('div','contextbar'),context=node('div','context');context.id='selection';context.setAttribute('aria-live','polite');
  renderSelection(context);
  bar.append(context);
@@ -507,10 +510,11 @@ function render(){
   [100,125,150,175,200,225,250].forEach(value=>{const o=node('option','',value===100?'Fit':value+'%');o.value=value;o.selected=value===previewZoom;zoom.append(o);});
   zoom.addEventListener('change',()=>{previewZoom=Number(zoom.value);zoomPreview(0);});bar.append(zoom);
  }
- main.append(bar);
- const card=node('section','passage selected-passage');card.id='passage-'+passage;card.tabIndex=-1;card.setAttribute('aria-label',`Passage ${passage+1}, edit ${edit+1} of ${h.edits.length}`);
+ main.insertBefore(bar,existing);
+ const card=existing||node('section','passage selected-passage');card.id='passage-'+passage;card.tabIndex=-1;card.setAttribute('aria-label',`Passage ${passage+1}, edit ${edit+1} of ${h.edits.length}`);
  if(display==='pdf'){
-  card.append(pdfPair(g));
+  const pair=existing?.querySelector('.pdf-pair');
+  if(pair){for(const child of [...card.children])if(child!==pair)child.remove();pdfPair(g,pair);}else card.append(pdfPair(g));
   const exact=node('div','selected-change');exact.append(node('span','selected-label','Selected edit'),exactEdit(g));card.append(exact);
  }else if(!['auto','diff','rendered'].includes(view)){
   const content=view==='before'?f.before:view==='after'?f.after:selected(f);
@@ -529,7 +533,7 @@ function render(){
   const exact=node('div','selected-change');exact.append(node('span','selected-label','Selected edit'),exactEdit(g));card.append(exact);
   const src=node('details','detail');src.dataset.key='source-'+h.id;src.append(node('summary','','Word changes in context'),sourceBody(h,f,true));card.append(src);
  }else card.append(sourceBody(h,f));
- main.append(card);
+ if(!existing)main.append(card);
  const controls=node('div','decisionbar'),s=groupStatus(g);
  const accept=keyButton('Accept','A',()=>{setChoices([g.id],'accept');focusSelection();},'accept');accept.setAttribute('aria-pressed',s==='accept');
  const reject=keyButton('Reject','S',()=>{setChoices([g.id],'reject');focusSelection();},'reject');reject.setAttribute('aria-pressed',s==='reject');
@@ -545,7 +549,8 @@ function render(){
   controls.append(accept,reject,revise,comment,reset,node('span','decision-state state-'+s,{pending:'Undecided',accept:'Accepted',reject:'Rejected'}[s]));main.append(controls);
   if(h.edits.length>1)main.append(allEdits(h));
  }
- const foot=node('div','statusline');const saveStatus=node('span','','');saveStatus.id='status';saveStatus.setAttribute('role','status');saveStatus.setAttribute('aria-live','polite');foot.append(saveStatus);main.append(foot);
+ const foot=node('div','statusline');const saveStatus=node('span','','');saveStatus.id='status';saveStatus.setAttribute('role','status');saveStatus.setAttribute('aria-live','polite');foot.append(saveStatus);
+ if(embedded&&display==='pdf')controls.append(foot);else main.append(foot);
  document.querySelectorAll('main details').forEach(d=>{if(open.has(d.dataset.key)){d.hidden=false;d.open=true;}});renderDiscussion();status(oldStatus,oldError);
 }
 function focusSelection(){if(!data.files.length)return;
@@ -644,7 +649,7 @@ document.addEventListener('keydown',event=>{
  else if(k==='+'||k==='=')zoomPreview(25);else if(k==='-')zoomPreview(-25);
  else if(k==='h'||event.key==='ArrowLeft')panPreview(-100);else if(k==='l'||event.key==='ArrowRight')panPreview(100);
  else if(k==='t')switchScope(readOnly()?'round':'baseline');else if(k==='?')help();else if(k==='m')$('actions').showModal();else if(k==='g')nextUndecided();else if(k==='q')showFeedback();
- else if(k==='i'){const d=document.querySelector('.detail[data-key^="individual-"]');if(d)d.open=!d.open;}
+ else if(k==='i'){const d=document.querySelector('.detail[data-key^="individual-"]');if(d){d.open=!d.open;if(d.open)d.scrollIntoView({block:'nearest'});}}
  else if(event.key==='Escape')focusSelection();else handled=false;
  if(handled)event.preventDefault();
 });
@@ -697,6 +702,7 @@ async function ready(){
   if(embedded){document.body.classList.add('wide');$('comparison').querySelector('option[value=manuscript]')?.remove();
    const round=$('round-state'),control=button(round.textContent,()=>runHostCommand('rounds'),'quiet');control.id=round.id;control.hidden=round.hidden;control.title='Choose review round';round.replaceWith(control);
    $('compare-saved').hidden=false;
+   $('apply-shortcut').querySelector('td').textContent='Save comment; apply completed review';$('pdf-shortcut-hint').hidden=false;
   }
   render();focusSelection();status('Saved locally');
   if(embedded)reviewReady();

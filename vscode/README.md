@@ -8,13 +8,13 @@ Workshop viewer with the selected change highlighted on the original and propose
 ## Try the preview
 
 Install the `.vsix` through **Extensions → Install from VSIX…**, then open your
-manuscript folder. You need Git and Python 3.12 or newer on the machine hosting the
-workspace. Set **Manuscript Review: Python Path** if `python3` is not that interpreter.
+manuscript folder. The workspace host needs macOS or Linux, Git, and Python 3.12 or
+newer. Set **Manuscript Review: Python Path** if `python3` is not that interpreter.
 PDF previews also need `latexmk`, `pdflatex`, and Poppler (`pdftocairo`, `pdftotext`,
 `pdfinfo`). The extension starts its local service only when you open a review.
 
 Run **Manuscript Review: Open manuscript review** from the command palette. Choose
-a saved round, or open a new manuscript for annotation. An unchanged manuscript stays
+a saved round; a repository with no reviews opens for annotation. An unchanged manuscript stays
 in the source editor; **Focus review** opens the comparison when needed. The round
 label in the focused panel opens the same picker for that manuscript.
 By default it shares the standalone app's library. A separate library can be selected
@@ -23,7 +23,7 @@ in **Manuscript Review: Library Directory**.
 Select source text and run **Comment on selection** (⌘/Ctrl+Shift+M), or use the editor
 context menu. With no selection, the comment covers the current line. Responses and
 follow-ups remain together in VS Code's Comments view. **Previous comment** and **Next
-comment** (⌘/Ctrl+Shift+[ / ]) move through them across files. Comment shortcuts apply
+comment** (⌘/Ctrl+Alt+[ / ]) move through them across files. Comment shortcuts apply
 only while a review is open and the source editor has focus; they can be remapped in
 Keyboard Shortcuts.
 
@@ -32,6 +32,9 @@ letters in the source editor. Clicking proposed source opens the real file at th
 change. Source remains a normal VS Code document: saving, undo, syntax highlighting,
 and LaTeX Workshop compilation retain their usual behavior. Source change backgrounds
 and hovers show reviewed replacements against the exact current editor buffer.
+PDF navigation retains zoom and the loaded document while moving the highlights.
+PDF panes keep their selection, search, and copy shortcuts; use the review panel for
+whole-file decisions and Apply.
 
 After saving manual source changes, use **Compare saved changes** in Review tools,
 or run **Review saved source changes** from the command palette. This creates

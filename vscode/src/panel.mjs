@@ -33,7 +33,8 @@ body.vscode-review{
 .vscode-review.pdf-review .typeset-pane figcaption{flex-shrink:0}
 .vscode-review.pdf-review .pdf-viewer{flex:1;min-height:0}
 .vscode-review.pdf-review .selected-change{flex-shrink:0}
-.vscode-review.pdf-review .decisionbar{flex-shrink:0;margin-top:12px;backdrop-filter:none}
+.vscode-review.pdf-review .decisionbar{flex-shrink:0;flex-wrap:wrap;margin-top:12px;backdrop-filter:none}
+.vscode-review.pdf-review .statusline{flex-basis:100%;margin-top:0}
 .vscode-review.pdf-review #discussion{height:100%;top:0}
 @media(max-width:650px){.vscode-review.pdf-review .pdf-pair{grid-template-columns:minmax(0,1fr)}.vscode-review.pdf-review .selected-passage{min-height:600px}}
 `;

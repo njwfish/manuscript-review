@@ -8,7 +8,7 @@ import test from 'node:test';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {buildViewer} from '../src/build-viewer.mjs';
 import {reviewMarks, viewportBounds} from '../viewer/highlights.mjs';
-import {reviewKey, reviewMessage} from '../viewer/interaction.mjs';
+import {createPDFReview, reviewKey, reviewMessage} from '../viewer/interaction.mjs';
 
 const source = fileURLToPath(new URL('../viewer/', import.meta.url));
 
@@ -74,6 +74,78 @@ test('only the parent window at its pinned origin can load PDF review data', () 
     assert.equal(reviewMessage({source: {}, origin, data}, origin, parent), undefined);
     assert.equal(reviewMessage({source: parent, origin: 'https://other.test', data}, origin, parent), undefined);
     assert.equal(reviewMessage({source: parent, origin, data: {type: 'other'}}, origin, parent), undefined);
+});
+
+function deferred() {
+    let resolve, reject;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    return {promise, resolve, reject};
+}
+
+test('a queued document keeps its bytes when a newer selection arrives during a previous load', async () => {
+    const initial = deferred(), opens = [], selections = [], errors = [];
+    const application = {
+        async open(options) {
+            opens.push([...options.data]);
+            if (options.data[0] === 1) await initial.promise;
+            this.pdfDocument = {};
+        }
+    };
+    const update = createPDFReview(application, {set: (...args) => selections.push(args)}, error => errors.push(error));
+    const first = update({document: '/assets/first.pdf', data: Uint8Array.of(1), marks: []});
+    await Promise.resolve();
+    assert.deepEqual(opens, [[1]]);
+    const next = update({document: '/assets/next.pdf', data: Uint8Array.of(2), marks: [{page: 1, bounds: [0, 0, .1, .1]}]});
+    const marks = [{page: 3, bounds: [.2, .3, .4, .5]}];
+    const latest = update({document: '/assets/next.pdf', marks, color: 'removed'});
+    initial.resolve();
+    await Promise.all([first, next, latest]);
+    assert.deepEqual(opens, [[1], [2]]);
+    assert.deepEqual(selections.at(-1), [marks, 'removed', true]);
+    assert.deepEqual(errors, []);
+    await update({document: '/assets/next.pdf', marks, active: false});
+    assert.deepEqual(opens, [[1], [2]]);
+    assert.deepEqual(selections.at(-1), [marks, undefined, false]);
+});
+
+test('only the latest document opens after a pending document and its obsolete load failure', async () => {
+    const initial = deferred(), opens = [], selections = [], errors = [];
+    const application = {
+        async open(options) {
+            opens.push([...options.data]);
+            if (options.data[0] === 1) await initial.promise;
+            this.pdfDocument = {};
+        }
+    };
+    const update = createPDFReview(application, {set: (...args) => selections.push(args)}, error => errors.push(error));
+    const first = update({document: '/assets/first.pdf', data: Uint8Array.of(1)});
+    await Promise.resolve();
+    const skipped = update({document: '/assets/skipped.pdf', data: Uint8Array.of(2)});
+    const final = update({document: '/assets/final.pdf', data: Uint8Array.of(3)});
+    const marks = [{page: 4, bounds: null}];
+    const selection = update({document: '/assets/final.pdf', marks, color: 'added'});
+    initial.reject(new Error('The obsolete PDF failed.'));
+    await Promise.all([first, skipped, final, selection]);
+    assert.deepEqual(opens, [[1], [3]]);
+    assert.deepEqual(selections.at(-1), [marks, 'added', true]);
+    assert.deepEqual(errors, []);
+});
+
+test('PDF failures identify their document and do not poison later document loading', async () => {
+    const errors = [], selections = [];
+    const application = {
+        async open(options) {
+            if (options.data[0] === 1) throw new Error('Invalid historical PDF.');
+            this.pdfDocument = {};
+        }
+    };
+    const update = createPDFReview(application, {set: (...args) => selections.push(args)}, error => errors.push(error));
+    await update({document: '/assets/invalid.pdf', data: Uint8Array.of(1)});
+    assert.deepEqual(errors, [{type: 'review-pdf-error', document: '/assets/invalid.pdf', error: 'Invalid historical PDF.'}]);
+    const marks = [{page: 1, bounds: [0, 0, .1, .1]}];
+    await update({document: '/assets/valid.pdf', data: Uint8Array.of(2), marks});
+    assert.deepEqual(selections.at(-1), [marks, undefined, true]);
+    assert.equal(errors.length, 1);
 });
 
 test('review shortcuts leave PDF search and modified editing shortcuts untouched', () => {

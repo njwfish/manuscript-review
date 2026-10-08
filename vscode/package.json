@@ -185,14 +185,14 @@
       },
       {
         "command": "manuscriptReview.previousComment",
-        "key": "ctrl+shift+[",
-        "mac": "cmd+shift+[",
+        "key": "ctrl+alt+[",
+        "mac": "cmd+alt+[",
         "when": "manuscriptReview.source && editorTextFocus"
       },
       {
         "command": "manuscriptReview.nextComment",
-        "key": "ctrl+shift+]",
-        "mac": "cmd+shift+]",
+        "key": "ctrl+alt+]",
+        "mac": "cmd+alt+]",
         "when": "manuscriptReview.source && editorTextFocus"
       }
     ]

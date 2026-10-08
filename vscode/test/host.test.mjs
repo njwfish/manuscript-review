@@ -5,7 +5,9 @@ import {createBridge} from '../../manuscript_review/host.js';
 let moduleNumber = 0;
 
 async function host(t, embedded = false) {
-    const messages = [], listeners = new Map();
+    const messages = [], listeners = new Map(), keys=[];
+    const body=new EventTarget();body.matches=()=>false;
+    body.addEventListener('keydown',event=>{assert.equal(event.target.matches('textarea,input,select'),false);keys.push(event);});
     let state;
     const api = {
         postMessage: message => messages.push(message),
@@ -19,6 +21,8 @@ async function host(t, embedded = false) {
             entries.push(listener); listeners.set(name, entries);
         },
         location: {origin: 'https://host.invalid'},
+        document: {body,createElement:name=>({tagName:name})},
+        KeyboardEvent: class extends Event {constructor(type,options){super(type,options);Object.assign(this,{key:options.key,shiftKey:options.shiftKey,repeat:options.repeat});}},
     };
     for (const [name, value] of Object.entries(globals)) {
         const original = Object.getOwnPropertyDescriptor(globalThis, name);
@@ -30,7 +34,7 @@ async function host(t, embedded = false) {
     }
     const module = await import(new URL(`../../manuscript_review/host.js?test=${++moduleNumber}`, import.meta.url));
     const emit = (name, event) => Promise.all((listeners.get(name)||[]).map(listener => listener(event)));
-    return {module, messages, api, emit, state: () => state,
+    return {module, messages, api, emit, keys, body, state: () => state,
         reply: (message, data, ok = true) => emit('message', {
             data: {type: 'review-response', id: message.id, ok, ...(ok ? {data} : {error: data})},
         })};
@@ -179,4 +183,68 @@ test('PDF frames receive immutable bytes only after their own authenticated read
     frame.isConnected = false;
     await h.emit('message', {data: {type: 'review-pdf-ready'}, source: frame.contentWindow, origin: 'https://assets.invalid'});
     assert.equal(packets.length, 1);
+});
+
+test('PDF review keys target an Element and preserve review navigation modifiers',async t=>{
+    const h=await host(t,true),frame={isConnected:true,src:'',contentWindow:{postMessage(){}}};
+    const setup=h.module.pdfFrame(frame,{path:'/assets/source.pdf',marks:[],color:'added'});
+    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
+    const event={data:{type:'review-pdf-key',key:'A',shiftKey:true,repeat:false},source:frame.contentWindow,origin:'https://assets.invalid'};
+    await h.emit('message',{...event,source:{}});await h.emit('message',{...event,origin:'https://other.invalid'});
+    assert.equal(h.keys.length,0);
+    await h.emit('message',event);
+    assert.equal(h.keys[0].target,h.body);assert.equal(h.keys[0].key,'A');assert.equal(h.keys[0].shiftKey,true);
+    for(const key of ['j','k','[',']','?'])await h.emit('message',{...event,data:{type:'review-pdf-key',key}});
+    assert.deepEqual(h.keys.map(event=>event.key),['A','j','k','[',']','?']);
+});
+
+test('both initially detached PDF panes remain registered when mounted together',async t=>{
+    const h=await host(t,true),packets=[];
+    const frames=['before','after'].map(side=>({isConnected:false,src:'',contentWindow:{postMessage:message=>packets.push({side,message})}}));
+    const setups=frames.map((frame,index)=>h.module.pdfFrame(frame,{path:`/assets/${index}.pdf`,marks:[],color:'added'}));
+    frames.forEach(frame=>{frame.isConnected=true;});
+    await Promise.all(h.messages.slice().map(message=>h.reply(message,'https://assets.invalid/viewer.html')));await Promise.all(setups);
+    const loading=frames.map(frame=>h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'}));
+    const assets=h.messages.filter(message=>message.action==='asset');assert.equal(assets.length,2);
+    await Promise.all(assets.map(message=>h.reply(message,'data:application/pdf;base64,JVBERg==')));await Promise.all(loading);
+    assert.equal(packets.length,2);
+});
+
+test('navigation reuses loaded PDF bytes and only sends new highlight locations',async t=>{
+    const h=await host(t,true),packets=[],frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)}};
+    const setup=h.module.pdfFrame(frame,{path:'/assets/source.pdf',marks:[{page:1,bounds:null}],color:'added'});
+    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
+    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'});
+    h.reply(h.messages.at(-1),'data:application/pdf;base64,JVBERg==');await loading;
+    const source=frame.src,count=h.messages.length,marks=[{page:3,bounds:[.1,.2,.3,.4]}];
+    await h.module.pdfFrame(frame,{path:'/assets/source.pdf',marks,color:'removed'});
+    assert.equal(frame.src,source);assert.equal(h.messages.length,count);
+    assert.deepEqual(packets.at(-1),{type:'review-pdf',document:'/assets/source.pdf',marks,color:'removed',active:true});
+});
+
+test('a pending PDF load uses the latest marks and an obsolete document failure cannot remove its replacement',async t=>{
+    const h=await host(t,true),packets=[],frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)},replaceWith(){throw new Error('Do not remove the newer PDF.');}};
+    const setup=h.module.pdfFrame(frame,{path:'/assets/old.pdf',marks:[],color:'added'});
+    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
+    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'}),old=h.messages.at(-1);
+    const next=h.module.pdfFrame(frame,{path:'/baseline-assets/new.pdf',marks:[{page:2,bounds:null}],color:'removed'}),fresh=h.messages.at(-1);
+    await h.module.pdfFrame(frame,{path:'/baseline-assets/new.pdf',marks:[{page:4,bounds:null}],color:'removed'});
+    h.reply(old,'Old asset failed.',false);h.reply(fresh,'data:application/pdf;base64,JVBERg==');await loading;await next;
+    assert.equal(packets.length,1);assert.equal(packets[0].document,'/baseline-assets/new.pdf');
+    assert.deepEqual(packets[0].marks,[{page:4,bounds:null}]);
+});
+
+test('an old viewer failure cannot replace a newly selected PDF while its bytes load',async t=>{
+    const h=await host(t,true),packets=[],replacements=[];
+    const frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)},replaceWith:element=>replacements.push(element)};
+    const setup=h.module.pdfFrame(frame,{path:'/assets/old.pdf',marks:[],color:'added'});
+    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
+    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'});
+    h.reply(h.messages.at(-1),'data:application/pdf;base64,JVBERg==');await loading;
+    const next=h.module.pdfFrame(frame,{path:'/baseline-assets/new.pdf',marks:[],color:'added'}),asset=h.messages.at(-1);
+    const failure=document=>h.emit('message',{data:{type:'review-pdf-error',document,error:'PDF could not open.'},source:frame.contentWindow,origin:'https://assets.invalid'});
+    await failure('/assets/old.pdf');assert.equal(replacements.length,0);
+    h.reply(asset,'data:application/pdf;base64,JVBERg==');await next;assert.equal(packets.at(-1).document,'/baseline-assets/new.pdf');
+    await failure('/baseline-assets/new.pdf');assert.equal(replacements.length,1);
+    assert.equal(replacements[0].textContent,'PDF could not open.');
 });

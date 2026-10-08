@@ -34,11 +34,26 @@ export function exportFile(path){return call('export',{path});}
 export function reviewReady(error){api?.postMessage({type:'review-ready',error});}
 
 const frames=new Map();
+function sendPDF(frame,values,data){frame.contentWindow.postMessage({type:'review-pdf',document:values.path,...(data?{data}:{}),marks:values.marks,color:values.color,active:true},new URL(frame.src).origin);}
+async function loadPDF(frame,values){
+ if(values.loading)return values.loading;
+ values.loading=(async()=>{
+  try{
+   const source=await call('asset',{path:values.path}),bytes=Uint8Array.from(atob(source.split(',')[1]),character=>character.charCodeAt(0));
+   if(frame.isConnected&&frames.get(frame)===values){sendPDF(frame,values,bytes);values.loaded=true;}
+  }catch(error){if(frame.isConnected&&frames.get(frame)===values){frame.replaceWith(Object.assign(document.createElement('p'),{className:'render-note',textContent:error.message}));frames.delete(frame);}}
+ })();return values.loading;
+}
 export async function pdfFrame(frame,{path,marks,color}){
- for(const old of frames.keys())if(!old.isConnected)frames.delete(old);
- frames.set(frame,{path,marks,color});
- const uri=await call('viewer');
- if(frame.isConnected)frame.src=uri+'?parentOrigin='+encodeURIComponent(globalThis.location.origin);
+ for(const [old,values] of frames)if(values.initialized&&!old.isConnected)frames.delete(old);
+ const previous=frames.get(frame);
+ if(previous?.path===path){Object.assign(previous,{marks,color});if(previous.loaded)sendPDF(frame,previous);return;}
+ const values={path,marks,color,initialized:previous?.initialized,ready:previous?.ready};frames.set(frame,values);
+ if(values.ready){await loadPDF(frame,values);return;}
+ if(previous)return;
+ let uri;try{uri=await call('viewer');}catch(error){frames.delete(frame);throw error;}
+ if(frame.isConnected){frames.get(frame).initialized=true;frame.src=uri+'?parentOrigin='+encodeURIComponent(globalThis.location.origin);}
+ else frames.delete(frame);
 }
 if(api)globalThis.addEventListener('message',async event=>{
  if(!['review-pdf-ready','review-pdf-key','review-pdf-error'].includes(event.data?.type))return;
@@ -47,14 +62,11 @@ if(api)globalThis.addEventListener('message',async event=>{
   if(event.source!==frame.contentWindow||event.origin!==new URL(frame.src).origin)continue;
   if(event.data.type==='review-pdf-key'){
    const {key,shiftKey,repeat}=event.data;
-   if(typeof key==='string'&&/^[asdfucevrtgpnqmi?\[\]]$/i.test(key))document.dispatchEvent(new KeyboardEvent('keydown',{key,shiftKey:Boolean(shiftKey),repeat:Boolean(repeat),bubbles:true,cancelable:true}));
+   if(typeof key==='string'&&/^[asdfjkucevrtgpnqmi?\[\]]$/i.test(key))document.body.dispatchEvent(new KeyboardEvent('keydown',{key,shiftKey:Boolean(shiftKey),repeat:Boolean(repeat),bubbles:true,cancelable:true}));
    return;
   }
-  if(event.data.type==='review-pdf-error'){frame.replaceWith(Object.assign(document.createElement('p'),{className:'render-note',textContent:event.data.error}));frames.delete(frame);return;}
-  try{
-   const source=await call('asset',{path:values.path}),bytes=Uint8Array.from(atob(source.split(',')[1]),character=>character.charCodeAt(0));
-   if(frame.isConnected)frame.contentWindow.postMessage({type:'review-pdf',document:values.path,data:bytes,marks:values.marks,color:values.color,active:true},new URL(frame.src).origin);
-  }catch(error){frame.replaceWith(Object.assign(document.createElement('p'),{className:'render-note',textContent:error.message}));frames.delete(frame);}
+  if(event.data.type==='review-pdf-error'){if(event.data.document!==values.path)return;frame.replaceWith(Object.assign(document.createElement('p'),{className:'render-note',textContent:event.data.error}));frames.delete(frame);return;}
+  values.ready=true;await loadPDF(frame,values);
  }
 });
 

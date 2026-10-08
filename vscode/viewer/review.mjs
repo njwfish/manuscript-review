@@ -1,5 +1,5 @@
-import {createHighlights, reviewMarks} from './highlights.mjs';
-import {reviewKey, reviewMessage} from './interaction.mjs';
+import {createHighlights} from './highlights.mjs';
+import {createPDFReview, reviewKey, reviewMessage} from './interaction.mjs';
 
 const origin = new URL(location.href).searchParams.get('parentOrigin');
 if (!origin || origin === 'null') throw new Error('The PDF viewer requires its review host.');
@@ -29,29 +29,11 @@ try { window.parent.document.addEventListener('webviewerloaded', configure); } c
 const {PDFViewerApplication: application} = await import('./viewer.mjs');
 await application.initializedPromise;
 const highlights = createHighlights(application);
-let documentKey, generation = 0, loading = Promise.resolve();
+const reviewPDF = createPDFReview(application, highlights, send);
 
 window.addEventListener('message', event => {
     const message = reviewMessage(event, target, window.parent);
-    if (!message) return;
-    const ticket = ++generation;
-    loading = loading.catch(() => {}).then(async () => {
-        if (ticket !== generation) return;
-        const marks = reviewMarks(message.marks || []);
-        const key = typeof message.document === 'string' ? message.document : undefined;
-        if (!application.pdfDocument || key === undefined || key !== documentKey) {
-            if (!(message.data instanceof Uint8Array || message.data instanceof ArrayBuffer)) throw new Error('PDF review data is missing.');
-            const bytes = message.data instanceof Uint8Array ? message.data : new Uint8Array(message.data);
-            highlights.set([], message.color, false);
-            await application.open({data: bytes, isEvalSupported: false});
-            documentKey = key;
-        }
-        if (ticket !== generation) return;
-        highlights.set(marks, message.color, message.active !== false);
-    });
-    loading.catch(error => {
-        if (ticket === generation) send({type: 'review-pdf-error', error: error.message});
-    });
+    if (message) reviewPDF(message);
 });
 
 window.addEventListener('keydown', event => {
@@ -75,6 +57,7 @@ let hideTimer;
 document.getElementById('outerContainer').addEventListener('mousemove', event => {
     if (event.clientY <= 64) {
         clearTimeout(hideTimer);
+        hideTimer = undefined;
         toolbar.classList.remove('hide');
     } else if (!hideTimer) {
         hideTimer = setTimeout(() => {
