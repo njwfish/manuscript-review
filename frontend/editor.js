@@ -27,7 +27,9 @@ export function createSourceState(text, ranges, position, extensions = []) {
   return EditorState.create({
     doc: text,
     selection: {anchor: offset(position)},
-    extensions: [EditorState.lineSeparator.of(separator), highlights.init(() => ranges.map(range => ({...range, from: offset(range.from), to: offset(range.to)}))), ...extensions]
+    extensions: [EditorState.lineSeparator.of(separator),
+      EditorView.clipboardInputFilter.of((input, state) => input.replace(/\r\n?|\n/g, state.lineBreak)),
+      highlights.init(() => ranges.map(range => ({...range, from: offset(range.from), to: offset(range.to)}))), ...extensions]
   });
 }
 

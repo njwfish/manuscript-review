@@ -9,6 +9,7 @@ class ClientSaveTests(unittest.TestCase):
     def test_source_editor_preserves_newlines_and_tracks_changes(self):
         script = r"""import assert from 'node:assert/strict';
 import {createSourceState} from './frontend/editor.js';
+import {EditorView} from '@codemirror/view';
 for (const newline of ['\n', '\r\n']) {
   const source = `First α😀 line.${newline}Second old line.${newline}`;
   const start = source.indexOf('old');
@@ -17,8 +18,12 @@ for (const newline of ['\n', '\r\n']) {
   assert.equal(state.sliceDoc(state.selection.main.head,state.selection.main.head+3),'old');
   const changed=state.update({changes:{from:state.selection.main.head,to:state.selection.main.head+3,insert:'new words'}}).state;
   assert.equal(changed.sliceDoc(),source.replace('old','new words'));
-  const marks=changed.facet((await import('@codemirror/view')).EditorView.decorations)[0];
+  const marks=changed.facet(EditorView.decorations)[0];
   marks.between(0,changed.doc.length,(from,to)=>assert.equal(changed.sliceDoc(from,to),'new words'));
+  const pasted=state.facet(EditorView.clipboardInputFilter).reduce((input,filter)=>filter(input,state),'new\nwords');
+  const multiline=state.update({changes:{from:state.selection.main.head,to:state.selection.main.head+3,insert:pasted}}).state;
+  assert.equal(multiline.doc.lines,state.doc.lines+1);
+  assert.equal(multiline.sliceDoc(),source.replace('old',`new${newline}words`));
 }
 const mixed='First\r\nSecond\nThird\r\n';
 assert.equal(createSourceState(mixed,[],0).sliceDoc(),mixed);
