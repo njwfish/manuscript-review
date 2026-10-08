@@ -2,7 +2,7 @@
 
 ## macOS app
 
-Download **Manuscript Review.zip** from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** into **Applications**. Open the app to start reviewing. The app supports Apple Silicon Macs running macOS 13 or later and includes its Python runtime.
+Download the app ZIP from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** into **Applications**. Open the app to start reviewing. The app supports Apple Silicon Macs running macOS 13 or later and includes its Python runtime.
 
 Git must be installed. Apple's Command Line Tools provide it:
 

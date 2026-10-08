@@ -5,7 +5,7 @@ previews with changed terms highlighted, keyboard review, whole-passage editing,
 and saved comments with agent responses. Review rounds preserve an original baseline
 so you can inspect both the latest pass and accumulated changes.
 
-Download **Manuscript Review.zip**, unzip it, and move the app to **Applications**.
+Download the app ZIP, unzip it, and move the app to **Applications**.
 The app includes its Python runtime and agent skill. Follow the repository's
 [installation guide](https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md)
 to install Git, optional LaTeX preview tools, and the skill for Codex or Claude Code.
