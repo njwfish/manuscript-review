@@ -2,6 +2,14 @@ import {EditorState, StateField, StateEffect, Compartment} from '@codemirror/sta
 import {EditorView, Decoration, keymap, lineNumbers, drawSelection, showTooltip} from '@codemirror/view';
 import {defaultKeymap, history, historyKeymap} from '@codemirror/commands';
 import {search, searchKeymap, closeSearchPanel} from '@codemirror/search';
+import {StreamLanguage, syntaxHighlighting, HighlightStyle} from '@codemirror/language';
+import {stex} from '@codemirror/legacy-modes/mode/stex';
+import {tags} from '@lezer/highlight';
+
+const latex = [StreamLanguage.define(stex), syntaxHighlighting(HighlightStyle.define([
+  {tag: [tags.tagName, tags.keyword], color: 'var(--syntax-command)'},
+  {tag: [tags.comment, tags.bracket], color: 'var(--muted)'}
+]))];
 
 const noteEffect = StateEffect.define();
 const commentFocus = StateEffect.define();
@@ -50,7 +58,7 @@ export function createSourceState(text, ranges, position, extensions = []) {
     selection: {anchor: offset(position)},
     extensions: [EditorState.lineSeparator.of(separator),
       EditorView.clipboardInputFilter.of((input, state) => input.replace(/\r\n?|\n/g, state.lineBreak)),
-      highlights.init(() => ranges.map(range => ({...range, from: offset(range.from), to: offset(range.to)}))), ...extensions]
+      highlights.init(() => ranges.map(range => ({...range, from: offset(range.from), to: offset(range.to)}))), ...latex, ...extensions]
   });
 }
 
@@ -95,6 +103,7 @@ export function createEditor(parent, {text, ranges, position, onChange, onSelect
           '.cm-button': {backgroundImage: 'none', backgroundColor: 'var(--control)', color: 'var(--ink)', borderColor: 'var(--line)'},
           '.review-change': {backgroundColor: 'var(--insbg)', color: 'var(--ins)'},
           '.review-rejected': {backgroundColor: 'var(--delbg)', color: 'var(--del)'},
+          '.review-change *, .review-rejected *': {color: 'inherit'},
           '.review-current': {borderBottom: '2px solid var(--accent)'},
           '.review-note': {textDecoration: 'underline', textDecorationStyle: 'dotted', textDecorationColor: 'var(--accent)', textUnderlineOffset: '4px'},
           '.cm-tooltip.cm-comment-tooltip': {border: '1px solid var(--line)', borderRadius: '7px', backgroundColor: 'var(--control)', boxShadow: '0 3px 12px #0002'},

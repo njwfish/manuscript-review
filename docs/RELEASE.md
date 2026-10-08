@@ -1,3 +1,5 @@
+The source editor now uses restrained LaTeX syntax highlighting: commands and math delimiters in a muted blue, with comments and braces in gray. Review additions and deletions retain their green and red highlights.
+
 **PDF pages** shows the original and proposed manuscript pages with the current edit highlighted. Prose can be highlighted at word level; equations and ambiguous text use their source-linked region. The exact source change remains below the pages. **D / F** moves through edits, **V** switches to word changes, and **PageUp / PageDown** scrolls the PDF panes. Zoom keeps the highlighted area visible.
 
 Selecting text in the source editor reveals a small **Comment** button beside the selection. It opens the existing sidebar and preserves the selected quote. **⌘/Ctrl+Shift+M** still works.

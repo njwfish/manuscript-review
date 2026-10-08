@@ -44,7 +44,7 @@ for (const newline of ['\n', '\r\n']) {
   assert.equal(state.sliceDoc(state.selection.main.head,state.selection.main.head+3),'old');
   const changed=state.update({changes:{from:state.selection.main.head,to:state.selection.main.head+3,insert:'new words'}}).state;
   assert.equal(changed.sliceDoc(),source.replace('old','new words'));
-  const marks=changed.facet(EditorView.decorations)[0];
+  const marks=changed.facet(EditorView.decorations).find(value=>typeof value!=='function');
   marks.between(0,changed.doc.length,(from,to)=>assert.equal(changed.sliceDoc(from,to),'new words'));
   const pasted=state.facet(EditorView.clipboardInputFilter).reduce((input,filter)=>filter(input,state),'new\nwords');
   const multiline=state.update({changes:{from:state.selection.main.head,to:state.selection.main.head+3,insert:pasted}}).state;
