@@ -1,5 +1,3 @@
-# Manuscript Review 0.8.0
-
 The first public release includes word-level manuscript comparisons, typeset LaTeX
 previews with changed terms highlighted, keyboard review, whole-passage editing,
 and saved comments with agent responses. Review rounds preserve an original baseline
