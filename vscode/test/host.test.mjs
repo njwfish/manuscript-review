@@ -36,51 +36,51 @@ async function host(t, embedded = false) {
     const emit = (name, event) => Promise.all((listeners.get(name)||[]).map(listener => listener(event)));
     return {module, messages, api, emit, keys, body, state: () => state,
         reply: (message, data, ok = true) => emit('message', {
-            data: {type: 'review-response', id: message.id, ok, ...(ok ? {data} : {error: data})},
+            origin:'https://host.invalid',source:{parentFrame:true},data: {type: 'review-response', id: message.id, ok, ...(ok ? {data} : {error: data})},
         })};
 }
 
 test('bridge pairs out-of-order responses and ignores unrelated and duplicate messages', async () => {
     const messages = []; let receive;
-    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; });
+    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid');
     const first = call('request', {path: '/data?scope=round'});
     const second = call('asset', {path: '/assets/page.svg'});
     assert.notEqual(messages[0].id, messages[1].id);
     assert.equal(messages[0].action, 'request'); assert.equal(messages[1].action, 'asset');
-    receive({data: {type: 'review-response', id: 'unknown', ok: true, data: 'Ignored'}});
-    receive({data: {type: 'review-changed', id: messages[0].id, ok: true, data: 'Ignored'}});
-    receive({data: {type: 'review-response', id: messages[1].id, ok: true, data: '<svg/>'}});
-    receive({data: {type: 'review-response', id: messages[1].id, ok: false, error: 'Duplicate'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: 'unknown', ok: true, data: 'Ignored'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-changed', id: messages[0].id, ok: true, data: 'Ignored'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: true, data: '<svg/>'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: false, error: 'Duplicate'}});
     assert.equal(await second, '<svg/>');
-    receive({data: {type: 'review-response', id: messages[0].id, ok: true, data: {revision: 4}}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[0].id, ok: true, data: {revision: 4}}});
     assert.deepEqual(await first, {revision: 4});
 });
 
 test('bridge reports host errors without affecting another pending request', async () => {
     const messages = []; let receive;
-    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; });
+    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid');
     const failed = call('source', {file: 'missing.tex'});
     const failedCheck = assert.rejects(failed, /Missing source file/);
     const healthy = call('copy', {text: 'Exact 🧬 text'});
-    receive({data: {type: 'review-response', id: messages[0].id, ok: false, error: 'Missing source file'}});
-    receive({data: {type: 'review-response', id: messages[1].id, ok: true}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[0].id, ok: false, error: 'Missing source file'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: true}});
     await failedCheck; assert.equal(await healthy, undefined);
     const unspecified = call('request');
     const unspecifiedCheck = assert.rejects(unspecified, /could not complete this action/);
-    receive({data: {type: 'review-response', id: messages[2].id, ok: false}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[2].id, ok: false}});
     await unspecifiedCheck;
 });
 
 test('bridge times out an unanswered request and accepts subsequent replies', async t => {
     t.mock.timers.enable({apis: ['setTimeout']});
     const messages = []; let receive;
-    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; });
+    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid');
     const missing = call('request', {path: '/data'});
     const check = assert.rejects(missing, /did not respond/);
     t.mock.timers.tick(30_000); await check;
-    receive({data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Too late'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Too late'}});
     const next = call('request', {path: '/data'});
-    receive({data: {type: 'review-response', id: messages[1].id, ok: true, data: 'Current'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: true, data: 'Current'}});
     assert.equal(await next, 'Current');
     t.mock.timers.tick(30_000);
 });
@@ -169,27 +169,30 @@ test('PDF frames receive immutable bytes only after their own authenticated read
     const frame = {isConnected: true, src: '', contentWindow: {postMessage: (...args) => packets.push(args)}};
     const marks = [{page: 2, bounds: [0.1, 0.2, 0.3, 0.4]}, {page: 3, bounds: null}];
     const setup = h.module.pdfFrame(frame, {path: '/assets/source.pdf', marks, color: 'added'});
-    h.reply(h.messages.at(-1), 'https://assets.invalid/viewer.html'); await setup;
-    assert.equal(new URL(frame.src).searchParams.get('parentOrigin'), 'https://host.invalid');
+    h.reply(h.messages.at(-1), 'http://127.0.0.1:23456/viewer.html'); await setup;
+    assert.equal(new URL(frame.src).searchParams.get('parentOrigin'),'https://host.invalid');
+    const forged=h.module.copyText('Keep this pending');
+    await h.emit('message',{origin:'http://127.0.0.1:23456',source:frame.contentWindow,data:{type:'review-response',id:h.messages.at(-1).id,ok:true,data:'Forged'}});
+    h.reply(h.messages.at(-1),'Trusted');assert.equal(await forged,'Trusted');
     const count = h.messages.length;
-    await h.emit('message', {data: {type: 'review-pdf-ready'}, source: {}, origin: 'https://assets.invalid'});
+    await h.emit('message', {data: {type: 'review-pdf-ready'}, source: {}, origin: 'http://127.0.0.1:23456'});
     await h.emit('message', {data: {type: 'review-pdf-ready'}, source: frame.contentWindow, origin: 'https://other.invalid'});
     assert.equal(h.messages.length, count);
-    const loading = h.emit('message', {data: {type: 'review-pdf-ready'}, source: frame.contentWindow, origin: 'https://assets.invalid'});
+    const loading = h.emit('message', {data: {type: 'review-pdf-ready'}, source: frame.contentWindow, origin: 'http://127.0.0.1:23456'});
     assert.equal(h.messages.at(-1).path, '/assets/source.pdf');
     h.reply(h.messages.at(-1), 'data:application/pdf;base64,' + Buffer.from('%PDF-1.4').toString('base64'));
     await loading;
-    assert.deepEqual(packets[0], [{type: 'review-pdf', document: '/assets/source.pdf', data: Uint8Array.from(Buffer.from('%PDF-1.4')), marks, color: 'added', active: true}, 'https://assets.invalid']);
+    assert.deepEqual(packets[0], [{type: 'review-pdf', document: '/assets/source.pdf', data: Uint8Array.from(Buffer.from('%PDF-1.4')), marks, color: 'added', active: true}, 'http://127.0.0.1:23456']);
     frame.isConnected = false;
-    await h.emit('message', {data: {type: 'review-pdf-ready'}, source: frame.contentWindow, origin: 'https://assets.invalid'});
+    await h.emit('message', {data: {type: 'review-pdf-ready'}, source: frame.contentWindow, origin: 'http://127.0.0.1:23456'});
     assert.equal(packets.length, 1);
 });
 
 test('PDF review keys target an Element and preserve review navigation modifiers',async t=>{
     const h=await host(t,true),frame={isConnected:true,src:'',contentWindow:{postMessage(){}}};
     const setup=h.module.pdfFrame(frame,{path:'/assets/source.pdf',marks:[],color:'added'});
-    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
-    const event={data:{type:'review-pdf-key',key:'A',shiftKey:true,repeat:false},source:frame.contentWindow,origin:'https://assets.invalid'};
+    h.reply(h.messages.at(-1),'http://127.0.0.1:23456/viewer.html');await setup;
+    const event={data:{type:'review-pdf-key',key:'A',shiftKey:true,repeat:false},source:frame.contentWindow,origin:'http://127.0.0.1:23456'};
     await h.emit('message',{...event,source:{}});await h.emit('message',{...event,origin:'https://other.invalid'});
     assert.equal(h.keys.length,0);
     await h.emit('message',event);
@@ -203,8 +206,8 @@ test('both initially detached PDF panes remain registered when mounted together'
     const frames=['before','after'].map(side=>({isConnected:false,src:'',contentWindow:{postMessage:message=>packets.push({side,message})}}));
     const setups=frames.map((frame,index)=>h.module.pdfFrame(frame,{path:`/assets/${index}.pdf`,marks:[],color:'added'}));
     frames.forEach(frame=>{frame.isConnected=true;});
-    await Promise.all(h.messages.slice().map(message=>h.reply(message,'https://assets.invalid/viewer.html')));await Promise.all(setups);
-    const loading=frames.map(frame=>h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'}));
+    await Promise.all(h.messages.slice().map(message=>h.reply(message,'http://127.0.0.1:23456/viewer.html')));await Promise.all(setups);
+    const loading=frames.map(frame=>h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'http://127.0.0.1:23456'}));
     const assets=h.messages.filter(message=>message.action==='asset');assert.equal(assets.length,2);
     await Promise.all(assets.map(message=>h.reply(message,'data:application/pdf;base64,JVBERg==')));await Promise.all(loading);
     assert.equal(packets.length,2);
@@ -213,8 +216,8 @@ test('both initially detached PDF panes remain registered when mounted together'
 test('navigation reuses loaded PDF bytes and only sends new highlight locations',async t=>{
     const h=await host(t,true),packets=[],frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)}};
     const setup=h.module.pdfFrame(frame,{path:'/assets/source.pdf',marks:[{page:1,bounds:null}],color:'added'});
-    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
-    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'});
+    h.reply(h.messages.at(-1),'http://127.0.0.1:23456/viewer.html');await setup;
+    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'http://127.0.0.1:23456'});
     h.reply(h.messages.at(-1),'data:application/pdf;base64,JVBERg==');await loading;
     const source=frame.src,count=h.messages.length,marks=[{page:3,bounds:[.1,.2,.3,.4]}];
     await h.module.pdfFrame(frame,{path:'/assets/source.pdf',marks,color:'removed'});
@@ -225,8 +228,8 @@ test('navigation reuses loaded PDF bytes and only sends new highlight locations'
 test('a pending PDF load uses the latest marks and an obsolete document failure cannot remove its replacement',async t=>{
     const h=await host(t,true),packets=[],frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)},replaceWith(){throw new Error('Do not remove the newer PDF.');}};
     const setup=h.module.pdfFrame(frame,{path:'/assets/old.pdf',marks:[],color:'added'});
-    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
-    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'}),old=h.messages.at(-1);
+    h.reply(h.messages.at(-1),'http://127.0.0.1:23456/viewer.html');await setup;
+    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'http://127.0.0.1:23456'}),old=h.messages.at(-1);
     const next=h.module.pdfFrame(frame,{path:'/baseline-assets/new.pdf',marks:[{page:2,bounds:null}],color:'removed'}),fresh=h.messages.at(-1);
     await h.module.pdfFrame(frame,{path:'/baseline-assets/new.pdf',marks:[{page:4,bounds:null}],color:'removed'});
     h.reply(old,'Old asset failed.',false);h.reply(fresh,'data:application/pdf;base64,JVBERg==');await loading;await next;
@@ -238,11 +241,11 @@ test('an old viewer failure cannot replace a newly selected PDF while its bytes 
     const h=await host(t,true),packets=[],replacements=[];
     const frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)},replaceWith:element=>replacements.push(element)};
     const setup=h.module.pdfFrame(frame,{path:'/assets/old.pdf',marks:[],color:'added'});
-    h.reply(h.messages.at(-1),'https://assets.invalid/viewer.html');await setup;
-    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'https://assets.invalid'});
+    h.reply(h.messages.at(-1),'http://127.0.0.1:23456/viewer.html');await setup;
+    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'http://127.0.0.1:23456'});
     h.reply(h.messages.at(-1),'data:application/pdf;base64,JVBERg==');await loading;
     const next=h.module.pdfFrame(frame,{path:'/baseline-assets/new.pdf',marks:[],color:'added'}),asset=h.messages.at(-1);
-    const failure=document=>h.emit('message',{data:{type:'review-pdf-error',document,error:'PDF could not open.'},source:frame.contentWindow,origin:'https://assets.invalid'});
+    const failure=document=>h.emit('message',{data:{type:'review-pdf-error',document,error:'PDF could not open.'},source:frame.contentWindow,origin:'http://127.0.0.1:23456'});
     await failure('/assets/old.pdf');assert.equal(replacements.length,0);
     h.reply(asset,'data:application/pdf;base64,JVBERg==');await next;assert.equal(packets.at(-1).document,'/baseline-assets/new.pdf');
     await failure('/baseline-assets/new.pdf');assert.equal(replacements.length,1);

@@ -55,7 +55,7 @@ export function createHighlights(application) {
         pdfViewer.currentPageNumber = selected.page;
         const view = pdfViewer.getPageView(selected.page - 1);
         if (!view?.pdfPage) return;
-        const scroll = application.appConfig.viewerContainer;
+        const scroll = pdfViewer.container;
         const page = view.div.getBoundingClientRect(), container = scroll.getBoundingClientRect();
         const rectangle = selected.bounds ? viewportBounds(selected.bounds, view) : {left: 0, top: 0, width: 0, height: 0};
         scroll.scrollTop += page.top - container.top + rectangle.top - scroll.clientHeight * .35;
@@ -68,7 +68,7 @@ export function createHighlights(application) {
     const events = ['pagerendered', 'scalechanging', 'rotationchanging', 'pagesinit', 'documentinit'];
     for (const event of events) eventBus.on(event, redraw);
     const observer = new ResizeObserver(redraw);
-    observer.observe(application.appConfig.viewerContainer);
+    observer.observe(pdfViewer.container);
 
     return {
         set(value, nextColor = 'added', active = true) {

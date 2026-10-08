@@ -66,7 +66,15 @@ earlier engine copies remain available through extension upgrades. Review data l
 in the review library, independently of extension storage. Agent result links select
 an exact round through the extension's URI handler.
 
-The extension bundles a pinned adaptation of LaTeX Workshop's PDF viewer. Its parent
+The extension discovers Python 3.12 or newer before importing the engine, skipping older
+environments on the path. An explicit interpreter setting is validated and respected.
+The engine service and agent commands use the resolved executable.
+
+The extension bundles a pinned adaptation of LaTeX Workshop's PDF viewer. A separate
+loopback server serves only its bundled static assets, with bounded paths and a restricted
+content policy. VS Code resolves the client-facing URI before the webview pins its frame
+origin. Manuscript PDFs remain on the private host bridge; the viewer cannot access the
+review document or its controls. The server closes with the extension. Its parent
 bridge supplies immutable comparison PDF bytes and the existing normalized change
 bounds. An overlay maps those bounds through PDF.js viewports as zoom and rotation
 change. The installed Workshop extension retains live compilation and SyncTeX; the

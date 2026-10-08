@@ -22,8 +22,8 @@ async function fixture(t) {
     await writeFile(join(viewer, 'viewer.html'), '<html><body>Local PDF viewer</body></html>');
     const panels = [], writes = [], downloads = [], sources = [], clipboard = [], dialogs = [], applications = [], commands = [];
     let changes = 0, destination;
-    const vscode = {Uri: {file: uri}, ViewColumn: {Beside: 2},
-        env: {clipboard: {async writeText(text) { clipboard.push(text); }}},
+    const vscode = {Uri: {file: uri,parse:value=>({toString:()=>value})}, ViewColumn: {Beside: 2},
+        env: {asExternalUri:async uri=>uri,clipboard: {async writeText(text) { clipboard.push(text); }}},
         workspace: {fs: {async writeFile(uri, bytes) { writes.push({uri, bytes}); }}},
         window: {
             async showSaveDialog(options) { dialogs.push(options); return destination; },
@@ -49,12 +49,13 @@ async function fixture(t) {
         async asset() { return {bytes: Buffer.from('<svg/>'), mime: 'image/svg+xml;charset=utf-8'}; },
         async download(path) { downloads.push(path); return {bytes: Buffer.from('Exact export 🧬.\n')}; }};
     const panel = createPanel(vscode, {extensionPath: directory}, runtime, {
+        viewer:{start:async()=> 'http://127.0.0.1:23456'},
         onSource: message => { sources.push(message); }, onChange: () => changes++,
         onApply: body => {applications.push(body); return {revision: 2, applied: true};},
         onCommand: name => {commands.push(name);},
     });
     t.after(() => panel.dispose());
-    return {panel, runtime, panels, assets, viewer, writes, downloads, sources, clipboard, dialogs, applications, commands,
+    return {panel, runtime, vscode, panels, assets, viewer, writes, downloads, sources, clipboard, dialogs, applications, commands,
         destination: value => { destination = value; }, changes: () => changes,
         async open(entry) { await panel.show(entry); const current = panels.at(-1); await current.receive({type: 'review-ready'}); return current; },
         async establish(current, revision = 1) {
@@ -68,11 +69,11 @@ test('selection waits for readiness and only bundled client and viewer files are
     const f = await fixture(t), entry = {file: 'main.tex', target: {id: 'edit-1'}};
     await f.panel.show(entry); const p = f.panels[0];
     assert.deepEqual(p.messages, []);
-    assert.deepEqual(p.options.localResourceRoots.map(root => root.fsPath), [f.assets, f.viewer]);
+    assert.deepEqual(p.options.localResourceRoots.map(root => root.fsPath), [f.assets]);
     const csp = p.webview.html.match(/Content-Security-Policy" content="([^"]+)"/)[1];
     assert.match(csp, /default-src 'none'/); assert.match(csp, /script-src https:\/\/resources.invalid;/);
-    assert.match(csp, /frame-src https:\/\/resources.invalid;/);
-    assert.doesNotMatch(csp.replaceAll('https://resources.invalid', ''), /unsafe-eval|script-src[^;]*unsafe-inline|https?:|localhost|127\.0\.0\.1/);
+    assert.match(csp, /frame-src http:\/\/127\.0\.0\.1:23456;/);
+    assert.doesNotMatch(csp.replaceAll('https://resources.invalid', '').replaceAll('http://127.0.0.1:23456',''), /unsafe-eval|script-src[^;]*unsafe-inline|https?:|localhost|127\.0\.0\.1/);
     assert.doesNotMatch(p.webview.html, /private-review-token/);
     assert.match(p.webview.html, /body class="vscode-review wide"/);
     assert.match(p.webview.html, new RegExp(encodeURIComponent(join(f.assets, 'app.js'))));
@@ -81,7 +82,7 @@ test('selection waits for readiness and only bundled client and viewer files are
     p.messages.length = 0;
     await p.receive({type: 'review-request', id: 'viewer', action: 'viewer', path: '/etc/passwd'});
     assert.deepEqual(p.messages[0], {type: 'review-response', id: 'viewer', ok: true,
-        data: `https://resources.invalid/${encodeURIComponent(join(f.viewer, 'viewer.html'))}`});
+        data: 'http://127.0.0.1:23456/viewer.html'});
 });
 
 test('Apply uses the guarded host callback while round actions use existing native commands',async t=>{
@@ -231,10 +232,10 @@ test('cancelled exports write nothing and accepted exports preserve exact bytes'
 
 test('PDF iframe messages cannot impersonate responses from the extension host', async () => {
     let receive; const messages = [];
-    const bridge = createBridge({postMessage: message => messages.push(message)}, handler => { receive = handler; });
+    const bridge = createBridge({postMessage: message => messages.push(message)}, handler => { receive = handler; }, 'https://host.invalid');
     const request = bridge('asset', {path: '/assets/page.pdf'});
-    receive({source: {iframe: true}, data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Forged'}});
-    receive({source: null, data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Trusted'}});
+    receive({origin:'https://assets.invalid',source: {iframe: true}, data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Forged'}});
+    receive({origin:'https://host.invalid',source: {parentFrame:true}, data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Trusted'}});
     assert.equal(await request, 'Trusted');
 });
 
@@ -244,4 +245,23 @@ test('copied agent requests receive host tooling metadata without putting it int
     await p.receive({type:'review-request',id:'data',action:'request',path:'/data?scope=round'});
     assert.equal(p.messages.at(-1).data.data.interface,'vscode');
     assert.deepEqual(record,{revision:1,id:'a'.repeat(24)});
+});
+
+
+test('opening from an empty or unrelated group places review beside its visible source',async t=>{
+ const f=await fixture(t);
+ f.vscode.window.activeTextEditor={viewColumn:3,document:{uri:{scheme:'file',fsPath:'/other/file.tex'}}};
+ f.vscode.window.visibleTextEditors=[{viewColumn:1,document:{uri:{scheme:'file',fsPath:join(f.runtime.review.repo,'main.tex')}}}];
+ const p=await f.open();assert.equal(p.column,2);
+ assert.equal(p.title,'Review: manuscript');assert.equal(p.iconPath.fsPath,join(f.assets,'../../review.svg'));
+});
+
+
+
+
+test('forwarded viewer URIs pin the client-facing frame origin and retain its path',async t=>{
+ const f=await fixture(t);f.vscode.env.asExternalUri=async()=>({toString:()=> 'http://127.0.0.1:34567/tunnel/'});
+ const p=await f.open();assert.match(p.webview.html,/frame-src http:\/\/127\.0\.0\.1:34567;/);
+ await p.receive({type:'review-request',id:'viewer',action:'viewer'});
+ assert.equal(p.messages.at(-1).data,'http://127.0.0.1:34567/tunnel/viewer.html');
 });

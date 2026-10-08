@@ -1,8 +1,12 @@
 // The browser and VS Code use the same review client. Only transport and editor ownership differ.
-export function createBridge(api,subscribe){
+// VS Code forwards messages from its enclosing frame at the webview's origin.
+export function hostMessage(event,origin=globalThis.location?.origin){
+ return typeof origin==='string'&&event.origin===origin&&![...frames.keys()].some(frame=>event.source===frame.contentWindow);
+}
+export function createBridge(api,subscribe,origin=globalThis.location?.origin){
  const pending=new Map();let sequence=0;
  subscribe(event=>{
-  const message=event.data;if(event.source||message?.type!=='review-response')return;
+  const message=event.data;if(!hostMessage(event,origin)||message?.type!=='review-response')return;
   const request=pending.get(message.id);if(!request)return;
   clearTimeout(request.timer);pending.delete(message.id);
   if(message.ok)request.resolve(message.data);else request.reject(new Error(message.error||'The editor host could not complete this action.'));

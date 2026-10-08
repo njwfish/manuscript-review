@@ -1,7 +1,7 @@
 'use strict';
 import {choiceFor,selectedSource,editLocations,feedbackForPassage,decisionShortcut,reviewProgress,editContext,currentFeedback,sourceRange,agentRequest,commentThreads,commentShortcut} from './review_model.js';
 import {createEditor} from './editor.js';
-import {request,openSource,hostCommand,imageSource,copyText,exportFile,reviewReady,pdfFrame} from './host.js';
+import {request,openSource,hostCommand,imageSource,copyText,exportFile,reviewReady,pdfFrame,hostMessage} from './host.js';
 const embedded=Boolean(globalThis.acquireVsCodeApi);
 let data, decisions={}, comments={}, drafts={}, active=0, passage=0, edit=0;
 let view='auto', overrides={}, previewZoom=100, locations=[];
@@ -734,7 +734,7 @@ $('compare-saved').addEventListener('click',()=>runHostCommand('reviewSavedChang
 for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
 $('reload-review').addEventListener('click',async()=>{try{await window.flushReview();window.location.reload();}catch(error){status(error.message,true);}});
 if(embedded)window.addEventListener('message',async event=>{
- if(event.source)return;
+ if(!hostMessage(event))return;
  const message=event.data;
  if(message?.type==='review-command'&&message.action==='flush'){
   try{await window.flushReview();window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:true}}));}

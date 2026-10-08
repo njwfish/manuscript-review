@@ -3,11 +3,12 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {randomUUID} from 'node:crypto';
 import path from 'node:path';
+import {resolvePython} from './python.mjs';
 
 const execute=promisify(execFile);
 const quote=value=>"'"+value.replaceAll("'","'\"'\"'")+"'";
 
-export function createAgentTools({extensionPath,storagePath,version,python='python3'}){
+export function createAgentTools({extensionPath,storagePath,version,python=''}){
  let preparing,interpreter;
  const root=path.join(storagePath,'tools',version),skill=path.join(storagePath,'skills','manuscript-review');
  const launcher=path.join(skill,'scripts','review-agent');
@@ -35,7 +36,7 @@ export function createAgentTools({extensionPath,storagePath,version,python='pyth
   }catch(error){throw new Error(error.stderr?.trim()||error.message);}
  }
  async function setup(){
-  const result=await run(python,['setup'],path.join(extensionPath,'dist','runtime'));
+  const result=await run(await resolvePython(python),['setup'],path.join(extensionPath,'dist','runtime'));
   await prepare(result.python);return result;
  }
  async function install(agent){

@@ -6,29 +6,40 @@ import {createComments,sourceFile} from './comments.mjs';
 import {createPanel} from './panel.mjs';
 import {createDecorations} from './decorations.mjs';
 import {createAgentTools} from './agent.mjs';
+import {resolvePython} from './python.mjs';
+import {createViewer} from './viewer-server.mjs';
 import {manuscriptReviews} from '../../manuscript_review/review_model.js';
 
 let disposeExtension;
 export function activate(context){
  const output=vscode.window.createOutputChannel('Manuscript Review');
  const decorations=createDecorations(vscode);
- let runtime,comments,panel,watcher,timer,opening,navigation,agentTools;
+ let runtime,comments,panel,watcher,timer,opening,navigation,agentTools,viewer,starting,disposed=false;
  const subscriptions=[output];
  subscriptions.push(vscode.window.registerTreeDataProvider('manuscriptReview.start',{getTreeItem:item=>item,getChildren:()=>[]}));
  function updateSourceContext(){void vscode.commands.executeCommand('setContext','manuscriptReview.source',Boolean(sourceFile(runtime?.review,vscode.window.activeTextEditor?.document)));}
- async function discardUnopenedRuntime(){if(runtime&&!runtime.review){comments?.dispose();panel?.dispose();await runtime.dispose();runtime=comments=panel=undefined;updateSourceContext();}}
- const fail=async error=>{if(!opening)await discardUnopenedRuntime();output.appendLine(error.stack||error.message);vscode.window.showErrorMessage(error.message);};
+ async function discardUnopenedRuntime(){if(runtime&&!runtime.review){comments?.dispose();panel?.dispose();await runtime.dispose();await viewer?.dispose();runtime=comments=panel=viewer=undefined;updateSourceContext();}}
+ const fail=async error=>{if(disposed)return;if(!opening)await discardUnopenedRuntime();output.appendLine(error.stack||error.message);vscode.window.showErrorMessage(error.message);};
  function refreshComments(){clearTimeout(timer);timer=setTimeout(()=>comments?.refresh().catch(fail),180);}
- function start(){
+ async function start(){
+  if(disposed)throw new Error('Manuscript Review has closed.');
   if(!vscode.workspace.isTrusted)throw new Error('Trust this workspace before opening its manuscript review.');
   if(runtime)return;
-  const config=vscode.workspace.getConfiguration('manuscriptReview');
-  agentTools=createAgentTools({extensionPath:context.extensionPath,storagePath:context.globalStorageUri.fsPath,version:context.extension.packageJSON.version,python:config.get('pythonPath','python3')});
-  runtime=createRuntime({extensionPath:path.join(context.extensionPath,'dist'),python:config.get('pythonPath','python3'),home:config.get('libraryDirectory',''),output});
-  const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.repo),setup,sourceDrafts};
-  panel=createPanel(vscode,context,runtime,{onSource:openSource,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
-   onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
-  comments=createComments(vscode,runtime,{onChange:()=>{panel.changed();},onReview:entry=>panel.show(entry),onProjection:(projection,data)=>decorations.update(projection,data)});
+  if(starting)return starting;
+  starting=(async()=>{
+   const config=vscode.workspace.getConfiguration('manuscriptReview');
+   const python=await resolvePython(config.get('pythonPath',''));
+   if(disposed)throw new Error('Manuscript Review has closed.');
+   if(!vscode.workspace.isTrusted)throw new Error('Trust this workspace before opening its manuscript review.');
+   agentTools=createAgentTools({extensionPath:context.extensionPath,storagePath:context.globalStorageUri.fsPath,version:context.extension.packageJSON.version,python});
+   runtime=createRuntime({extensionPath:path.join(context.extensionPath,'dist'),python,home:config.get('libraryDirectory',''),output});
+   viewer=createViewer(path.join(context.extensionPath,'dist','viewer'));
+   const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.repo),setup,sourceDrafts};
+   panel=createPanel(vscode,context,runtime,{viewer,onSource:openSource,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
+    onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
+   comments=createComments(vscode,runtime,{onChange:()=>{panel.changed();},onReview:entry=>panel.show(entry),onProjection:(projection,data)=>decorations.update(projection,data)});
+  })().finally(()=>{starting=undefined;});
+  return starting;
  }
  function watchRecord(){
   watcher?.dispose();
@@ -69,7 +80,7 @@ export function activate(context){
   return review;
  }
  async function selectReview(repo){
-  start();await prepareTools();await panel.flush();
+  await start();await prepareTools();await panel.flush();
   const active=vscode.window.activeTextEditor?.document.uri;
   const folder=repo||(active?.scheme==='file'?path.dirname(active.fsPath):vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
   if(!folder)throw new Error('Open a manuscript folder in VS Code first.');
@@ -142,7 +153,7 @@ export function activate(context){
  }
  function compareVersions(repo){return navigateReview(()=>prepareComparison(repo));}
  async function prepareComparison(repo){
-  start();await prepareTools();await panel.flush();
+  await start();await prepareTools();await panel.flush();
   let folder=repo||vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if(!folder){const folders=await vscode.window.showOpenDialog({canSelectFolders:true,canSelectFiles:false,canSelectMany:false,openLabel:'Choose manuscript'});if(!folders)return;folder=folders[0].fsPath;}
   const info=await inspectRepository(folder);if(!info)return;
@@ -158,12 +169,12 @@ export function activate(context){
   await selectRound(job.review);await panel.show();
  }
  async function cloneRepository(){
-  start();const url=await vscode.window.showInputBox({title:'Clone manuscript repository',prompt:'GitHub repository URL'});if(!url)return;
+  await start();const url=await vscode.window.showInputBox({title:'Clone manuscript repository',prompt:'GitHub repository URL'});if(!url)return;
   const folders=await vscode.window.showOpenDialog({canSelectFolders:true,canSelectFiles:false,canSelectMany:false,openLabel:'Clone here'});if(!folders)return;
   const result=await prepareReview('/clone',{url,directory:folders[0].fsPath},'Cloning manuscript');await vscode.commands.executeCommand('vscode.openFolder',vscode.Uri.file(result.repo));
  }
  async function reviewLibrary(){
-  start();await panel.flush();
+  await start();await panel.flush();
   const data=await runtime.library('/library-data');
   const choice=await vscode.window.showQuickPick(manuscriptReviews(data.reviews).map(rounds=>({label:path.basename(rounds[0].repo),description:rounds[0].repo,repo:rounds[0].repo})),{title:'Review library',matchOnDescription:true});
   if(choice)await chooseReview(choice.repo);
@@ -173,12 +184,12 @@ export function activate(context){
   await prepareReview('/fetch',{repo:runtime.review.repo},'Fetching manuscript history');await compareVersions(runtime.review.repo);
  }
  function importReview(){return navigateReview(async()=>{
-  start();await prepareTools();await panel.flush();
+  await start();await prepareTools();await panel.flush();
   const files=await vscode.window.showOpenDialog({canSelectFolders:false,canSelectFiles:true,canSelectMany:false,openLabel:'Import review',filters:{'Review record':['json']}});if(!files)return;
   const result=await runtime.library('/import',{source:files[0].fsPath});await selectRound(result.review);await panel.show();
  });}
  async function setup(){
-  start();const info=await prepareTools();
+  await start();const info=await prepareTools();
   const tools=Object.entries(info.preview_tools).filter(([,value])=>!value).map(([name])=>name);
   const options=info.agents.map(agent=>({label:'Install skill for '+agent.name,agent:agent.id,description:agent.installed?'Existing skill preserved':'Bundled agent commands'}));
   options.unshift({label:'Prerequisites',description:!info.git?'Git is missing':tools.length?'PDF tools missing: '+tools.join(', '):'Git and PDF tools ready'});
@@ -216,12 +227,12 @@ export function activate(context){
  command('comment',async()=>{const editor=vscode.window.activeTextEditor;if(await ensureReview())await comments.annotate(editor);});
  command('previousComment',async()=>{if(await ensureReview())await comments.move(-1);});
  command('nextComment',async()=>{if(await ensureReview())await comments.move(1);});
- subscriptions.push(vscode.window.registerUriHandler({handleUri:uri=>{const id=uri.path.match(/^\/review\/([a-f0-9]{24})$/)?.[1];if(!id)return;return navigateReview(async()=>{start();await prepareTools();await panel.flush();await selectRound(id);await panel.show();}).catch(fail);}}));
+ subscriptions.push(vscode.window.registerUriHandler({handleUri:uri=>{const id=uri.path.match(/^\/review\/([a-f0-9]{24})$/)?.[1];if(!id)return;return navigateReview(async()=>{await start();await prepareTools();await panel.flush();await selectRound(id);await panel.show();}).catch(fail);}}));
  command('livePDF',async()=>{if(!vscode.window.activeTextEditor)throw new Error('Select a location in the LaTeX source first.');const extension=vscode.extensions.getExtension('James-Yu.latex-workshop');if(!extension)throw new Error('Install LaTeX Workshop to use source-to-PDF navigation.');await extension.activate();await vscode.commands.executeCommand('latex-workshop.synctex');});
  subscriptions.push(vscode.workspace.onDidChangeTextDocument(event=>{if(runtime?.review&&event.document.uri.scheme==='file')refreshComments();}));
  subscriptions.push(vscode.window.onDidChangeVisibleTextEditors(()=>{if(runtime?.review)refreshComments();}));
  subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateSourceContext));
- disposeExtension=async()=>{clearTimeout(timer);watcher?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();};
+ disposeExtension=async()=>{disposed=true;await starting?.catch(()=>{});clearTimeout(timer);watcher?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();};
  context.subscriptions.push({dispose:()=>{void disposeExtension();}});
 }
 export function deactivate(){return disposeExtension?.();}

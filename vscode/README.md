@@ -4,14 +4,16 @@ Review manuscripts in the normal VS Code source editor, with native comments,
 focused word comparisons, and highlighted PDF review. This is the primary interface
 and the target for production releases. The extension includes its review engine,
 LaTeX Workshop comparison viewer, and agent skill; the standalone app is optional.
-The current package is a preview pending native interface verification.
+The current package is a preview.
 
 ## Install
 
 Build the current preview using the [commands below](#build), then install
-`dist/manuscript-review-0.1.3.vsix` through **Extensions → Install from VSIX…** and open your
+`dist/manuscript-review-0.1.4.vsix` through **Extensions → Install from VSIX…** and open your
 manuscript folder. The workspace host needs macOS or Linux, Git, and Python 3.12 or
-newer. Set **Manuscript Review: Python Path** if `python3` is not that interpreter.
+newer. The extension finds a supported interpreter automatically, including Homebrew Python
+when an older Conda environment comes first on the path. **Manuscript Review: Python
+Path** selects a specific interpreter.
 LaTeX previews also need `latexmk`, `pdflatex`, and Poppler (`pdftocairo`, `pdftotext`,
 `pdfinfo`). Word review works without the PDF tools.
 
@@ -32,8 +34,9 @@ Library Directory** to use another library. Updating the extension preserves rev
 
 Click **Review manuscript** in the source editor's toolbar, beside the LaTeX Workshop
 buttons, or open **Manuscript Review** from the left activity bar. Its sidebar offers
-Review, Compare versions, Library, and Setup. With no folder open, it offers Open
-manuscript folder and Clone from GitHub.
+one Review button and a Compare versions link. Library is in its title bar; Setup
+and saved-source review are in its menu. With no folder open, choose Open manuscript folder or Clone
+from GitHub.
 
 Choose a saved round; a repository with no reviews opens for annotation. The toolbar
 button opens focused review beside the source. **Open manuscript review** from the

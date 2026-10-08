@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {buildViewer} from '../src/build-viewer.mjs';
-import {reviewMarks, viewportBounds} from '../viewer/highlights.mjs';
+import {createHighlights, reviewMarks, viewportBounds} from '../viewer/highlights.mjs';
 import {createPDFReview, reviewKey, reviewMessage} from '../viewer/interaction.mjs';
 
 const source = fileURLToPath(new URL('../viewer/', import.meta.url));
@@ -81,6 +81,31 @@ function deferred() {
     const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
     return {promise, resolve, reject};
 }
+
+test('PDF focus scrolls the viewer viewport rather than its page content', t => {
+    const original = Object.fromEntries(['document', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame'].map(key => [key, globalThis[key]]));
+    t.after(() => { for (const [key, value] of Object.entries(original)) value === undefined ? delete globalThis[key] : globalThis[key] = value; });
+    let draw, observed;
+    globalThis.document = {querySelectorAll: () => [], createElement: () => ({style: {}, append() {}})};
+    globalThis.requestAnimationFrame = callback => { draw = callback; return 1; };
+    globalThis.cancelAnimationFrame = () => {};
+    globalThis.ResizeObserver = class { observe(value) { observed = value; } disconnect() {} };
+    const scroll = {scrollTop: 0, scrollLeft: 0, clientHeight: 200, clientWidth: 300, getBoundingClientRect: () => ({top: 10, left: 10})};
+    const content = {scrollTop: 0};
+    const page = {
+        pdfPage: {getViewport: () => ({width: 100, height: 100, convertToPdfPoint: (x, y) => [x, y]})},
+        viewport: {convertToViewportPoint: (x, y) => [x * 5, y * 8]},
+        div: {getBoundingClientRect: () => ({top: 20, left: 20}), append() {}}
+    };
+    const highlights = createHighlights({pdfViewer: {container: scroll, pagesCount: 1, getPageView: () => page},
+        appConfig: {viewerContainer: content}, eventBus: {on() {}, off() {}}, isInitialViewSet: true});
+    highlights.set([{page: 1, bounds: [.2, .4, .3, .45]}]);
+    draw();
+    assert.equal(scroll.scrollTop, 260);
+    assert.equal(content.scrollTop, 0);
+    assert.equal(observed, scroll);
+    highlights.dispose();
+});
 
 test('a queued document keeps its bytes when a newer selection arrives during a previous load', async () => {
     const initial = deferred(), opens = [], selections = [], errors = [];

@@ -11,7 +11,7 @@ import {build} from 'esbuild';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const bundle=build({entryPoints:[path.join(root,'src/extension.mjs')],bundle:true,write:false,platform:'node',format:'cjs',
   plugins:[{name:'test-adapters',setup(builder){
-    builder.onResolve({filter:/^\.\/(runtime|comments|panel|decorations|agent)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
+    builder.onResolve({filter:/^\.\/(runtime|comments|panel|decorations|agent|python|viewer-server)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
   }}],external:['vscode']}).then(result=>result.outputFiles[0].text);
 const nativeRequire=createRequire(import.meta.url);
 const reviewId='a'.repeat(24);
@@ -71,6 +71,8 @@ async function fixture(t,options={}) {
     async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
   const {sourceFile}=await import('../src/comments.mjs');
   const adapters={
+    'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
+    'test-python':{async resolvePython(configured){calls.push({kind:'resolve-python',configured});await options.onResolvePython?.(configured);return configured||'/automatic/python';}},
     'test-agent':{createAgentTools(configuration){calls.push({kind:'create-agent-tools',configuration});return {launcher:'/stored/skills/manuscript-review/scripts/review-agent',command:"'/stored/skills/manuscript-review/scripts/review-agent'",async setup(){await options.onToolsSetup?.(configuration);calls.push({kind:'prepare-tools',python:'/python'});return {python:'/python',git:true,preview_tools:{},agents:[{id:'codex',name:'Codex'}]};},async install(agent){calls.push({kind:'install-skill',agent});return {message:'Skill installed.'};}};}},
     'test-runtime':{createRuntime(configuration){calls.push({kind:'create-runtime',configuration});return runtime;}},
     'test-panel':{createPanel(_vscode,_context,_runtime,callbacks){panelCallbacks=callbacks;return panel;}},
@@ -80,7 +82,7 @@ async function fixture(t,options={}) {
   const module={exports:{}},context={extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
   vm.runInNewContext(await bundle,{exports:module.exports,module,require:name=>name==='vscode'?vscode:adapters[name]||nativeRequire(name),setTimeout,clearTimeout,console},{filename:'extension.cjs'});
   module.exports.activate(context);t.after(()=>module.exports.deactivate());
-  return {vscode,runtime,doc,editor,source,repo,calls,errors,contexts,events,watchers,
+  return {vscode,runtime,doc,editor,source,repo,calls,errors,contexts,events,watchers,deactivate:()=>module.exports.deactivate(),
     command:(name,...args)=>handlers.get('manuscriptReview.'+name)(...args),
     get panelCallbacks(){return panelCallbacks;},get commentsCallbacks(){return commentsCallbacks;}};
 }
@@ -431,4 +433,27 @@ test('cancelling the toolbar round picker preserves the existing review without 
   assert.equal(f.runtime.review.id,reviewId);
   assert.equal(f.calls.filter(call=>call.kind==='show-review').length,shown);
   assert.equal(f.calls.filter(call=>call.kind==='open').length,1);
+});
+
+
+test('closing during interpreter discovery cannot start a review service afterwards',async t=>{
+ let release,entered;
+ const started=new Promise(resolve=>{entered=resolve;});
+ const f=await fixture(t,{onResolvePython:()=>new Promise(resolve=>{release=resolve;entered();})});
+ const opening=f.command('open');await started;const closing=f.deactivate();release();
+ await Promise.all([opening,closing]);
+ assert.equal(f.calls.some(call=>call.kind==='create-runtime'||call.kind==='show-review'),false);
+ assert.deepEqual(f.errors,[]);
+});
+
+test('concurrent startup shares one interpreter discovery and the same executable',async t=>{
+ let release,entered;
+ const started=new Promise(resolve=>{entered=resolve;});
+ const f=await fixture(t,{onResolvePython:()=>new Promise(resolve=>{release=resolve;entered();})});
+ const opening=f.command('open');await started;const setup=f.command('setup');release();
+ await Promise.all([opening,setup]);
+ assert.equal(f.calls.filter(call=>call.kind==='resolve-python').length,1);
+ assert.equal(f.calls.filter(call=>call.kind==='create-runtime').length,1);
+ assert.equal(f.calls.find(call=>call.kind==='create-runtime').configuration.python,f.calls.find(call=>call.kind==='create-agent-tools').configuration.python);
+ assert.deepEqual(f.errors,[]);
 });

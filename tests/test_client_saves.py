@@ -8,23 +8,24 @@ from pathlib import Path
 class ClientSaveTests(unittest.TestCase):
     def test_native_comment_change_opens_its_round_and_saves_pending_notes_first(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+import {hostMessage} from './manuscript_review/host.js';
 const app=readFileSync('manuscript_review/app.js','utf8');
 const revision=app.slice(app.indexOf('async function showRevision'),app.indexOf('function renderDiscussion'));
 const listener=app.slice(app.indexOf("if(embedded)window.addEventListener('message'"),app.lastIndexOf('ready();'));
 for(const failed of [false,true]){
  let receive;const calls=[];
- const context={embedded:true,window:{addEventListener(name,handler){receive=handler;}},calls,
+ const context={embedded:true,hostMessage:event=>hostMessage(event,'vscode-webview://review'),window:{addEventListener(name,handler){receive=handler;}},calls,
   saveNotes:()=>calls.push('notes'),saveDrafts:()=>calls.push('drafts'),save:()=>calls.push('decisions'),
   switchScope:async(scope,file)=>{calls.push(['scope',scope,file]);vm.runInContext("data.scope='round';locations=[[0,0,0]]",context);},
   render:()=>calls.push('render'),openComment:passage=>calls.push(['comment',passage]),status:(text,error)=>calls.push(['status',text,error])};
  vm.createContext(context);vm.runInContext(`let data={scope:'baseline',files:[{path:'main.tex',hunks:[{id:'passage',edits:[{id:'edit'}]}]}]},
   saving=Promise.resolve(),saveFailed=${failed},draftChanges=new Map(),noteChanges=new Map(),fileEditor=null,
   locations=[],active=0,passage=0,edit=0,commentId;`+revision+listener,context);
- await receive({data:{type:'review-select',file:'main.tex',target:'passage',kind:'passage',note:'discussion'}});
+ await receive({origin:'vscode-webview://review',source:{parent:true},data:{type:'review-select',file:'main.tex',target:'passage',kind:'passage',note:'discussion'}});
  assert.deepEqual(calls.slice(0,3),['notes','drafts','decisions']);
  if(failed){assert.equal(vm.runInContext('data.scope',context),'baseline');assert.match(calls.at(-1)[1],/save error/);}
  else{assert.deepEqual(calls[3],['scope','round','main.tex']);assert.equal(vm.runInContext('commentId',context),'discussion');assert.deepEqual(calls.at(-1),['comment',true]);}
- const length=calls.length;await receive({source:{},data:{type:'review-select',target:'passage'}});assert.equal(calls.length,length);
+ const length=calls.length;await receive({origin:'https://pdf-resources.invalid',source:{},data:{type:'review-select',target:'passage'}});assert.equal(calls.length,length);
 }
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
