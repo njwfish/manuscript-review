@@ -9,7 +9,7 @@ The current package is a preview pending native interface verification.
 ## Install
 
 Build the current preview using the [commands below](#build), then install
-`dist/manuscript-review-0.1.2.vsix` through **Extensions → Install from VSIX…** and open your
+`dist/manuscript-review-0.1.3.vsix` through **Extensions → Install from VSIX…** and open your
 manuscript folder. The workspace host needs macOS or Linux, Git, and Python 3.12 or
 newer. Set **Manuscript Review: Python Path** if `python3` is not that interpreter.
 LaTeX previews also need `latexmk`, `pdflatex`, and Poppler (`pdftocairo`, `pdftotext`,
@@ -30,9 +30,15 @@ Library Directory** to use another library. Updating the extension preserves rev
 
 ## Open and compare
 
-Run **Open manuscript review** from the command palette. Choose a saved round; a
-repository with no reviews opens for annotation. An unchanged manuscript stays in the
-source editor. **Focus review** opens the comparison beside it, and the round label
+Click **Review manuscript** in the source editor's toolbar, beside the LaTeX Workshop
+buttons, or open **Manuscript Review** from the left activity bar. Its sidebar offers
+Review, Compare versions, Library, and Setup. With no folder open, it offers Open
+manuscript folder and Clone from GitHub.
+
+Choose a saved round; a repository with no reviews opens for annotation. The toolbar
+button opens focused review beside the source. **Open manuscript review** from the
+command palette keeps an unchanged manuscript in the source editor; **Focus review**
+opens the comparison when needed. The round label
 opens the history picker for that manuscript. **Browse review library** groups saved
 rounds by manuscript.
 **Import saved review** imports a `review.json` through the shared record operations.

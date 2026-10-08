@@ -14,6 +14,7 @@ export function activate(context){
  const decorations=createDecorations(vscode);
  let runtime,comments,panel,watcher,timer,opening,navigation,agentTools;
  const subscriptions=[output];
+ subscriptions.push(vscode.window.registerTreeDataProvider('manuscriptReview.start',{getTreeItem:item=>item,getChildren:()=>[]}));
  function updateSourceContext(){void vscode.commands.executeCommand('setContext','manuscriptReview.source',Boolean(sourceFile(runtime?.review,vscode.window.activeTextEditor?.document)));}
  async function discardUnopenedRuntime(){if(runtime&&!runtime.review){comments?.dispose();panel?.dispose();await runtime.dispose();runtime=comments=panel=undefined;updateSourceContext();}}
  const fail=async error=>{if(!opening)await discardUnopenedRuntime();output.appendLine(error.stack||error.message);vscode.window.showErrorMessage(error.message);};
@@ -84,12 +85,21 @@ export function activate(context){
   }
   const review=await selectRound(id);
   if(review.files.some(file=>file.edits.length))await panel.show();
+  return review;
  }
  async function ensureReview(){
   if(opening)await opening;
   if(runtime?.review)return true;
   await chooseReview();
   return Boolean(runtime?.review);
+ }
+ async function focusReview(){if(await ensureReview())await panel.show();}
+ async function reviewManuscript(resource){
+  const document=resource?.scheme==='file'?{uri:resource}:vscode.window.activeTextEditor?.document;
+  if(document?.uri.scheme==='file'&&(!runtime?.review||!sourceFile(runtime.review,document))){
+   if(!await chooseReview(path.dirname(document.uri.fsPath)))return;
+  }
+  await focusReview();
  }
  async function openSource(message){
   const {id,repo}=runtime.review,requested=path.resolve(repo,message.file||'');
@@ -192,7 +202,8 @@ export function activate(context){
  }
  function command(name,action){subscriptions.push(vscode.commands.registerCommand('manuscriptReview.'+name,async(...args)=>{try{return await action(...args);}catch(error){await fail(error);}}));}
  command('open',()=>chooseReview());
- command('focusedReview',async()=>{if(await ensureReview())await panel.show();});
+ command('review',reviewManuscript);
+ command('focusedReview',focusReview);
  command('refresh',async()=>{if(!await ensureReview())return;await comments.refresh();await panel.refresh();});
  command('reviewSavedChanges',reviewSavedChanges);
  command('compare',()=>compareVersions());

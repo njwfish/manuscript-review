@@ -43,6 +43,7 @@ async function fixture(t,options={}) {
       createFileSystemWatcher(pattern){const watcher={pattern,onDidChange:event('record-change'),onDidCreate:event('record-create'),dispose(){this.disposed=true;}};watchers.push(watcher);return watcher;},
       onDidChangeTextDocument:event('document-change')},
     window:{activeTextEditor:editor,visibleTextEditors:[editor],
+      registerTreeDataProvider(id,provider){calls.push({kind:'view',id,provider});return disposable();},
       createOutputChannel:()=>({appendLine:text=>output.push(text),dispose(){}}),
       async showErrorMessage(message){errors.push(message);},
       async showInformationMessage(message){calls.push({kind:'information',message});},
@@ -401,4 +402,33 @@ test('an unrelated command error cannot dispose the healthy runtime while Open i
   assert.match(f.errors[0],/Install LaTeX Workshop/);
   assert.equal(f.calls.some(call=>call.kind==='dispose-runtime'),false);
   release();await opening;assert.equal(f.runtime.review.id,reviewId);
+});
+
+test('the review sidebar activates without launching a service and the toolbar opens an unchanged manuscript',async t=>{
+  const f=await fixture(t,{files:[]});
+  assert.deepEqual(Array.from(f.calls.find(call=>call.kind==='view').provider.getChildren()),[]);
+  assert.equal(f.calls.some(call=>call.kind==='create-runtime'),false);
+  await f.command('review',uri(f.source));
+  assert.equal(f.runtime.review.id,reviewId);
+  assert.equal(f.calls.filter(call=>call.kind==='show-review').length,1);
+  assert.equal(await readFile(f.source,'utf8'),'A manuscript sentence.\n');
+});
+
+test('the toolbar follows its source resource in another editor group and reuses the active round',async t=>{
+  const f=await fixture(t);await f.command('open');
+  f.vscode.window.activeTextEditor=undefined;await f.command('review',uri(f.source));
+  assert.equal(f.calls.filter(call=>call.kind==='open').length,1);
+  assert.equal(f.calls.filter(call=>call.kind==='show-review').length,2);
+  const other=path.join(f.repo,'../another/main.tex');await f.command('review',uri(other));
+  assert.equal(f.calls.filter(call=>call.kind==='library'&&call.route==='/inspect').at(-1).body.repo,path.dirname(other));
+});
+
+test('cancelling the toolbar round picker preserves the existing review without opening it for another manuscript',async t=>{
+  const f=await fixture(t);await f.command('open');const shown=f.calls.filter(call=>call.kind==='show-review').length;
+  const other=path.join(f.repo,'../another'),library=f.runtime.library;
+  f.runtime.library=(route,body)=>route==='/inspect'?{repo:other,entries:['main.tex']}:route==='/library-data'?{reviews:[{id:'b'.repeat(24),repo:other}]}:library(route,body);
+  await f.command('review',uri(path.join(other,'main.tex')));
+  assert.equal(f.runtime.review.id,reviewId);
+  assert.equal(f.calls.filter(call=>call.kind==='show-review').length,shown);
+  assert.equal(f.calls.filter(call=>call.kind==='open').length,1);
 });

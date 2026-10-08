@@ -3,7 +3,7 @@
 ## VS Code extension
 
 VS Code is the primary interface. [Build the preview](../vscode/README.md#build) to
-obtain `vscode/dist/manuscript-review-0.1.2.vsix`, then install it through **Extensions →
+obtain `vscode/dist/manuscript-review-0.1.3.vsix`, then install it through **Extensions →
 Install from VSIX…**. The extension includes the engine, comparison viewer, and agent
 skill. Its workspace host needs macOS or Linux, Git, and Python 3.12 or later. Set
 **Manuscript Review: Python Path** when `python3` refers to a different interpreter.

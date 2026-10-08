@@ -1,9 +1,11 @@
 {
   "name": "manuscript-review",
   "displayName": "Manuscript Review",
-  "activationEvents": ["onUri"],
+  "activationEvents": [
+    "onUri"
+  ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -30,6 +32,12 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "manuscriptReview.review",
+        "title": "Review manuscript",
+        "category": "Manuscript Review",
+        "icon": "$(diff)"
+      },
       {
         "command": "manuscriptReview.open",
         "title": "Open manuscript review",
@@ -184,6 +192,11 @@
       ],
       "editor/context": [
         {
+          "command": "manuscriptReview.review",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/",
+          "group": "navigation@21"
+        },
+        {
           "command": "manuscriptReview.comment",
           "when": "manuscriptReview.source && resourceScheme == file",
           "group": "navigation@20"
@@ -210,6 +223,13 @@
           "command": "manuscriptReview.viewCommentChange",
           "when": "false"
         }
+      ],
+      "editor/title": [
+        {
+          "command": "manuscriptReview.review",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/",
+          "group": "navigation@3"
+        }
       ]
     },
     "keybindings": [
@@ -231,12 +251,46 @@
         "mac": "cmd+alt+]",
         "when": "manuscriptReview.source && editorTextFocus"
       }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "manuscriptReview",
+          "title": "Manuscript Review",
+          "icon": "dist/review.svg"
+        }
+      ]
+    },
+    "views": {
+      "manuscriptReview": [
+        {
+          "id": "manuscriptReview.start",
+          "name": "Review"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "manuscriptReview.start",
+        "when": "workspaceFolderCount > 0 && !manuscriptReview.active",
+        "contents": "[Review manuscript](command:manuscriptReview.review)\n[Compare versions](command:manuscriptReview.compare)\n\n[Library](command:manuscriptReview.library)\n[Setup](command:manuscriptReview.setup)"
+      },
+      {
+        "view": "manuscriptReview.start",
+        "when": "workspaceFolderCount > 0 && manuscriptReview.active",
+        "contents": "[Review manuscript](command:manuscriptReview.review)\n[Compare versions](command:manuscriptReview.compare)\n[Review saved changes](command:manuscriptReview.reviewSavedChanges)\n\n[Library](command:manuscriptReview.library)\n[Setup](command:manuscriptReview.setup)"
+      },
+      {
+        "view": "manuscriptReview.start",
+        "when": "workspaceFolderCount == 0",
+        "contents": "[Open manuscript folder](command:vscode.openFolder)\n[Clone from GitHub](command:manuscriptReview.clone)\n\n[Library](command:manuscriptReview.library)\n[Setup](command:manuscriptReview.setup)"
+      }
     ]
   },
   "scripts": {
     "build": "node src/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.2.vsix"
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.3.vsix"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
