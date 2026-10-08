@@ -6,6 +6,8 @@ from manuscript_review.storage import atomic_json
 
 
 class PreviewTests(ReviewFixture):
+    render_previews = True
+
     def test_edit_during_render_drains_the_latest_generation(self):
         r = self.session.store.read()
         r['snapshot']['entry'] = 'main.tex'

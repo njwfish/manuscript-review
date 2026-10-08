@@ -11,6 +11,8 @@ from manuscript_review.storage import atomic_json, new_record, ReviewStore
 
 
 class ReviewFixture(unittest.TestCase):
+    render_previews = False
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -31,6 +33,12 @@ class ReviewFixture(unittest.TestCase):
         snapshot.update(source_head=snapshot['proposed'], entry='')
         atomic_json(self.directory / 'review.json', new_record(snapshot, {'id': '0123456789abcdef01234567', 'preview_status': 'none', 'base_label': 'Base', 'proposal_label': 'Proposal'}))
         self.session = ReviewSession(self.directory)
+        if not self.render_previews:
+            # These fixtures have no typesetting entry. Keep background workers
+            # from opening lock files while the temporary directory is removed.
+            queue = patch.object(self.session.previews, 'queue')
+            queue.start()
+            self.addCleanup(queue.stop)
 
     def commit(self):
         git(self.repo, 'add', '-A');git(self.repo, 'commit', '-qm', 'version')
