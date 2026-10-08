@@ -30,7 +30,7 @@ Press **E** to edit the whole selected passage, starting from your current choic
 
 Press **C** to comment on an edit, or **Shift+C** for a passage note. The **Comment on** selector changes the scope. Earlier feedback and replies appear above the follow-up field. **Q** opens current comments and earlier discussion, with search. Replies append, so another revision pass can retain the full exchange.
 
-When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard passage drafts before applying. **Review tools (⋯) → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
+When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard passage drafts before applying. **Review tools → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
 
 The macOS library lives in `~/Library/Application Support/Manuscript Review/`, separate from the app. Replacing the app preserves your saved reviews. [Advanced usage](docs/USAGE.md) covers exports, manual response imports, and recovery.
 

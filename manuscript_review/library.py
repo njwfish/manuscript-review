@@ -68,7 +68,7 @@ class Library:
             store = ReviewStore(self.directory(review['id']))
             with store.transaction():
                 record = store.read()
-            info['checkpoints'].append({'revision': record['result'], 'subject': f'Round {len(reviews)-index} · ' + review['title'],
+            info['checkpoints'].append({'revision': record['result'], 'subject': f'Round {len(reviews)-index}: ' + review['title'],
                                         'date': review['created'][:10], 'short': record['result'][:7]})
         if info['checkpoints']:
             info['base'] = info['checkpoints'][0]['revision']
@@ -218,9 +218,9 @@ class Library:
                 metadata = {
                     'id': identifier, 'repo': repo, 'title': saved['metadata']['title'] if saved else Path(repo).name,
                     'base': base_ref, 'proposed': proposed_ref, 'entry': entry,
-                    'base_label': 'Starting draft · ' + base[:7] if saved else request.get('base_label', base[:7]),
+                    'base_label': f'Starting draft ({base[:7]})' if saved else request.get('base_label', base[:7]),
                     'baseline_label': saved['metadata'].get('baseline_label', saved['metadata']['base_label']) if saved else request.get('base_label', base[:7]),
-                    'proposal_label': ('Working copy' if proposed_ref == 'working' else proposed_ref) + ' · ' + proposed[:7],
+                    'proposal_label': ('Working copy' if proposed_ref == 'working' else proposed_ref) + f' ({proposed[:7]})',
                     'created': snapshot['created'], 'preview_status': 'queued' if entry else 'none',
                     'previous': previous_id, 'previous_revision': saved['revision'] if saved else None}
                 if saved:

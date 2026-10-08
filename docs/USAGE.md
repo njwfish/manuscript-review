@@ -2,9 +2,9 @@
 
 ## Exports and imports
 
-**Review tools (⋯) → Export feedback** saves the decisions, current comments, and discussion as JSON. **Export selected patch** saves the selected source changes as a Git patch. An agent with the installed skill can read the library directly; exports also provide a record to inspect outside the app.
+**Review tools → Export feedback** saves the decisions, current comments, and discussion as JSON. **Export selected patch** saves the selected source changes as a Git patch. An agent with the installed skill can read the library directly; exports also provide a record to inspect outside the app.
 
-To add responses manually, choose **Review tools (⋯) → Import responses** and select a JSON array:
+To add responses manually, choose **Review tools → Import responses** and select a JSON array:
 
 ```json
 [

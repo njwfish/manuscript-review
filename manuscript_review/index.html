@@ -87,7 +87,7 @@ textarea{background:var(--field);border:1px solid var(--line);border-radius:8px;
 header{position:sticky;top:0;z-index:4;height:var(--header-h);display:flex;align-items:center;gap:4px;padding:0 10px 0 12px;border-bottom:1px solid var(--line);background:var(--toolbar);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 h1{font-size:13px;font-weight:600;letter-spacing:-.1px;margin:0 2px 0 6px}
 #manuscript-title{max-width:32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#round-state{font-size:11px;white-space:nowrap}
+#round-state{font-size:12px;white-space:nowrap;margin:0 6px;color:var(--muted)}
 #library{padding:4px 8px;border-radius:6px;color:var(--muted);white-space:nowrap}
 #library::before{content:"‹";margin-right:5px}
 #library:hover{background:var(--hover);color:var(--ink);text-decoration:none}
@@ -123,8 +123,9 @@ main{min-width:0;width:100%;max-width:840px;margin:0 auto;padding:26px 44px 20px
 main.rendered{max-width:1280px;padding-inline:28px}
 h2{font-size:19px;font-weight:600;letter-spacing:-.2px;margin:0 0 6px}
 .contextbar{display:flex;align-items:center;gap:2px;margin-bottom:16px}
-.context{font-size:12px;color:var(--muted);margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;scroll-margin-top:calc(var(--header-h) + 12px)}
-.context-name{color:var(--ink);font-weight:600;font-size:13px}
+.context{display:flex;align-items:baseline;gap:14px;font-size:12px;color:var(--muted);margin-right:auto;min-width:0;overflow:hidden;white-space:nowrap;scroll-margin-top:calc(var(--header-h) + 12px)}
+.context-name{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-weight:600;font-size:13px}
+.context-location{flex-shrink:0}
 .nav-button{background:transparent;border-color:transparent;box-shadow:none;color:var(--muted);padding:1px 9px 3px;font-size:15px}
 .nav-button:not(:disabled):hover{background:var(--hover);color:var(--ink)}
 
@@ -146,9 +147,6 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .typeset-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
 .typeset-pane{margin:0;min-width:0}
 .typeset-pane figcaption{font-size:11px;color:var(--muted);margin:0 0 7px}
-.typeset-pane figcaption span{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
-.original-dot{background:var(--del)}
-.proposed-dot{background:var(--ins)}
 .image-scroll{background:#fff;border:1px solid var(--line);border-radius:8px;overflow-x:auto;padding:14px;min-height:84px}
 .image-scroll img{display:block;width:calc(100% * var(--preview-zoom,1));max-width:none;height:auto}
 .render-note{font-size:12px;color:var(--muted);margin:8px 0}
@@ -168,7 +166,6 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 /* Why this changed */
 .rationale{margin:18px 0 4px;max-width:70ch}
 .rationale .discussion-title{display:inline;font-size:12px;font-weight:600;color:var(--muted);margin:0}
-.rationale>.discussion-speaker{display:inline;margin-left:8px}
 .rationale>.discussion-text{margin-top:6px}
 
 /* Decision bar */
@@ -188,7 +185,7 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .edit-list{list-style:none;padding:8px 0;margin:0}
 .edit-list li+li{border-top:1px solid var(--line)}
 .edit-option{display:block;width:100%;padding:11px 0;text-align:left;background:transparent;border:0;border-radius:0;box-shadow:none;font:12.5px/1.7 var(--mono);overflow-wrap:anywhere;white-space:pre-wrap}
-.edit-number{color:var(--faint);font:11px -apple-system,system-ui,sans-serif;margin-right:12px}
+.edit-number{display:inline-flex;gap:10px;color:var(--faint);font:11px -apple-system,system-ui,sans-serif;margin-right:12px}
 .edit-option del+ins{margin-left:.5em}
 .edit-option[aria-current=true]{font-weight:600}
 
@@ -287,7 +284,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <button id="progress" class="quiet" disabled></button>
  <button id="draft-status" class="quiet" hidden></button>
  <button id="copy-request-header" class="quiet" hidden>Copy agent request</button>
- <button id="more" class="icon" title="Review tools (M)" aria-label="Review tools (M)">⋯</button>
+ <button id="more" class="icon" title="Review tools (M)" aria-label="Review tools (M)"><svg width="16" height="14" viewBox="0 0 16 14" fill="currentColor" aria-hidden="true"><circle cx="3" cy="7" r="1"/><circle cx="8" cy="7" r="1"/><circle cx="13" cy="7" r="1"/></svg></button>
  <button id="help" class="icon" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts (?)">?</button>
 </header>
 <div id="review-notice" class="review-notice" hidden><span>This review changed elsewhere. Reload to continue.</span><button id="reload-review">Reload review</button></div>
@@ -298,8 +295,8 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button></div>
  <div class="dialog-section"><h3>Share your review</h3><div class="dialog-actions"><button id="copy-request-more">Copy agent request</button><button id="choices">Export feedback</button><button id="export">Export selected patch</button></div></div>
  <div class="dialog-section"><h3>Discussion</h3><div class="dialog-actions"><button id="show-feedback">All feedback</button><button id="import-responses">Import responses</button><input id="response-file" type="file" accept=".json,application/json" hidden></div><p id="response-error" class="error" role="status"></p></div>
- <div class="dialog-section"><h3>Whole passage · Shift+A / S / U</h3><div class="dialog-actions" id="passage-actions"></div></div>
- <div class="dialog-section"><h3>Whole file · Ctrl+A / S / U</h3><div class="dialog-actions" id="file-actions"></div></div>
+ <div class="dialog-section"><h3>Whole passage (Shift+A / S / U)</h3><div class="dialog-actions" id="passage-actions"></div></div>
+ <div class="dialog-section"><h3>Whole file (Ctrl+A / S / U)</h3><div class="dialog-actions" id="file-actions"></div></div>
  <div id="snapshot"></div><p>Choices and comments save locally. Apply writes your choices to the manuscript; undecided edits retain the proposed wording.</p>
 </dialog>
 <dialog id="feedback">

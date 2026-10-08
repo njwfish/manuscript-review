@@ -73,8 +73,7 @@ h2{font-size:20px;font-weight:600;letter-spacing:-.3px;margin:0 0 14px}
 .review-content{min-width:0;flex:1}
 .review h3{font-size:15px;font-weight:600;margin:0 0 3px}
 .round-title{font-size:12.5px;color:var(--muted);margin-bottom:3px}
-.versions{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
-.meta{font-size:12px;color:var(--faint);margin-top:5px}
+.meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--faint);margin-top:5px}
 .review-actions{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
 .review-history{margin-top:14px;font-size:12.5px}
 .review-history summary{width:fit-content;color:var(--muted)}
@@ -83,10 +82,10 @@ h2{font-size:20px;font-weight:600;letter-spacing:-.3px;margin:0 0 14px}
 .history-round+.history-round{border-top:1px solid var(--line)}
 .history-round:first-of-type{margin-top:10px}
 .history-content{flex:1;min-width:0}
-.history-title{font-size:12.5px;margin-bottom:3px}
+.history-title{display:flex;gap:12px;font-size:12.5px;margin-bottom:3px}
+.round-number{font-weight:500;color:var(--ink)}
 .empty{padding:64px 20px;text-align:center}
-.empty h3{font-size:15px;font-weight:600;margin:0 0 6px}
-.empty p{color:var(--muted);margin:0 0 20px}
+.empty p{color:var(--muted);margin:0}
 #message{min-height:20px;margin-top:18px;color:var(--muted);font-size:12px}
 #message.error{color:var(--error)}
 details{font-size:12px;color:var(--muted);margin-top:10px}
@@ -166,7 +165,7 @@ dialog::backdrop{background:rgb(0 0 0/.25);backdrop-filter:blur(2px)}
 <dialog id="setup-dialog" aria-labelledby="setup-title">
  <div class="dialog-head"><h2 id="setup-title">Setup</h2><button type="button" class="quiet close">Close</button></div>
  <h3 class="setup-heading">Review tools</h3><div id="setup-tools"></div>
- <p class="hint"><a href="https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md" target="_blank" rel="noopener">Installation guide</a> · Word review works without equation previews.</p>
+ <p class="hint">Word review works without equation previews. <a href="https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md" target="_blank" rel="noopener">Installation guide</a></p>
  <h3 class="setup-heading">Agent access</h3><p class="hint">Install the skill once. Then use Copy agent request in a review and paste it into your agent’s chat.</p>
  <div id="setup-agents"></div><p class="hint">Start a new agent session after installing. Keep the app or source checkout in place while using its linked skill.</p>
  <p id="setup-message" class="form-error" role="status" aria-live="polite"></p>

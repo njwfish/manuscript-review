@@ -91,7 +91,7 @@ class ReviewSession:
                 'history': history, 'drafts': r['drafts'], 'ui': r['ui'], 'round_id': round_id(snapshot),
                 'scope': scope, 'baseline': r['baseline'], 'result': r['result'],
                 'preview_status': preview_status, 'preview_error': r['metadata'].get(error_key),
-                'proposal_label': ('Selected manuscript · ' + r['result'][:7] if scope == 'baseline' else r['metadata']['proposal_label']),
+                'proposal_label': (f'Selected manuscript ({r["result"][:7]})' if scope == 'baseline' else r['metadata']['proposal_label']),
                 'base_label': (r['metadata'].get('baseline_label', r['metadata']['base_label']) if scope == 'baseline' else r['metadata']['base_label']),
                 'applied': is_applied(r),
                 'library_url': self.library_url, 'feedback_path': str(self.store.path)}
@@ -240,7 +240,7 @@ class ReviewSession:
         record['comments'] = {key: value for key, value in record['comments'].items() if key in valid_notes and key not in affected}
         record['result'] = selected_version(record)
         record['metadata'].update(preview_status='queued' if current['entry'] else 'none',
-                                  proposal_label='Your revision · ' + current['proposed'][:7])
+                                  proposal_label=f'Your revision ({current["proposed"][:7]})')
         record['drafts'].pop(passage['id'], None)
         self.store.archive(previous)
         write_passage(self.store, previous, record, file, passage, text)
