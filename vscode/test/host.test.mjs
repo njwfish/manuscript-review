@@ -251,3 +251,12 @@ test('an old viewer failure cannot replace a newly selected PDF while its bytes 
     await failure('/baseline-assets/new.pdf');assert.equal(replacements.length,1);
     assert.equal(replacements[0].textContent,'PDF could not open.');
 });
+
+
+test('embedded focus and agent requests carry source IDs and the originating round',async t=>{
+ const h=await host(t,true);
+ const focus=h.module.focusSource('main.tex','edit');
+ assert.equal(h.messages.at(-1).action,'focus');assert.equal(h.messages.at(-1).file,'main.tex');h.reply(h.messages.at(-1),true);await focus;
+ const task=h.module.openAgentTask('discussion','round');
+ assert.equal(h.messages.at(-1).action,'agent');assert.equal(h.messages.at(-1).comment,'discussion');assert.equal(h.messages.at(-1).review,'round');h.reply(h.messages.at(-1),true);await task;
+});

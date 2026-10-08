@@ -9,7 +9,7 @@ The current package is a preview.
 ## Install
 
 Build the current preview using the [commands below](#build), then install
-`dist/manuscript-review-0.1.4.vsix` through **Extensions → Install from VSIX…** and open your
+`dist/manuscript-review-0.1.5.vsix` through **Extensions → Install from VSIX…** and open your
 manuscript folder. The workspace host needs macOS or Linux, Git, and Python 3.12 or
 newer. The extension finds a supported interpreter automatically, including Homebrew Python
 when an older Conda environment comes first on the path. **Manuscript Review: Python
@@ -62,6 +62,9 @@ comment** (⌘/Ctrl+Alt+[ / ]) move through them across files. Comment shortcuts
 while a review is open and the source editor has focus; remap them in Keyboard Shortcuts.
 
 Clicking proposed text in the focused review opens the source file at the change.
+Focused review shows the exact word changes with faded surrounding context. Click
+that context to expand the passage; click the source editor to restore the full file’s
+visibility for editing.
 Source remains a normal VS Code document with saving, undo, syntax highlighting, and
 LaTeX Workshop compilation. Change backgrounds and hovers show replacements against
 the exact current editor buffer.
@@ -99,8 +102,20 @@ exports, response imports, version comparison, the library, drafts, and setup.
 
 ## Work with an agent
 
-Use **Copy agent request** and paste it into your agent's chat. The prompt identifies
-the exact review and its bundled command launcher. The skill reads comments and earlier
+Use **Send to agent** on a saved comment, or beside the comment input to save and send
+it. Choose Codex or Claude Code; the extension opens that agent’s native extension
+tab beside the manuscript. Install and sign in to its VS Code extension first. Claude
+receives the prepared request; press Send to start. For Codex, paste the copied
+request into its fresh tab, then send. Your last choice appears first next time. Each task receives one saved comment,
+its review, and the bundled command launcher. It appends only its final response to
+the discussion; its working conversation stays in the agent tab.
+
+With pending review decisions or unsaved source, the task thinks through the comment
+and replies without editing files. Once decisions are complete, it can make surgical
+changes and publish a new review round. Applying decisions remains an author action.
+
+**Copy agent request** still prepares a request for your preferred external chat.
+The skill reads comments and earlier
 responses, makes the requested surgical changes, publishes a new round, and appends
 replies. Existing prose is settled wording; a style guide alone does not authorize
 rewriting it. Agent conversations stay in your agent's interface.

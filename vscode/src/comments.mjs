@@ -8,7 +8,7 @@ export function sourceFile(review,document){
   ?relative.split(path.sep).join('/'):null;
 }
 
-export function createComments(vscode,runtime,{onChange,onReview,onProjection}={}) {
+export function createComments(vscode,runtime,{onChange,onReview,onProjection,onAgent}={}) {
   const controller=vscode.comments.createCommentController('manuscript-review','Manuscript Review');
   const subscriptions=[controller],threads=new Map(),pending=new Set();
   let generation=0,disposed=false,activeThread;
@@ -199,7 +199,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection}={
       threads.set(state.key,state);activeThread=state.key;
     }
     await changed();
-    return true;
+    return result.entry.id;
   }
 
   function editComment(comment) {
@@ -261,12 +261,25 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection}={
 
   controller.commentingRangeProvider={provideCommentingRanges:document=>fileFor(document)
     ? [new vscode.Range(document.positionAt(0),document.positionAt(document.getText().length))] : []};
-  command('reply',reply);command('editComment',editComment);command('saveComment',saveComment);command('cancelComment',cancelComment);
+  command('reply',async input=>Boolean(await reply(input)));command('editComment',editComment);command('saveComment',saveComment);command('cancelComment',cancelComment);
   command('viewCommentChange',thread=>{
     const state=thread.reviewState;
     if(!state?.entry)return false;
     checkReview(state);
     return onReview?.(state.entry);
+  });
+  command('sendComment',async input=>{
+    if(!input.text.trim())return false;
+    if(input.thread.reviewState)checkReview(input.thread.reviewState);
+    return onAgent?.(undefined,()=>reply(input));
+  });
+  command('commentAgent',thread=>{
+    const state=thread.reviewState;
+    if(!state?.entry)return false;
+    checkReview(state);
+    if(state.thread.comments.some(comment=>comment.mode===vscode.CommentMode.Editing))
+      throw new Error('Save your comment edit before sending it to an agent.');
+    return onAgent?.(state.entry.id);
   });
 
   function dispose() {

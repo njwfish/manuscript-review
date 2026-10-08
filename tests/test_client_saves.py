@@ -6,6 +6,36 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_native_send_locks_input_before_flushing_and_releases_only_its_own_busy_state(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+import {hostMessage} from './manuscript_review/host.js';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
+const flush=app.slice(app.indexOf('window.flushReview='),app.indexOf("$('library').addEventListener"));
+const listener=app.slice(app.indexOf("if(embedded)window.addEventListener('message'"),app.lastIndexOf('ready();'));
+for(const fail of [false,true,'superseded']){
+ let receive,release;const gate=new Promise(resolve=>{release=resolve;}),controls={inert:false},events=[],elements=new Map();
+ const context={acquireVsCodeApi:()=>({}),hostMessage:event=>hostMessage(event,'vscode-webview://review'),setTimeout,clearTimeout,
+  reviewProgress:()=>({total:0,complete:true}),CustomEvent:class{constructor(type,{detail}){Object.assign(this,{type,detail});}},
+  window:{addEventListener:(_name,handler)=>{receive=handler;},dispatchEvent:event=>events.push(event)},
+  document:{querySelectorAll:()=>[controls],body:{classList:{contains:()=>false,toggle(){}}},getElementById:id=>{
+   if(!elements.has(id))elements.set(id,{className:'',textContent:'',querySelector:()=>null});return elements.get(id);}},
+  request:async path=>{if(path==='/save')await gate;return {ok:!fail||path!=='/save',json:async()=>fail?{error:'Disk error'}:{revision:1}};}};
+ vm.createContext(context);vm.runInContext(beginning+flush+listener+`data={revision:0,token:'test',scope:'round',files:[],history:[]};`,context);
+ const message=data=>({origin:'vscode-webview://review',source:{parent:true},data});
+ const pending=receive(message({type:'review-command',action:'flush',lock:true,id:'save'}));
+ assert.equal(controls.inert,true);assert.equal(vm.runInContext('Boolean(editing&&reviewLock)',context),true);
+ if(fail==='superseded'){await receive(message({type:'review-command',action:'unlock',id:'save'}));vm.runInContext("reviewLock='new';setBusy(true);",context);}
+ release();await pending;assert.equal(events.at(-1).detail.ok,!fail);
+ if(fail==='superseded'){assert.equal(vm.runInContext('reviewLock',context),'new');assert.equal(controls.inert,true);await receive(message({type:'review-command',action:'unlock',id:'new'}));}
+ if(!fail){assert.equal(controls.inert,true);await receive(message({type:'review-command',action:'unlock',id:'save'}));}
+ assert.equal(controls.inert,false);assert.equal(vm.runInContext('Boolean(editing||reviewLock)',context),false);
+ vm.runInContext('editing=true',context);await receive(message({type:'review-command',action:'unlock',id:'save'}));
+ assert.equal(vm.runInContext('editing',context),true,'unlock must preserve an unrelated operation');
+}
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
     def test_native_comment_change_opens_its_round_and_saves_pending_notes_first(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 import {hostMessage} from './manuscript_review/host.js';

@@ -6,7 +6,7 @@ import path from 'node:path';
 import {resolvePython} from './python.mjs';
 
 const execute=promisify(execFile);
-const quote=value=>"'"+value.replaceAll("'","'\"'\"'")+"'";
+export const shellQuote=value=>"'"+value.replaceAll("'","'\"'\"'")+"'";
 
 export function createAgentTools({extensionPath,storagePath,version,python=''}){
  let preparing,interpreter;
@@ -23,7 +23,7 @@ export function createAgentTools({extensionPath,storagePath,version,python=''}){
    await cp(path.join(root,'skills/manuscript-review'),skill,{recursive:true,filter:file=>file!==path.join(root,'skills/manuscript-review/scripts/review-agent')});
    for(const file of ['README.md','ARCHITECTURE.md','LICENSE','docs','vscode'])await cp(path.join(root,file),path.join(storagePath,file),{recursive:true});
    const temporary=launcher+'.'+randomUUID()+'.tmp';
-   await writeFile(temporary,`#!/bin/sh\nset -eu\nexport PYTHONPATH=${quote(root)}\nexec ${quote(python)} -m manuscript_review.agent "$@"\n`,{mode:0o755});
+   await writeFile(temporary,`#!/bin/sh\nset -eu\nexport PYTHONPATH=${shellQuote(root)}\nexec ${shellQuote(python)} -m manuscript_review.agent "$@"\n`,{mode:0o755});
    await rename(temporary,launcher);
    return launcher;
   })().catch(error=>{preparing=undefined;throw error;});
@@ -45,5 +45,5 @@ export function createAgentTools({extensionPath,storagePath,version,python=''}){
   await preparing;
   return run(interpreter,['install-skill','--agent',agent,'--source',skill],root);
  }
- return {prepare,setup,install,get launcher(){return launcher;},get command(){return quote(launcher);}};
+ return {prepare,setup,install,get launcher(){return launcher;},get skill(){return skill;},get command(){return shellQuote(launcher);}};
 }

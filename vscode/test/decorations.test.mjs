@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {createDecorations} from '../src/decorations.mjs';
+import {createDecorations,focusBands} from '../src/decorations.mjs';
 
 class Position {constructor(line,character){Object.assign(this,{line,character});}}
 class Range {constructor(start,end){Object.assign(this,{start,end});}}
@@ -41,6 +41,30 @@ test('uses exact projected UTF-16 spans in every visible split without decoratin
   assert.equal(f.types[0].options.backgroundColor.id,'diffEditor.insertedTextBackground');
   assert.equal(f.types.every(type=>type.options.rangeBehavior===1),true);
   f.decorations.dispose();
+});
+
+test('focused review fades context symmetrically and entering the source restores every line',()=>{
+ const text=Array.from({length:15},(_,i)=>`Line ${i}`).join('\n'),f=fixture(text);
+ const from=text.indexOf('Line 7');f.projection.ranges=[{id:'edit',from,to:from+6}];
+ f.decorations.update(f.projection,f.data);f.decorations.focus('main.tex','edit');
+ for(const editor of [f.first,f.split]){
+  assert.equal(editor.decorations.get(f.types[3]).length,4);
+  assert.equal(editor.decorations.get(f.types[4]).length,6);
+  assert.equal(editor.decorations.get(f.types[5]).length,4);
+  assert.equal(editor.decorations.get(f.types[3]).some(range=>range.start.line===7),false);
+ }
+ f.decorations.reveal();
+ assert.equal(f.types.slice(3).every(type=>f.first.decorations.get(type).length===0),true);
+ assert.equal(f.first.decorations.get(f.types[0]).length,1);assert.equal(f.doc.getText(),text);
+ f.decorations.dispose();
+});
+
+test('a multiline change keeps every changed line clear and malformed focus spans leave the file visible',()=>{
+ const text='One\nTwo\nThree\nFour\nFive';
+ const bands=focusBands(text,4,14);
+ assert.deepEqual(bands.near,[[0,4],[14,19],[19,23]]);
+ assert.deepEqual(bands.middle,[]);assert.deepEqual(bands.far,[]);
+ for(const [from,to] of [[-1,3],[2,99],[4,3],[1.5,2]])assert.deepEqual(focusBands(text,from,to),{near:[],middle:[],far:[]});
 });
 
 test('hover retains exact original/proposed LaTeX as untrusted monospace code',()=>{

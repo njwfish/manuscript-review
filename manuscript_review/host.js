@@ -28,6 +28,8 @@ export async function request(path,options={}){
 }
 export function openSource(values){return call('source',values);}
 export function hostCommand(name){return call('command',{name});}
+export function openAgentTask(comment,review){return call('agent',{comment,review});}
+export function focusSource(file,edit){return call('focus',{file,edit});}
 export async function imageSource(image,path){
  if(!call){image.src=path;return;}
  try{const source=await call('asset',{path});if(image.isConnected)image.src=source;}

@@ -66,6 +66,15 @@ earlier engine copies remain available through extension upgrades. Review data l
 in the review library, independently of extension storage. Agent result links select
 an exact round through the extension's URI handler.
 
+Sending a saved comment opens Codex or Claude Code in its native extension tab
+beside the source. Claude receives an initial prompt through its editor command;
+Codex opens a fresh panel with the request copied for the author to paste and send. The prompt pins the review and discussion, reads
+the current record, and returns only a final reply through existing response commands.
+The agent owns its transcript; the app stores no task or conversation records. Pending
+decisions and unsaved source limit the request to a reply. Source changes use the same
+begin/finish round operations. Focused comparisons dim surrounding context; clicking
+the passage expands it, and entering the native source editor clears its dimming.
+
 The extension discovers Python 3.12 or newer before importing the engine, skipping older
 environments on the path. An explicit interpreter setting is validated and respected.
 The engine service and agent commands use the resolved executable.

@@ -30,6 +30,13 @@ body.vscode-review{
 .vscode-review .passage-body,.vscode-review .passage-body.code,.vscode-review .exact-edit,.vscode-review #preview{font-size:var(--vscode-editor-font-size,14px);line-height:1.65}
 .vscode-review .passage-body.code{background:transparent;padding:0;border-radius:0}
 .vscode-review .active-edit{outline-width:1px;outline-offset:2px}
+.vscode-review .focused-source{padding-block:clamp(24px,8vh,72px)}
+.vscode-review .focus-context{cursor:pointer}
+.vscode-review .focus-context:focus-visible{outline-offset:4px}
+.vscode-review .focus-reading{line-height:1.85}
+.vscode-review .focus-reading .ellipsis{opacity:.3}
+.vscode-review .focus-return{margin-top:16px}
+.vscode-review .send-agent{margin-top:10px}
 .vscode-review .contextbar{flex-wrap:wrap;row-gap:8px}
 .vscode-review .context{flex:1 1 160px}
 .vscode-review .decisionbar{flex-wrap:wrap;backdrop-filter:none}
@@ -69,7 +76,7 @@ export function webviewHTML(html,webview,assets,vscode,viewerOrigin){
   .replace('src="/app.js"','src="'+uri('app.js')+'"');
 }
 
-export function createPanel(vscode,context,runtime,{viewer,onSource,onChange,onApply,onCommand,agentLauncher}){
+export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAgent,onChange,onApply,onCommand,agentLauncher}){
  let panel,waiting=new Map(),loaded,resolveLoaded,rejectLoaded,selection,revision,pending=0,changedRevision,ready=false,viewerURL;
  const assets=path.join(context.extensionPath,'dist','runtime','manuscript_review');
 
@@ -81,12 +88,14 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onChange,onA
  function reconcile(){const value=changedRevision;changedRevision=undefined;if(value!==undefined)changed(value);}
  function select(){if(selection){const {file,target,id}=selection;panel?.webview.postMessage({type:'review-select',file,target:target.id,...(id?{note:id}:{}),...(target.kind?{kind:target.kind}:{})});selection=undefined;}}
  const acknowledge=(message)=>{const request=waiting.get(message.id);if(!request)return;clearTimeout(request.timer);waiting.delete(message.id);message.ok?request.resolve():request.reject(new Error(message.error));};
- async function flush(){
+ async function flush({lock=false}={}){
   const origin=panel;if(!origin)return;
   await loaded;
   if(origin!==panel)throw new Error('The focused review closed.');
   const id=crypto.randomUUID();
-  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{waiting.delete(id);reject(new Error('The focused review did not finish saving.'));},30000);waiting.set(id,{resolve,reject,timer});origin.webview.postMessage({type:'review-command',action:'flush',id});});
+  try{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{waiting.delete(id);reject(new Error('The focused review did not finish saving.'));},30000);waiting.set(id,{resolve,reject,timer});origin.webview.postMessage({type:'review-command',action:'flush',id,...(lock?{lock:true}:{})});});}
+  catch(error){if(lock&&origin===panel)origin.webview.postMessage({type:'review-command',action:'unlock',id});throw error;}
+  return lock?id:undefined;
  }
  async function handle(origin,message){
   if(origin!==panel)return;
@@ -105,6 +114,8 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onChange,onA
      finally{if(!--pending)reconcile();}
     },
     source:()=>onSource(message),
+    focus:()=>onFocus?.(message.file,message.edit),
+    agent:()=>{if(message.review!==runtime.review.id)throw new Error('The review changed. Send the comment from its original round.');return onAgent?.(message.comment);},
     command:()=>onCommand(message.name),
     asset:async()=>{const {bytes,mime}=await runtime.asset(message.path);return `data:${mime.split(';')[0]};base64,${bytes.toString('base64')}`;},
     viewer:()=>viewerURL,
@@ -123,7 +134,9 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onChange,onA
   const base=address.toString().replace(/\/?$/,'/');
   viewerURL=new URL('viewer.html',base).href;
   const viewerOrigin=new URL(viewerURL).origin;
-  origin.webview.html=webviewHTML(await readFile(path.join(assets,'index.html'),'utf8'),origin.webview,assets,vscode,viewerOrigin);
+  // VS Code ignores identical HTML, so a refresh needs a new document identity.
+  origin.webview.html=webviewHTML(await readFile(path.join(assets,'index.html'),'utf8'),origin.webview,assets,vscode,viewerOrigin)
+   .replace('<body class="vscode-review wide">','<body class="vscode-review wide" data-review-instance="'+crypto.randomUUID()+'">');
  }
  async function show(entry){
   if(entry?.target)selection=entry;
@@ -138,9 +151,9 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onChange,onA
    await load(origin);
   }else{panel.reveal();await loaded;select();}
  }
- return {show,flush,
+ return {show,flush,unlock:id=>{if(id)panel?.webview.postMessage({type:'review-command',action:'unlock',id});},
   changed,
-  refresh:async()=>{if(!panel)return;await flush();await load(panel);},
+  refresh:async({flushed=false}={})=>{if(!panel)return;if(!flushed)await flush();await load(panel);},
   dispose:()=>{panel?.dispose();}
  };
 }

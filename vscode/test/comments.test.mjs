@@ -30,7 +30,7 @@ const source=(id,file='main.tex',comment='Please clarify this.',extra={})=>({id,
 
 function fixture(history=[source('root')]) {
   const documents=[document('main.tex','First selected words.'),document('other.tex','Other selected words.')];
-  const handlers=new Map(),created=[],errors=[],requests=[],opened=[],projections=[];
+  const handlers=new Map(),created=[],errors=[],requests=[],opened=[],projections=[],sent=[];
   const controller={dispose(){this.disposed=true;},createCommentThread(uri,range,comments){
     const thread={uri,range,comments,dispose(){this.disposed=true;}};created.push(thread);return thread;}};
   const vscode={Uri:{file:uri},Range,Selection,CommentMode:{Preview:0,Editing:1},
@@ -76,9 +76,9 @@ function fixture(history=[source('root')]) {
       if(route==='/save') {data.comments=body.comments;data.revision++;return {revision:data.revision};}
       throw new Error('Unexpected write: '+route);
     }};
-  const comments=createComments(vscode,runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data})});
+  const comments=createComments(vscode,runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save)=>{if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
   const editor={document:documents[0],selection:new Selection(new Position(0,6),new Position(0,20))};
-  return {comments,vscode,runtime,data,documents,created,requests,errors,opened,editor,controller,projections,
+  return {comments,vscode,runtime,data,documents,created,requests,errors,opened,editor,controller,projections,sent,
     command:(name,...args)=>handlers.get(`manuscriptReview.${name}`)(...args),
     beforeProjection:handler=>beforeProjection=handler,failNote:value=>failNote=value,changes:()=>changes};
 }
@@ -96,6 +96,40 @@ test('projects exact dirty-buffer UTF-16 spans and groups roots with responses a
   assert.equal(f.documents[0].isDirty,true);
   assert.equal(f.requests.every(request=>request.route==='/editor'),true);
   f.comments.dispose();
+});
+
+test('send saves a new comment before dispatch and a failed save never launches an agent',async()=>{
+ const f=fixture([]),thread=await f.comments.annotate(f.editor);
+ f.failNote(true);
+ assert.equal(await f.command('sendComment',{thread,text:'Work through this comment.'}),false);
+ assert.deepEqual(f.sent,[]);
+ f.failNote(false);
+ assert.equal(await f.command('sendComment',{thread,text:'Work through this comment.'}),true);
+ assert.deepEqual(f.sent,['note-1']);assert.equal(f.data.history[0].comment,'Work through this comment.');
+ assert.equal(f.documents[0].isDirty,false);
+ f.comments.dispose();
+});
+
+test('a saved thread dispatches its latest comment and never discards an unsaved comment edit',async()=>{
+ const f=fixture([source('root'),source('follow','main.tex','Newest instruction',{origin_id:'root'})]);
+ await f.comments.refresh();const thread=f.created[0];
+ assert.equal(await f.command('commentAgent',thread),true);assert.deepEqual(f.sent,['follow']);
+ const latest=thread.comments.at(-1);await f.command('editComment',latest);latest.body='Still editing';
+ assert.equal(await f.command('commentAgent',thread),false);assert.deepEqual(f.sent,['follow']);
+ assert.equal(latest.body,'Still editing');assert.match(f.errors.at(-1),/Save your comment edit/);
+ f.runtime.review.id='different';
+ await f.command('cancelComment',latest);assert.equal(await f.command('commentAgent',thread),false);
+ assert.deepEqual(f.sent,['follow']);
+ f.comments.dispose();
+});
+
+test('a follow-up dispatch keeps its saved identity even when the native refresh is interrupted',async()=>{
+ const f=fixture();await f.comments.refresh();const thread=f.created[0];
+ f.beforeProjection(()=>{if(f.data.revision>1)f.documents[0].change(f.documents[0].text+'!');});
+ assert.equal(await f.command('sendComment',{thread,text:'Address this follow-up, not the preceding note.'}),true);
+ assert.deepEqual(f.sent,['note-1']);assert.equal(f.data.history.at(-1).comment,'Address this follow-up, not the preceding note.');
+ assert.equal(thread.reviewState.entry.id,'root','refresh legitimately leaves the preceding native presentation in place');
+ f.comments.dispose();
 });
 
 test('refresh keeps native thread objects, reply inputs, and an unfinished root edit',async()=>{

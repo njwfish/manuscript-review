@@ -20,7 +20,7 @@ async function fixture(t) {
     await mkdir(assets, {recursive: true}); await mkdir(viewer, {recursive: true});
     await writeFile(join(assets, 'index.html'), '<html><head><style>body{color:black}</style></head><body class="wide"><script type="module" src="/app.js"></script></body></html>');
     await writeFile(join(viewer, 'viewer.html'), '<html><body>Local PDF viewer</body></html>');
-    const panels = [], writes = [], downloads = [], sources = [], clipboard = [], dialogs = [], applications = [], commands = [];
+    const panels = [], writes = [], downloads = [], sources = [], clipboard = [], dialogs = [], applications = [], commands = [], focus = [], agents = [];
     let changes = 0, destination;
     const vscode = {Uri: {file: uri,parse:value=>({toString:()=>value})}, ViewColumn: {Beside: 2},
         env: {asExternalUri:async uri=>uri,clipboard: {async writeText(text) { clipboard.push(text); }}},
@@ -39,12 +39,12 @@ async function fixture(t) {
                         asWebviewUri(uri) { return {toString: () => `https://resources.invalid/${encodeURIComponent(uri.fsPath)}`}; },
                         onDidReceiveMessage(listener) { receive = listener; },
                         postMessage(message) { panel.messages.push(message); return Promise.resolve(!panel.disposed); },
-                        set html(value) { html = value; panel.replacements++; }, get html() { return html; },
+                        set html(value) { if(html===value)return;html = value; panel.replacements++; }, get html() { return html; },
                     }};
                 panels.push(panel); return panel;
             },
         }};
-    const runtime = {review: {repo: join(directory, 'manuscript'), revision: 1, token: 'private-review-token'},
+    const runtime = {review: {id:'round',repo: join(directory, 'manuscript'), revision: 1, token: 'private-review-token'},
         async request() { return {revision: this.review.revision}; },
         async asset() { return {bytes: Buffer.from('<svg/>'), mime: 'image/svg+xml;charset=utf-8'}; },
         async download(path) { downloads.push(path); return {bytes: Buffer.from('Exact export 🧬.\n')}; }};
@@ -53,9 +53,10 @@ async function fixture(t) {
         onSource: message => { sources.push(message); }, onChange: () => changes++,
         onApply: body => {applications.push(body); return {revision: 2, applied: true};},
         onCommand: name => {commands.push(name);},
+        onFocus: (file,edit) => {focus.push({file,edit});},onAgent: comment => {agents.push(comment);},
     });
     t.after(() => panel.dispose());
-    return {panel, runtime, vscode, panels, assets, viewer, writes, downloads, sources, clipboard, dialogs, applications, commands,
+    return {panel, runtime, vscode, panels, assets, viewer, writes, downloads, sources, clipboard, dialogs, applications, commands, focus, agents,
         destination: value => { destination = value; }, changes: () => changes,
         async open(entry) { await panel.show(entry); const current = panels.at(-1); await current.receive({type: 'review-ready'}); return current; },
         async establish(current, revision = 1) {
@@ -264,4 +265,26 @@ test('forwarded viewer URIs pin the client-facing frame origin and retain its pa
  const p=await f.open();assert.match(p.webview.html,/frame-src http:\/\/127\.0\.0\.1:34567;/);
  await p.receive({type:'review-request',id:'viewer',action:'viewer'});
  assert.equal(p.messages.at(-1).data,'http://127.0.0.1:34567/tunnel/viewer.html');
+});
+
+
+test('focus and comment handoffs use native callbacks and reject an earlier displayed round',async t=>{
+ const f=await fixture(t),p=await f.open();
+ await p.receive({type:'review-request',id:'focus',action:'focus',file:'main.tex',edit:'edit'});
+ assert.deepEqual(f.focus,[{file:'main.tex',edit:'edit'}]);
+ await p.receive({type:'review-request',id:'agent',action:'agent',review:'round',comment:'discussion'});
+ assert.deepEqual(f.agents,['discussion']);
+ await p.receive({type:'review-request',id:'old',action:'agent',review:'previous',comment:'discussion'});
+ assert.deepEqual(f.agents,['discussion']);assert.equal(p.messages.at(-1).ok,false);assert.match(p.messages.at(-1).error,/review changed/i);
+});
+
+test('refresh after a preflushed native save loads the new record without writing stale webview state',async t=>{
+ const f=await fixture(t),p=await f.open();await f.establish(p);
+ const flushing=f.panel.flush({lock:true});await new Promise(resolve=>setImmediate(resolve));
+ const request=p.messages.at(-1);assert.equal(request.type,'review-command');assert.equal(request.lock,true);
+ await p.receive({type:'review-flushed',id:request.id,ok:true});const lock=await flushing;assert.equal(lock,request.id);
+ p.messages.length=0;f.runtime.review.revision=2;
+ await f.panel.refresh({flushed:true});
+ assert.equal(p.replacements,2);assert.deepEqual(p.messages,[]);
+ await p.receive({type:'review-ready'});f.panel.unlock(lock);assert.equal(p.messages.at(-1).action,'unlock');assert.equal(p.messages.at(-1).id,request.id);
 });

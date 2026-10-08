@@ -1,12 +1,13 @@
 'use strict';
 import {choiceFor,selectedSource,editLocations,feedbackForPassage,decisionShortcut,reviewProgress,editContext,currentFeedback,sourceRange,agentRequest,commentThreads,commentShortcut} from './review_model.js';
 import {createEditor} from './editor.js';
-import {request,openSource,hostCommand,imageSource,copyText,exportFile,reviewReady,pdfFrame,hostMessage} from './host.js';
+import {request,openSource,hostCommand,imageSource,copyText,exportFile,reviewReady,pdfFrame,hostMessage,openAgentTask,focusSource} from './host.js';
 const embedded=Boolean(globalThis.acquireVsCodeApi);
 let data, decisions={}, comments={}, drafts={}, active=0, passage=0, edit=0;
 let view='auto', overrides={}, previewZoom=100, locations=[];
 let saving=Promise.resolve(), saveFailed=false, commentTimer;
 let uiTimer,draftTimer,editing=false,staleReview=false,commentScope='edit';
+let reviewLock=null;
 const draftChanges=new Map();
 let positions={};
 let fileEditor=null,editorFile=null,editorSource=null,editorInitial='',openingEditor=null,discussionOpen=null,discussionKey=null;
@@ -133,7 +134,14 @@ function discussionEntry(entry,withLocation=false){
  if(entry.proposed)source.append(node('span','word-label','Proposal'),node('ins','',displayText(entry.proposed)));}
  if(entry.revised!==undefined&&entry.revised!==null)source.append(node('span','word-label','Your revision'),node('pre','',entry.revised));
  const paragraph=node('pre','discussion-original',entry.context_before||'');
- context.append(source,paragraph);item.append(context);return item;
+ context.append(source,paragraph);item.append(context);
+ if(embedded)item.append(button('Send to agent',()=>sendAgentComment(entry.id),'discussion-link'));
+ return item;
+}
+async function sendAgentComment(identifier){
+ const review=data.id;
+ try{await window.flushReview();await openAgentTask(identifier,review);}
+ catch(error){status(error.message,true);}
 }
 function showFeedback(){
  $('feedback-search').value='';renderFeedback();$('actions').close();$('feedback').showModal();
@@ -220,6 +228,7 @@ function renderDiscussion(){
   const area=node('textarea');area.id='comment-'+identifier;area.rows=5;area.maxLength=20000;area.value=comments[identifier]||'';area.setAttribute('aria-label',commentScope==='passage'?'Passage comment':'Edit comment');area.placeholder='Comment…';
   area.addEventListener('input',()=>{if(area.value)comments[identifier]=area.value;else delete comments[identifier];clearTimeout(commentTimer);commentTimer=setTimeout(save,350);updateProgress();});
   area.addEventListener('blur',save);host.append(area);
+  if(embedded){const send=button('Send to agent',()=>sendAgentComment(identifier),'quiet send-agent');send.disabled=!area.value.trim();area.addEventListener('input',()=>{send.disabled=!area.value.trim();});host.append(send);}
  }
 }
 function sourceNoteTarget(entry){
@@ -364,6 +373,7 @@ function selected(f){
  return selectedSource(f,decisions);
 }
 function sourceBody(h,f,fullPassage=false){
+ if(embedded&&!fullPassage)return focusedSource(h,f);
  if(!fullPassage){
   const g=h.edits[edit],context=editContext(h,edit);
  const code=f.supporting||f.path.endsWith('.bib')||/\\[A-Za-z]+[\[{]/.test(context.before+g.old+g.new+context.after);
@@ -390,6 +400,27 @@ function sourceBody(h,f,fullPassage=false){
  }
  populate(false);const wrap=node('div');wrap.append(body);
  if(large){let full=false;const more=button('Show complete source',()=>{full=!full;populate(full);more.textContent=full?'Collapse long source':'Show complete source';});more.className='long';wrap.append(more);}return wrap;
+}
+function focusedSource(h,f){
+ const group=h.edits[edit],context=editContext(h,edit,90),wrap=node('div','focused-source'),body=node('div','passage-body focus-reading');
+ const before=context.before.split('\n').at(-1),after=context.after.split('\n').slice(0,2).join('\n');
+ function reveal(){
+  wrap.classList.remove('focused-source');
+  const close=button('Focus edit',()=>{wrap.replaceWith(focusedSource(h,f));focusSelection();},'quiet focus-return');
+  wrap.replaceChildren(sourceBody(h,f,true),close);
+ }
+ function hint(text,before){
+  if(!text)return document.createTextNode('');
+  const span=node('span','focus-context');span.setAttribute('role','button');span.tabIndex=0;span.title='Show full passage';span.setAttribute('aria-label','Show full passage');
+  const characters=Array.from(text),count=Math.ceil(characters.length/32);
+  for(let i=0;i<count;i++){const part=node('span','',characters.slice(i*32,(i+1)*32).join(''));part.style.opacity=String(.25+.5*(before?i:count-i-1)/Math.max(1,count-1));span.append(part);}
+  span.addEventListener('click',reveal);span.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();event.stopPropagation();reveal();}});
+  return span;
+ }
+ if(context.leading||before!==context.before)body.append(node('span','ellipsis','… '));
+ body.append(hint(before,true),marked(group,edit),hint(after,false));
+ if(context.trailing||after!==context.after)body.append(node('span','ellipsis',' …'));
+ wrap.append(body);return wrap;
 }
 function renderedPair(h){
  const pair=node('div','typeset-pair');
@@ -552,6 +583,7 @@ function render(){
  const foot=node('div','statusline');const saveStatus=node('span','','');saveStatus.id='status';saveStatus.setAttribute('role','status');saveStatus.setAttribute('aria-live','polite');foot.append(saveStatus);
  if(embedded&&display==='pdf')controls.append(foot);else main.append(foot);
  document.querySelectorAll('main details').forEach(d=>{if(open.has(d.dataset.key)){d.hidden=false;d.open=true;}});renderDiscussion();status(oldStatus,oldError);
+ if(embedded)focusSource(f.path,g.id).catch(error=>status(error.message,true));
 }
 function focusSelection(){if(!data.files.length)return;
  const card=$('passage-'+passage);card?.focus({preventScroll:true});
@@ -719,12 +751,15 @@ async function watchPreviews(){
   else if(!fileEditor&&!document.activeElement.matches('textarea,input,select'))render();
  }catch{setTimeout(watchPreviews,5000);}
 }
-window.flushReview=async()=>{
- if(!data)return;if(editing)throw new Error('Wait for the current operation to finish.');saveNotes();saveDrafts();save();await saving;
+window.flushReview=async({lock=null}={})=>{
+ if(!data)return;if(editing)throw new Error('Wait for the current operation to finish.');if(lock){reviewLock=lock;setBusy(true);}
+ try{
+ saveNotes();saveDrafts();save();await saving;
  if(staleReview){const retained=await request('/retain',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({revision:data.revision,decisions,comments,drafts,notes:[...noteChanges].map(([target,comment])=>({...target,comment}))})});if(!retained.ok)throw new Error('Could not retain your unsaved changes. Try again before reloading.');}
  if((saveFailed||draftChanges.size||noteChanges.size)&&!staleReview)throw new Error('Your latest review could not be saved.');
  clearTimeout(uiTimer);const response=await request('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui:currentUI()})});
  if(!response.ok)throw new Error('Could not save your review position.');
+ }catch(error){if(lock&&reviewLock===lock){reviewLock=null;setBusy(false);}throw error;}
 };
 $('library').addEventListener('click',async event=>{event.preventDefault();try{await window.flushReview();window.location.assign(data.library_url);}catch(error){status(error.message,true);}});
 $('draft-status').addEventListener('click',resumeDraft);
@@ -737,9 +772,10 @@ if(embedded)window.addEventListener('message',async event=>{
  if(!hostMessage(event))return;
  const message=event.data;
  if(message?.type==='review-command'&&message.action==='flush'){
-  try{await window.flushReview();window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:true}}));}
+  try{await window.flushReview({lock:message.lock===true?message.id:null});window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:true}}));}
   catch(error){window.dispatchEvent(new CustomEvent('review-flushed',{detail:{id:message.id,ok:false,error:error.message}}));}
  }
+ if(message?.type==='review-command'&&message.action==='unlock'&&reviewLock&&reviewLock===message.id){reviewLock=null;setBusy(false);}
  if(message?.type==='review-changed'){staleReview=true;$('review-notice').hidden=false;updateProgress();}
  if(message?.type==='review-select'&&data){
   try{await showRevision({file:message.file,id:message.note,target:{id:message.target,kind:message.kind||'edit'}});}

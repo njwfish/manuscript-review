@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {commentTask,openAgent} from '../src/dispatch.mjs';
+
+const data={id:'review',repo:'/manuscript',feedback_path:'/library/reviews/review/review.json'};
+const note={id:'edit',discussion_id:'discussion',file:'main.tex',line:12,comment:'Keep my exact wording.',before:'The \\alpha state.'};
+const tools={launcher:'/agent tools/review-agent',skill:'/agent tools/manuscript-review'};
+const report={comments:[note],history:[],edits:[{decision:'accept'}]};
+
+test('a task addresses the saved discussion and returns only the final reply through existing commands',()=>{
+ const prompt=commentTask(data,report,'edit',tools);
+ assert.match(prompt,/discussion discussion/);assert.match(prompt,/Keep my exact wording\./);
+ assert.match(prompt,/Original quoted source/);assert.match(prompt,/The \\alpha state\./);assert.match(prompt,/agent tools\/manuscript-review\/SKILL.md/);
+ assert.match(prompt,/begin before any source changes/);assert.match(prompt,/finish to publish/);
+ assert.match(prompt,/Append only your final, concise explanation/);
+ assert.match(prompt,/Do not apply review decisions automatically/);
+ assert.match(prompt,/--home '\/library'/);
+ assert.throws(()=>commentTask(data,report,'other',tools),/Save this comment/);
+});
+
+test('custom libraries and quoted paths stay pinned in the agent command prefix',()=>{
+ const prompt=commentTask({...data,feedback_path:"/my library/author's review/reviews/id/review.json"},report,'edit',tools);
+ assert.ok(prompt.includes("'/agent tools/review-agent' --home '/my library/author'\"'\"'s review'"));
+});
+
+test('unfinished decisions and unsaved source keep dispatched tasks on discussion rather than source changes',()=>{
+ assert.match(commentTask(data,{...report,edits:[{decision:'pending'}]},'discussion',tools),/without changing manuscript files or decisions/);
+ assert.match(commentTask(data,report,'edit',{...tools,dirty:true}),/unsaved editor text.*without changing files/);
+ const history={id:'source-comment',file:'other.tex',line:2,comment:'Reconsider this.',before:'Saved draft',replies:[{text:'Earlier answer'}]};
+ assert.match(commentTask(data,{comments:[],history:[history],edits:[]},history.id,tools),/discussion source-comment.*including its earlier replies/);
+});
+
+test('native agent tabs use public commands and keep the prepared prompt literal',async()=>{
+ const commands=[],clipboard=[],information=[],activations=[];
+ const vscode={extensions:{getExtension:id=>({activate:async()=>activations.push(id)})},
+  commands:{executeCommand:async(...args)=>commands.push(args)},env:{clipboard:{writeText:async text=>clipboard.push(text)}},
+  window:{showInformationMessage:async text=>information.push(text)}};
+ const prompt='Literal `text`, $(commands), "quotes", and\nnewlines.';
+ await openAgent(vscode,{agent:'claude',prompt,column:2});
+ assert.deepEqual(commands,[['claude-vscode.editor.open',undefined,prompt,2,undefined,true]]);
+ assert.deepEqual(clipboard,[]);
+ await openAgent(vscode,{agent:'codex',prompt,column:2});
+ assert.deepEqual(commands.slice(1),[['workbench.action.focusSecondEditorGroup'],['chatgpt.newCodexPanel']]);
+ assert.deepEqual(clipboard,[prompt]);assert.match(information[0],/Paste.*Codex tab/);
+ assert.deepEqual(activations,['anthropic.claude-code','openai.chatgpt']);
+});
+
+test('unavailable agent extensions fail without opening a different interface',async()=>{
+ const vscode={extensions:{getExtension:()=>undefined}};
+ await assert.rejects(openAgent(vscode,{agent:'codex'}),/Install the Codex VS Code extension/);
+ await assert.rejects(openAgent(vscode,{agent:'other'}),/Choose Codex/);
+});

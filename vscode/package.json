@@ -5,7 +5,7 @@
     "onUri"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -141,6 +141,18 @@
         "command": "manuscriptReview.sourceDrafts",
         "title": "Saved source drafts",
         "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.sendComment",
+        "title": "Send to agent",
+        "category": "Manuscript Review",
+        "icon": "$(send)"
+      },
+      {
+        "command": "manuscriptReview.commentAgent",
+        "title": "Send to agent",
+        "category": "Manuscript Review",
+        "icon": "$(send)"
       }
     ],
     "configuration": {
@@ -166,6 +178,11 @@
           "command": "manuscriptReview.reply",
           "when": "commentController == manuscript-review",
           "group": "inline"
+        },
+        {
+          "command": "manuscriptReview.sendComment",
+          "when": "commentController == manuscript-review",
+          "group": "inline@1"
         }
       ],
       "comments/comment/title": [
@@ -192,6 +209,11 @@
           "command": "manuscriptReview.viewCommentChange",
           "when": "commentThread == manuscriptReview",
           "group": "inline"
+        },
+        {
+          "command": "manuscriptReview.commentAgent",
+          "when": "commentThread == manuscriptReview",
+          "group": "inline@1"
         }
       ],
       "editor/context": [
@@ -225,6 +247,14 @@
         },
         {
           "command": "manuscriptReview.viewCommentChange",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.sendComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.commentAgent",
           "when": "false"
         }
       ],
@@ -321,7 +351,7 @@
   "scripts": {
     "build": "node src/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.4.vsix"
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.5.vsix"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

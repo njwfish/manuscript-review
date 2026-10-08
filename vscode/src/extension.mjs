@@ -8,13 +8,14 @@ import {createDecorations} from './decorations.mjs';
 import {createAgentTools} from './agent.mjs';
 import {resolvePython} from './python.mjs';
 import {createViewer} from './viewer-server.mjs';
+import {agents,commentTask,openAgent} from './dispatch.mjs';
 import {manuscriptReviews} from '../../manuscript_review/review_model.js';
 
 let disposeExtension;
 export function activate(context){
  const output=vscode.window.createOutputChannel('Manuscript Review');
  const decorations=createDecorations(vscode);
- let runtime,comments,panel,watcher,timer,opening,navigation,agentTools,viewer,starting,disposed=false;
+ let runtime,comments,panel,watcher,timer,opening,navigation,agentTools,viewer,starting,disposed=false,savingComment=false;
  const subscriptions=[output];
  subscriptions.push(vscode.window.registerTreeDataProvider('manuscriptReview.start',{getTreeItem:item=>item,getChildren:()=>[]}));
  function updateSourceContext(){void vscode.commands.executeCommand('setContext','manuscriptReview.source',Boolean(sourceFile(runtime?.review,vscode.window.activeTextEditor?.document)));}
@@ -35,9 +36,9 @@ export function activate(context){
    runtime=createRuntime({extensionPath:path.join(context.extensionPath,'dist'),python,home:config.get('libraryDirectory',''),output});
    viewer=createViewer(path.join(context.extensionPath,'dist','viewer'));
    const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.repo),setup,sourceDrafts};
-   panel=createPanel(vscode,context,runtime,{viewer,onSource:openSource,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
+   panel=createPanel(vscode,context,runtime,{viewer,onSource:openSource,onFocus:(file,edit)=>decorations.focus(file,edit),onAgent:sendToAgent,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
     onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
-   comments=createComments(vscode,runtime,{onChange:()=>{panel.changed();},onReview:entry=>panel.show(entry),onProjection:(projection,data)=>decorations.update(projection,data)});
+   comments=createComments(vscode,runtime,{onChange:()=>{panel.changed();},onReview:entry=>panel.show(entry),onProjection:(projection,data)=>decorations.update(projection,data),onAgent:sendToAgent});
   })().finally(()=>{starting=undefined;});
   return starting;
  }
@@ -105,6 +106,39 @@ export function activate(context){
   return Boolean(runtime?.review);
  }
  async function focusReview(){if(await ensureReview())await panel.show();}
+ async function sendToAgent(identifier,saveComment){
+  const reviewId=runtime?.review?.id;
+  if(!reviewId)throw new Error('Open the comment’s review before sending it to an agent.');
+  if(!await ensureReview())return;
+  if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
+  if(saveComment&&savingComment)throw new Error('Wait for the current comment to finish saving.');
+  if(saveComment)savingComment=true;
+  let lock;
+  try{
+   lock=await panel.flush({lock:Boolean(saveComment)});
+   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
+   if(saveComment){
+    identifier=await saveComment();
+    if(!identifier)return false;
+    if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
+    await panel.refresh({flushed:true});
+   }
+  }finally{if(saveComment){panel.unlock(lock);savingComment=false;}}
+  const previous=context.globalState.get('commentAgent');
+  const options=[...agents].sort((a,b)=>(b.id===previous)-(a.id===previous));
+  const agent=await vscode.window.showQuickPick(options,{title:'Send comment to',placeHolder:'Open a separate agent task beside the manuscript'});
+  if(!agent)return;
+  if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
+  await prepareTools();
+  const data=await runtime.data('round'),report=await runtime.request('/feedback.json');
+  if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
+  const dirty=vscode.workspace.textDocuments.some(document=>document.isDirty&&document.uri.scheme==='file'&&document.uri.fsPath.startsWith(data.repo+path.sep));
+  const prompt=commentTask(data,report,identifier,{launcher:agentTools.launcher,skill:agentTools.skill,dirty});
+  const source=vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime.review,editor.document));
+  await openAgent(vscode,{agent:agent.id,repo:data.repo,prompt,column:source?source.viewColumn+1:vscode.ViewColumn.Beside});
+  await context.globalState.update('commentAgent',agent.id);
+  return true;
+ }
  async function reviewManuscript(resource){
   const document=resource?.scheme==='file'?{uri:resource}:vscode.window.activeTextEditor?.document;
   if(document?.uri.scheme==='file'&&(!runtime?.review||!sourceFile(runtime.review,document))){
@@ -231,7 +265,8 @@ export function activate(context){
  command('livePDF',async()=>{if(!vscode.window.activeTextEditor)throw new Error('Select a location in the LaTeX source first.');const extension=vscode.extensions.getExtension('James-Yu.latex-workshop');if(!extension)throw new Error('Install LaTeX Workshop to use source-to-PDF navigation.');await extension.activate();await vscode.commands.executeCommand('latex-workshop.synctex');});
  subscriptions.push(vscode.workspace.onDidChangeTextDocument(event=>{if(runtime?.review&&event.document.uri.scheme==='file')refreshComments();}));
  subscriptions.push(vscode.window.onDidChangeVisibleTextEditors(()=>{if(runtime?.review)refreshComments();}));
- subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateSourceContext));
+ subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor=>{updateSourceContext();if(sourceFile(runtime?.review,editor?.document))decorations.reveal();}));
+ subscriptions.push(vscode.window.onDidChangeTextEditorSelection(event=>{if(sourceFile(runtime?.review,event.textEditor.document))decorations.reveal();}));
  disposeExtension=async()=>{disposed=true;await starting?.catch(()=>{});clearTimeout(timer);watcher?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();};
  context.subscriptions.push({dispose:()=>{void disposeExtension();}});
 }
