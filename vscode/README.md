@@ -14,7 +14,9 @@ PDF previews also need `latexmk`, `pdflatex`, and Poppler (`pdftocairo`, `pdftot
 `pdfinfo`). The extension starts its local service only when you open a review.
 
 Run **Manuscript Review: Open manuscript review** from the command palette. Choose
-the current or an earlier saved review, or open the current manuscript for annotation.
+a saved round, or open a new manuscript for annotation. An unchanged manuscript stays
+in the source editor; **Focus review** opens the comparison when needed. The round
+label in the focused panel opens the same picker for that manuscript.
 By default it shares the standalone app's library. A separate library can be selected
 in **Manuscript Review: Library Directory**.
 
@@ -31,14 +33,16 @@ change. Source remains a normal VS Code document: saving, undo, syntax highlight
 and LaTeX Workshop compilation retain their usual behavior. Source change backgrounds
 and hovers show reviewed replacements against the exact current editor buffer.
 
-After saving manual source changes, run **Review saved source changes**. This creates
+After saving manual source changes, use **Compare saved changes** in Review tools,
+or run **Review saved source changes** from the command palette. This creates
 a new round against the preceding selected draft and retains the original baseline and
 discussion. Unsaved source buffers must be saved first. **Reload review** refreshes
 comments and comparisons after an agent prepares a round or responds; **Open manuscript
 review** selects the new round. **Since baseline** shows accumulated selected changes.
 
-This preview saves decisions and comments from its focused panel. Apply the completed
-review in the standalone app before asking an agent to revise selected wording. Use
+When the review is complete, **Apply review** writes the selected wording to your files.
+Save or discard unsaved manuscript buffers first. Apply preserves Git HEAD and staging,
+and refuses intervening source changes. Use
 the same installed [manuscript-review agent skill](https://github.com/njwfish/manuscript-review/blob/main/skills/manuscript-review/SKILL.md)
 and **Copy agent request**. Agent chats stay in your agent's interface; the review keeps
 comments and responses. Standalone file drafts stay in the app. Save or discard them
@@ -62,5 +66,4 @@ The VSIX is written under `dist/`. The build bundles the same Python review engi
 frontend as the standalone app; Python is a local prerequisite rather than a copied
 interpreter. No Marketplace publication or VS Code settings changes are required.
 The viewer's pinned upstream sources and license notices are documented in
-`viewer/UPSTREAM.json`. This is an early integration preview; interactive VS Code testing
-and visual polish remain necessary before a stable release.
+`viewer/UPSTREAM.json`. This is an early integration preview.

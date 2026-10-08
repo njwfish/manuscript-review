@@ -54,11 +54,11 @@ async function fixture(t,options={}) {
     async library(route,body){calls.push({kind:'library',route,body});return route==='/inspect'
       ?{repo,entries:options.entries||['main.tex']}: {reviews:options.reviews||[]};},
     async prepare(route,body){calls.push({kind:'prepare',route,body});return {review:reviewId};},
-    async open(id){calls.push({kind:'open',id});selected={id,repo,revision:1,feedback_path:record};},
-    async request(route,body){calls.push({kind:'request',route,body});assert.equal(route,'/editor');
+    async open(id){calls.push({kind:'open',id});selected={id,repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/apply')return {applied:true,revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
-  const panel={async flush(){calls.push({kind:'flush'});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
+  const panel={async flush(){calls.push({kind:'flush'});await options.onFlush?.(doc);},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
     async refresh(){calls.push({kind:'panel-refresh'});},changed(){calls.push({kind:'panel-change'});},dispose(){calls.push({kind:'dispose-panel'});}};
   const comments={async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){calls.push({kind:'annotate',editor});},
     async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
@@ -128,6 +128,83 @@ test('initial annotation retains the native editor selection across review setup
   assert.equal(f.calls.find(call=>call.kind==='annotate').editor,f.editor);
 });
 
+test('opening an unchanged manuscript keeps annotation in the native editor',async t=>{
+  const f=await fixture(t,{files:[]});await f.command('comment');
+  assert.equal(f.calls.some(call=>call.kind==='show-review'),false);
+  assert.equal(f.calls.find(call=>call.kind==='annotate').editor,f.editor);
+  await f.command('focusedReview');
+  assert.equal(f.calls.filter(call=>call.kind==='show-review').length,1);
+});
+
+test('cancelling the round picker quietly stops dependent commands',async t=>{
+  const f=await fixture(t,{reviews:[{id:reviewId,repo:'placeholder'}]});
+  f.runtime.library=async route=>route==='/inspect'?{repo:f.repo,entries:['main.tex']}:
+    {reviews:[{id:reviewId,repo:f.repo,base_label:'Base',proposal_label:'Proposal'}]};
+  await f.command('focusedReview');
+  assert.deepEqual(f.errors,[]);
+  assert.equal(f.calls.some(call=>call.kind==='show-review'||call.kind==='open'),false);
+});
+
+test('the picker names rounds consistently and avoids a duplicate manuscript entry',async t=>{
+  const f=await fixture(t,{pick:items=>items[0]});
+  f.runtime.library=async route=>route==='/inspect'?{repo:f.repo,entries:['main.tex']}:
+    {reviews:[{id:reviewId,repo:f.repo,base_label:'B',proposal_label:'P'},
+      {id:'b'.repeat(24),repo:f.repo,base_label:'B',proposal_label:'First'}]};
+  await f.command('open');
+  const items=f.calls.find(call=>call.kind==='pick').items;
+  assert.deepEqual(Array.from(items,item=>item.label),['Round 2','Round 1']);
+  assert.equal(items.length,2);
+});
+
+test('the focused round picker remains tied to the displayed manuscript',async t=>{
+  const f=await fixture(t);await f.command('open');
+  f.vscode.window.activeTextEditor={document:{...f.doc,uri:uri('/elsewhere/other.tex')}};
+  await f.panelCallbacks.onCommand('rounds');
+  assert.equal(f.calls.filter(call=>call.kind==='library'&&call.route==='/inspect').at(-1).body.repo,f.repo);
+  await assert.rejects(async()=>f.panelCallbacks.onCommand('arbitrary'),/Unknown review command/);
+});
+
+test('focused Apply refuses dirty source and forwards the exact transaction once saved',async t=>{
+  const f=await fixture(t);await f.command('open');f.doc.isDirty=true;
+  const body={revision:1,decisions:{edit:'reject'},comments:{edit:'Keep the original.'}};
+  await assert.rejects(f.panelCallbacks.onApply(body),/Save or discard/);
+  assert.equal(f.calls.some(call=>call.kind==='request'&&call.route==='/apply'),false);
+  f.doc.isDirty=false;assert.equal((await f.panelCallbacks.onApply(body)).applied,true);
+  assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/apply').body,body);
+});
+
+test('Apply and comparison protect unsaved manuscript dependencies as well as commentable source',async t=>{
+  const f=await fixture(t);await f.command('open');
+  const dependency={uri:uri(path.join(f.repo,'macros.sty')),isDirty:true};
+  f.vscode.workspace.textDocuments.push(dependency);
+  await assert.rejects(f.panelCallbacks.onApply({revision:1}),/Save or discard/);
+  await f.command('reviewSavedChanges');
+  assert.equal(f.calls.some(call=>call.kind==='request'&&call.route==='/apply'),false);
+  assert.equal(f.calls.some(call=>call.kind==='prepare'&&call.route==='/update'),false);
+  assert.match(f.errors[0],/Save or discard/);
+});
+
+test('typing while focused input flushes stops a saved-source comparison',async t=>{
+  const options={},f=await fixture(t,options);await f.command('open');
+  options.onFlush=doc=>{doc.isDirty=true;};await f.command('reviewSavedChanges');
+  assert.equal(f.calls.some(call=>call.kind==='prepare'&&call.route==='/update'),false);
+  assert.match(f.errors[0],/Save or discard/);
+});
+
+test('typing while Apply waits in the service queue stops the source write',async t=>{
+  const options={},f=await fixture(t,options);await f.command('open');
+  options.onRequestQueue=doc=>{doc.isDirty=true;};
+  await assert.rejects(f.panelCallbacks.onApply({revision:1}),/Save or discard/);
+  assert.equal(f.calls.some(call=>call.kind==='request'&&call.route==='/apply'),false);
+});
+
+test('source typing retains decorations until the new projection is ready',async t=>{
+  const f=await fixture(t);await f.command('open');
+  const clears=f.calls.filter(call=>call.kind==='clear-decorations').length;
+  f.events['document-change']({document:f.doc});
+  assert.equal(f.calls.filter(call=>call.kind==='clear-decorations').length,clears);
+});
+
 test('source navigation maps the exact dirty native buffer without saving it',async t=>{
   const f=await fixture(t);await f.command('open');
   f.doc.text='🧬 A dirty manuscript sentence.\n';f.doc.version++;f.doc.isDirty=true;
@@ -156,7 +233,7 @@ test('source navigation refuses symlinks leaving the manuscript repository',asyn
 test('reviewing saved changes refuses unsaved manuscript buffers',async t=>{
   const f=await fixture(t);await f.command('open');f.doc.isDirty=true;
   await f.command('reviewSavedChanges');
-  assert.match(f.errors[0],/Save your manuscript files/);
+  assert.match(f.errors[0],/Save or discard your manuscript edits/);
   assert.equal(f.calls.some(call=>call.kind==='prepare'&&call.route==='/update'),false);
 });
 

@@ -298,7 +298,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
 <dialog id="actions">
  <div class="dialog-head"><h2>Review tools</h2><button id="close-actions" class="quiet">Close</button></div>
  <div id="retained-drafts" class="dialog-section" hidden></div>
- <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button></div>
+ <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button><button id="compare-saved" hidden>Compare saved changes</button></div>
  <div class="dialog-section"><h3>Share your review</h3><div class="dialog-actions"><button id="copy-request-more">Copy agent request</button><button id="choices">Export feedback</button><button id="export">Export selected patch</button></div></div>
  <div class="dialog-section"><h3>Discussion</h3><div class="dialog-actions"><button id="review-comments">Review comments</button><button id="show-feedback">All feedback</button><button id="import-responses">Import responses</button><input id="response-file" type="file" accept=".json,application/json" hidden></div><p id="response-error" class="error" role="status"></p></div>
  <div class="dialog-section"><h3>Whole passage (Shift+A / S / U)</h3><div class="dialog-actions" id="passage-actions"></div></div>
@@ -320,23 +320,23 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <tr><th>Shift+A / Shift+S / Shift+U</th><td>Decide the whole passage</td></tr>
  <tr><th>Ctrl+A / Ctrl+S / Ctrl+U</th><td>Decide the whole file</td></tr>
  <tr><th>E</th><td>Edit the file at this passage</td></tr>
- <tr><th>Shift+E</th><td>Resume a saved file draft</td></tr>
+ <tr data-standalone><th>Shift+E</th><td>Resume a saved file draft</td></tr>
  <tr><th>⌘/Ctrl+Shift+M</th><td>Comment on selected text or the current line</td></tr>
- <tr><th>⌘/Ctrl+Shift+R</th><td>Copy an agent request from the editor</td></tr>
+ <tr data-standalone><th>⌘/Ctrl+Shift+R</th><td>Copy an agent request from the editor</td></tr>
  <tr><th>C / Shift+C</th><td>Discussion for edit / passage</td></tr>
  <tr><th>Q</th><td>All saved feedback and responses</td></tr>
  <tr><th>⌘/Ctrl+Shift+[ / ]</th><td>Previous / next comment</td></tr>
  <tr><th>R</th><td>Copy an agent request to paste into your chat</td></tr>
  <tr><th>Ctrl+Enter / ⌘+Enter</th><td>Save source / comment; apply completed review</td></tr>
  <tr><th>⌘/Ctrl+S, ⌘/Ctrl+F</th><td>Save or find while editing source</td></tr>
- <tr><th>Esc</th><td>Return to review; keep source draft</td></tr>
+ <tr data-standalone><th>Esc</th><td>Return to review; keep source draft</td></tr>
  <tr><th>T</th><td>This round / since baseline</td></tr>
  <tr><th>V</th><td>Switch rendered / word changes</td></tr>
  <tr><th>I</th><td>Show all edits in this passage</td></tr>
- <tr><th>B</th><td>Toggle file list</td></tr>
- <tr><th>+ / −</th><td>Enlarge / reduce typeset previews</td></tr>
- <tr><th>H / L or ← / →</th><td>Pan both previews left / right</td></tr>
- <tr><th>PageUp / PageDown</th><td>Scroll PDF panes or the passage</td></tr>
+ <tr data-standalone><th>B</th><td>Toggle file list</td></tr>
+ <tr data-standalone><th>+ / −</th><td>Enlarge / reduce typeset previews</td></tr>
+ <tr data-standalone><th>H / L or ← / →</th><td>Pan both previews left / right</td></tr>
+ <tr data-standalone><th>PageUp / PageDown</th><td>Scroll PDF panes or the passage</td></tr>
  <tr><th>G / M / ?</th><td>Next undecided / review tools / shortcuts</td></tr>
  </tbody></table><p>Holding a key does not repeat decisions. Shortcuts pause while typing. Tab and Enter work normally on controls.</p>
 </dialog>

@@ -2,9 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createComments} from '../src/comments.mjs';
 
-class Position {constructor(line,character){Object.assign(this,{line,character});}}
-class Range {constructor(start,end){Object.assign(this,{start,end});}}
-class Selection extends Range {get isEmpty(){return this.start.line===this.end.line&&this.start.character===this.end.character;}}
+class Position {
+  constructor(line,character){Object.assign(this,{line,character});}
+  compareTo(other){return this.line-other.line||this.character-other.character;}
+}
+class Range {
+  constructor(start,end){Object.assign(this,{start,end});}
+  contains(position){return this.start.compareTo(position)<=0&&this.end.compareTo(position)>=0;}
+}
+class Selection extends Range {
+  constructor(anchor,active){super(anchor.compareTo(active)<=0?anchor:active,anchor.compareTo(active)<=0?active:anchor);Object.assign(this,{anchor,active});}
+  get isEmpty(){return this.start.compareTo(this.end)===0;}
+}
 const uri=file=>({scheme:'file',fsPath:file,toString:()=>`file://${file}`});
 
 function document(file,text) {
@@ -32,7 +41,9 @@ function fixture(history=[source('root')]) {
       const result=documents.find(document=>document.uri.toString()===uri.toString());
       if(!result)throw Object.assign(new Error('Missing file'),{code:'ENOENT'});return result;}},
     window:{visibleTextEditors:[],async showErrorMessage(message){errors.push(message);},async showTextDocument(document){
-      opened.push(document.uri.fsPath);return {document,revealRange(range){this.revealed=range;}};}}};
+      opened.push(document.uri.fsPath);
+      const editor={document,selection:new Selection(new Position(0,0),new Position(0,0)),revealRange(range){this.revealed=range;}};
+      this.activeTextEditor=editor;return editor;}}};
   const data={revision:1,base:'base',proposed:'proposal',history,comments:{},decisions:{},files:[]};
   let beforeProjection,failNote=false,noteNumber=0,changes=0;
   const runtime={review:{id:'review',repo:'/manuscript',revision:1},async data(){return structuredClone(data);},
@@ -42,7 +53,9 @@ function fixture(history=[source('root')]) {
         await beforeProjection?.(body);
         const from=body.text.indexOf('selected words');
         return {revision:data.revision,source:'selected-source',text:body.text,
-          notes:data.history.filter(entry=>entry.file===body.file).map(entry=>({id:entry.id,from,to:from+14})),
+          notes:data.history.filter(entry=>entry.file===body.file).map(entry=>{
+            const start=body.text.indexOf(entry.before);return {id:entry.id,from:start,to:start+entry.before.length};
+          }),
           ranges:[{id:'edit',from,to:from+14}],passages:[{id:'passage',from,to:from+14}]};
       }
       assert.equal(body.revision,data.revision,'every write checks the current revision');
@@ -182,6 +195,95 @@ test('navigation crosses files and expands the corresponding native discussion',
   assert.equal(f.created[1].collapsibleState,f.vscode.CommentThreadCollapsibleState.Expanded);
   assert.deepEqual(await f.command('viewCommentChange',f.created[1]),f.data.history[0]);
   f.comments.dispose();assert.equal(f.controller.disposed,true);assert.equal(f.created.every(thread=>thread.disposed),true);
+});
+
+test('navigation follows the current cursor and dirty-buffer anchors instead of original line numbers',async()=>{
+  const f=fixture([source('last','main.tex','Last comment',{line:1,before:'Last'}),
+    source('first','main.tex','First comment',{line:99,before:'First'}),
+    source('middle','main.tex','Middle comment',{line:50,before:'Middle'})]);
+  f.documents[0].change('🙂 First\nGap\nMiddle\nGap\nLast');
+  f.editor.selection=new Selection(new Position(1,1),new Position(1,1));
+  f.vscode.window.activeTextEditor=f.editor;
+  assert.equal(await f.comments.move(1),true);
+  assert.deepEqual(f.vscode.window.activeTextEditor.selection.start,new Position(2,0));
+  assert.equal(await f.comments.move(1),true);
+  assert.deepEqual(f.vscode.window.activeTextEditor.selection.start,new Position(4,0));
+  f.vscode.window.activeTextEditor.selection=new Selection(new Position(0,4),new Position(0,4));
+  assert.equal(await f.comments.move(1),true);
+  assert.deepEqual(f.vscode.window.activeTextEditor.selection.start,new Position(2,0));
+  f.vscode.window.activeTextEditor.selection=new Selection(new Position(1,1),new Position(1,1));
+  assert.equal(await f.comments.move(-1),true);
+  assert.deepEqual(f.vscode.window.activeTextEditor.selection.start,new Position(0,3));
+  assert.equal(f.documents[0].isDirty,true);
+  assert.equal(f.requests.every(request=>request.route==='/editor'),true);
+  f.comments.dispose();
+});
+
+test('navigation starts from the active end of a native selection',async()=>{
+  const f=fixture([source('first','main.tex','First',{before:'First'}),
+    source('middle','main.tex','Middle',{before:'Middle'}),source('last','main.tex','Last',{before:'Last'})]);
+  f.documents[0].change('First\nMiddle\nLast');
+  f.editor.selection=new Selection(new Position(0,0),new Position(1,3));
+  f.vscode.window.activeTextEditor=f.editor;
+  assert.equal(await f.comments.move(1),true);
+  assert.deepEqual(f.vscode.window.activeTextEditor.selection.start,new Position(2,0));
+  f.comments.dispose();
+});
+
+test('a cursor in a source file without comments starts traversal at the adjacent commented file',async()=>{
+  const f=fixture([source('first','main.tex'),source('last','other.tex')]);
+  const native={document:document('narrative.tex','Current reading location'),selection:new Selection(new Position(0,5),new Position(0,5))};
+  f.documents.push(native.document);f.vscode.window.activeTextEditor=native;
+  assert.equal(await f.comments.move(1),true);
+  assert.equal(f.opened.at(-1),'/manuscript/other.tex');
+  f.vscode.window.activeTextEditor=native;
+  assert.equal(await f.comments.move(-1),true);
+  assert.equal(f.opened.at(-1),'/manuscript/main.tex');
+  f.comments.dispose();
+});
+
+test('threads sharing an anchor retain sequential navigation and stop at the ends',async()=>{
+  const f=fixture([source('first'),source('second'),source('third')]);
+  for(const [direction,id] of [[1,'first'],[1,'second'],[1,'third'],[1,'third'],[-1,'second'],[-1,'first'],[-1,'first']]) {
+    for(const thread of f.created)thread.collapsibleState=f.vscode.CommentThreadCollapsibleState.Collapsed;
+    assert.equal(await f.comments.move(direction),true);
+    assert.deepEqual(f.created.filter(thread=>thread.collapsibleState===f.vscode.CommentThreadCollapsibleState.Expanded)
+      .map(thread=>thread.reviewState.entry.id),[id]);
+  }
+  f.comments.dispose();
+});
+
+test('navigation skips comments without a current source anchor',async()=>{
+  const f=fixture([source('unmapped'),source('mapped')]),request=f.runtime.request;
+  f.runtime.request=async function(route,body){
+    const result=await request.call(this,route,body);
+    if(route==='/editor')result.notes=result.notes.filter(note=>note.id==='mapped');
+    return result;
+  };
+  assert.equal(await f.comments.move(1),true);
+  assert.equal(f.created.find(thread=>thread.reviewState.entry.id==='unmapped').range,undefined);
+  assert.deepEqual(f.created.filter(thread=>thread.collapsibleState===f.vscode.CommentThreadCollapsibleState.Expanded)
+    .map(thread=>thread.reviewState.entry.id),['mapped']);
+  f.comments.dispose();
+});
+
+test('navigation does not use retained anchors after a buffer changes during refresh',async()=>{
+  const f=fixture();await f.comments.refresh();
+  f.beforeProjection(()=>f.documents[0].change('The native buffer changed while mapping.'));
+  assert.equal(await f.comments.move(1),false);
+  assert.equal(f.opened.length,0);assert.equal(f.created[0].disposed,undefined);
+  f.comments.dispose();
+});
+
+test('navigation does not apply mapped selections when source or review changes while opening the editor',async()=>{
+  for(const change of [f=>f.documents[0].change('A newer dirty buffer.'),f=>f.runtime.review.id='other-review',f=>f.runtime.review.revision++]) {
+    const f=fixture(),show=f.vscode.window.showTextDocument;
+    f.vscode.window.showTextDocument=async function(document){const editor=await show.call(this,document);change(f);return editor;};
+    assert.equal(await f.comments.move(1),false);
+    assert.deepEqual(f.vscode.window.activeTextEditor.selection.start,new Position(0,0));
+    assert.equal(f.created[0].collapsibleState,f.vscode.CommentThreadCollapsibleState.Collapsed);
+    f.comments.dispose();
+  }
 });
 
 test('a moving dirty buffer never receives offsets calculated for earlier text',async()=>{

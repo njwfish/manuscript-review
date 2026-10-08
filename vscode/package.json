@@ -2,7 +2,7 @@
   "name": "manuscript-review",
   "displayName": "Manuscript Review",
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -200,7 +200,7 @@
   "scripts": {
     "build": "node src/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.0.vsix"
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.1.vsix"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

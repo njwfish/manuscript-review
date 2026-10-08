@@ -148,6 +148,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection}={
       }
     }
     for(const state of pending)state.reviewId===review.id?resumeThread(state):suspendThread(state);
+    return true;
   }
 
   async function annotate(editor=vscode.window.activeTextEditor) {
@@ -231,18 +232,28 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection}={
   }
 
   async function move(direction) {
-    await refresh();
-    const states=[...threads.values()].filter(state=>state.reviewId===runtime.review?.id)
-      .sort((a,b)=>a.entry.file.localeCompare(b.entry.file)||a.entry.line-b.entry.line);
+    if(!await refresh())return false;
+    const states=[...threads.values()].filter(state=>state.reviewId===runtime.review?.id&&state.thread.range)
+      .sort((a,b)=>a.entry.file.localeCompare(b.entry.file)||a.thread.range.start.compareTo(b.thread.range.start));
     if(!states.length)return false;
-    const current=states.findIndex(state=>state.key===activeThread);
-    const next=current<0?(direction<0?states.length-1:0):Math.max(0,Math.min(states.length-1,current+direction));
-    const state=states[next],document=await documentFor(state.entry.file);
-    const editor=await vscode.window.showTextDocument(document,{preserveFocus:false});
-    if(state.thread.range) {
-      editor.selection=new vscode.Selection(state.thread.range.start,state.thread.range.end);
-      editor.revealRange(state.thread.range,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    const native=vscode.window.activeTextEditor,file=fileFor(native?.document),cursor=native?.selection.active;
+    let current=states.findIndex(state=>state.key===activeThread),next;
+    if(file&&cursor) {
+      const contains=state=>state.projection.document===native.document&&state.thread.range.contains(cursor);
+      if(current<0||!contains(states[current]))current=states.findIndex(contains);
+      if(current<0) {
+        const after=states.findIndex(state=>state.entry.file.localeCompare(file)>0
+          ||(state.entry.file===file&&state.thread.range.start.compareTo(cursor)>0));
+        next=direction<0?(after<0?states.length-1:Math.max(0,after-1)):(after<0?states.length-1:after);
+      }
     }
+    next??=current<0?(direction<0?states.length-1:0):Math.max(0,Math.min(states.length-1,current+direction));
+    const state=states[next],{document,text}=state.projection,{id,revision}=runtime.review,version=document.version;
+    if(document.getText()!==text)return false;
+    const editor=await vscode.window.showTextDocument(document,{preserveFocus:false});
+    if(runtime.review?.id!==id||runtime.review.revision!==revision||document.version!==version||document.getText()!==text)return false;
+    editor.selection=new vscode.Selection(state.thread.range.start,state.thread.range.end);
+    editor.revealRange(state.thread.range,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
     state.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Expanded;
     activeThread=state.key;
     return true;

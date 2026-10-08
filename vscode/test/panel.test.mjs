@@ -18,9 +18,9 @@ async function fixture(t) {
     t.after(() => rm(directory, {recursive: true, force: true}));
     const assets = join(directory, 'dist/runtime/manuscript_review'), viewer = join(directory, 'dist/viewer');
     await mkdir(assets, {recursive: true}); await mkdir(viewer, {recursive: true});
-    await writeFile(join(assets, 'index.html'), '<html><head><style>body{color:black}</style></head><body><script type="module" src="/app.js"></script></body></html>');
+    await writeFile(join(assets, 'index.html'), '<html><head><style>body{color:black}</style></head><body class="wide"><script type="module" src="/app.js"></script></body></html>');
     await writeFile(join(viewer, 'viewer.html'), '<html><body>Local PDF viewer</body></html>');
-    const panels = [], writes = [], downloads = [], sources = [], clipboard = [], dialogs = [];
+    const panels = [], writes = [], downloads = [], sources = [], clipboard = [], dialogs = [], applications = [], commands = [];
     let changes = 0, destination;
     const vscode = {Uri: {file: uri}, ViewColumn: {Beside: 2},
         env: {clipboard: {async writeText(text) { clipboard.push(text); }}},
@@ -50,9 +50,11 @@ async function fixture(t) {
         async download(path) { downloads.push(path); return {bytes: Buffer.from('Exact export 🧬.\n')}; }};
     const panel = createPanel(vscode, {extensionPath: directory}, runtime, {
         onSource: message => { sources.push(message); }, onChange: () => changes++,
+        onApply: body => {applications.push(body); return {revision: 2, applied: true};},
+        onCommand: name => {commands.push(name);},
     });
     t.after(() => panel.dispose());
-    return {panel, runtime, panels, assets, viewer, writes, downloads, sources, clipboard, dialogs,
+    return {panel, runtime, panels, assets, viewer, writes, downloads, sources, clipboard, dialogs, applications, commands,
         destination: value => { destination = value; }, changes: () => changes,
         async open(entry) { await panel.show(entry); const current = panels.at(-1); await current.receive({type: 'review-ready'}); return current; },
         async establish(current, revision = 1) {
@@ -80,6 +82,17 @@ test('selection waits for readiness and only bundled client and viewer files are
     await p.receive({type: 'review-request', id: 'viewer', action: 'viewer', path: '/etc/passwd'});
     assert.deepEqual(p.messages[0], {type: 'review-response', id: 'viewer', ok: true,
         data: `https://resources.invalid/${encodeURIComponent(join(f.viewer, 'viewer.html'))}`});
+});
+
+test('Apply uses the guarded host callback while round actions use existing native commands',async t=>{
+    const f=await fixture(t),p=await f.open();
+    f.runtime.request=()=>{throw new Error('An application must use the host guard.');};
+    const body={revision:1,decisions:{edit:'reject'},comments:{}};
+    await p.receive({type:'review-request',id:'apply',action:'request',path:'/apply',body});
+    assert.deepEqual(f.applications,[body]);
+    assert.deepEqual(p.messages.at(-1).data,{status:200,data:{revision:2,applied:true}});
+    await p.receive({type:'review-request',id:'round',action:'command',name:'rounds'});
+    assert.deepEqual(f.commands,['rounds']);
 });
 
 test('flush waits for readiness and an exact acknowledgement before refresh replaces the page', async t => {

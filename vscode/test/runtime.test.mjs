@@ -135,9 +135,10 @@ test('tokens stay in the extension host and ordered writes preserve explicit rev
 test('the boundary refuses source writes, arbitrary URLs, and unsafe assets', async t => {
     const {runtime} = await synthetic(t);
     await runtime.open(reviewId);
-    for (const path of ['/apply', '/file', '/draft', '/explanations', '//example.com/', 'http://example.com/']) {
+    for (const path of ['/file', '/draft', '/explanations', '//example.com/', 'http://example.com/']) {
         await assert.rejects(runtime.request(path, {}), /unavailable/);
     }
+    await assert.rejects(runtime.request('/apply', {}), /source editor check/);
     for (const path of ['/assets/../review.json', '/assets/a.svg?secret', '//example.com/a.pdf', '/assets/a%2f.svg']) {
         await assert.rejects(runtime.asset(path), /preview asset/);
     }
@@ -180,6 +181,23 @@ test('queued operations cannot write an earlier review into a newly opened one',
     assert.equal(runtime.review.id, nextId);
     assert.equal((await runtime.data()).revision, 3);
     assert.equal((await runtime.request('/note', {comment: 'New round note.'})).revision, 4);
+});
+
+test('a queued Apply checks native source immediately before dispatch',async t=>{
+    const {runtime}=await synthetic(t);await runtime.open(reviewId);
+    let release,entered,dirty=false,checks=0,applications=0;
+    const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
+    const original=globalThis.fetch;
+    t.mock.method(globalThis,'fetch',async(url,options)=>{
+        if(String(url).endsWith('/note')){entered();await gate;}
+        if(String(url).endsWith('/apply'))applications++;
+        return original(url,options);
+    });
+    const saving=runtime.request('/note',{comment:'A prior queued operation.'});await began;
+    const applying=runtime.request('/apply',{},()=>{checks++;if(dirty)throw new Error('Unsaved native source.');});
+    const refused=assert.rejects(applying,/Unsaved native source/);
+    assert.equal(checks,0);dirty=true;release();await saving;await refused;
+    assert.equal(checks,1);assert.equal(applications,0);
 });
 
 test('preparation polls the existing job API and can be cancelled by disposal', async t => {
@@ -287,4 +305,11 @@ test('the bundled Python service preserves source while comments travel into the
     assert.ok(following.files[0].edits.length);
     assert.deepEqual(await readFile(join(home, 'reviews', job.review, 'review.json')), prior);
     assert.equal(await readFile(file, 'utf8'), 'An clearer sentence.\n');
+    const edit = following.files[0].edits[0];
+    const applied = await runtime.request('/apply', {decisions: {[edit.id]: 'reject'}, comments: {}}, () => {});
+    assert.equal(applied.applied, true);
+    assert.equal(await readFile(file, 'utf8'), 'An original sentence.\n');
+    assert.equal(git('rev-parse', 'HEAD'), head);
+    assert.deepEqual(await readFile(join(repo, '.git/index')), index);
+    assert.deepEqual(await readFile(join(home, 'reviews', job.review, 'review.json')), prior);
 });

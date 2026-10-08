@@ -1,4 +1,4 @@
-const keys = new Set(['a', 's', 'd', 'f', 'u', 'c', 'r', 'v', 't', 'g', 'e']);
+const keys = new Set(['a', 's', 'd', 'f', 'u', 'c', 'r', 'v', 't', 'g', 'e', 'p', 'n', 'q', 'm', 'i', '?', '[', ']']);
 
 export function reviewKey(event) {
     if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return;

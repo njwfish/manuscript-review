@@ -1,7 +1,7 @@
 'use strict';
 import {choiceFor,selectedSource,editLocations,feedbackForPassage,decisionShortcut,reviewProgress,editContext,currentFeedback,sourceRange,agentRequest,commentThreads,commentShortcut} from './review_model.js';
 import {createEditor} from './editor.js';
-import {request,openSource,imageSource,copyText,exportFile,reviewReady,pdfFrame} from './host.js';
+import {request,openSource,hostCommand,imageSource,copyText,exportFile,reviewReady,pdfFrame} from './host.js';
 const embedded=Boolean(globalThis.acquireVsCodeApi);
 let data, decisions={}, comments={}, drafts={}, active=0, passage=0, edit=0;
 let view='auto', overrides={}, previewZoom=100, locations=[];
@@ -467,6 +467,7 @@ function bulkControls(id,members,scope){
 }
 function render(){
  if(!data)return;
+ document.body.classList.remove('pdf-review');
  if(fileEditor&&editorFile===currentFile()?.path){fileEditor.goTo(currentEdit()?.id);renderSelection();updateSidebar();updateProgress();renderDiscussion();return;}
  if(fileEditor)closeEditor(false);
  $('manuscript-title').textContent=data.manuscript||data.repo.split('/').pop();
@@ -489,6 +490,7 @@ function render(){
  const open=new Set([...document.querySelectorAll('main details[open]')].map(d=>d.dataset.key));
  const f=currentFile();passage=Math.max(0,Math.min(passage,f.hunks.length-1));edit=Math.max(0,Math.min(edit,currentHunk().edits.length-1));
  const h=currentHunk(),g=currentEdit(),display=shownView(h);
+ document.body.classList.toggle('pdf-review',embedded&&display==='pdf');
  updateSidebar();updateProgress();remember();
  bulkControls('passage-actions',h.edits.map(g=>g.id),'passage');bulkControls('file-actions',f.edits.map(g=>g.id),'file');
  const main=$('main');main.replaceChildren();main.classList.toggle('rendered',['rendered','pdf'].includes(display));
@@ -500,7 +502,7 @@ function render(){
  const mode=node('select','view-select');mode.setAttribute('aria-label','Review view');
  [['auto','Auto view'],['diff','Word changes'],['pdf','PDF pages'],['rendered','Rendered LaTeX'],['before','Original file'],['after','Proposed file'],['selected','Selected file']].forEach(([value,label])=>{const o=node('option','',label);o.value=value;o.selected=value===view;mode.append(o);});
  mode.addEventListener('change',()=>{view=mode.value;overrides={};render();focusSelection();});bar.append(mode);
- if(['rendered','pdf'].includes(display)&&f.path.endsWith('.tex')){
+ if(['rendered','pdf'].includes(display)&&f.path.endsWith('.tex')&&!(embedded&&display==='pdf')){
   const zoom=node('select','zoom-control');zoom.id='zoom';zoom.setAttribute('aria-label','Preview zoom');
   [100,125,150,175,200,225,250].forEach(value=>{const o=node('option','',value===100?'Fit':value+'%');o.value=value;o.selected=value===previewZoom;zoom.append(o);});
   zoom.addEventListener('change',()=>{previewZoom=Number(zoom.value);zoomPreview(0);});bar.append(zoom);
@@ -638,7 +640,7 @@ document.addEventListener('keydown',event=>{
  else if(k==='d'||k==='k'||event.key==='ArrowUp')event.shiftKey?movePassage(-1):moveEdit(-1);
  else if(k==='n')movePassage(1);else if(k==='p')movePassage(-1);
  else if(k===']')moveFile(1);else if(k==='[')moveFile(-1);
- else if(k==='e')event.shiftKey?resumeDraft():openEditor();else if(k==='c')openComment(event.shiftKey);else if(k==='r')copyAgentRequest();else if(k==='v')togglePassageView();else if(k==='b')toggleFiles();
+ else if(k==='e')event.shiftKey&&!embedded?resumeDraft():openEditor();else if(k==='c')openComment(event.shiftKey);else if(k==='r')copyAgentRequest();else if(k==='v')togglePassageView();else if(k==='b'&&!embedded)toggleFiles();
  else if(k==='+'||k==='=')zoomPreview(25);else if(k==='-')zoomPreview(-25);
  else if(k==='h'||event.key==='ArrowLeft')panPreview(-100);else if(k==='l'||event.key==='ArrowRight')panPreview(100);
  else if(k==='t')switchScope(readOnly()?'round':'baseline');else if(k==='?')help();else if(k==='m')$('actions').showModal();else if(k==='g')nextUndecided();else if(k==='q')showFeedback();
@@ -648,7 +650,6 @@ document.addEventListener('keydown',event=>{
 });
 $('next').addEventListener('click',nextUndecided);
 async function applyChoices(){
- if(embedded){status('Apply the completed review in the standalone app. VS Code owns source saving in this preview.');return;}
  if(!data||editing||readOnly()||$('apply').disabled)return;if(fileEditor)closeEditor(false);setBusy(true);save();$('apply').disabled=$('finish-review').disabled=true;
  try{await saving;if(saveFailed||draftChanges.size)throw new Error('Resolve the save error before applying.');const result=await post('/apply',{...decisions},{...comments});data.applied=result.applied;$('actions').close();updateProgress();resultStatus(result);}
  catch(e){$('actions').close();status(e.message,true);}finally{setBusy(false);$('apply').disabled=false;updateProgress();}
@@ -693,7 +694,10 @@ async function ready(){
   document.body.classList.toggle('wide',Boolean(ui.wide));
   zoomPreview(0);$('snapshot').textContent=`${data.base.slice(0,7)} to ${data.proposed.slice(0,7)}`;
   if(data.library_url){const link=$('library');link.href=data.library_url;link.hidden=false;}
-  if(embedded){document.body.classList.add('wide');$('comparison').querySelector('option[value=manuscript]')?.remove();}
+  if(embedded){document.body.classList.add('wide');$('comparison').querySelector('option[value=manuscript]')?.remove();
+   const round=$('round-state'),control=button(round.textContent,()=>runHostCommand('rounds'),'quiet');control.id=round.id;control.hidden=round.hidden;control.title='Choose review round';round.replaceWith(control);
+   $('compare-saved').hidden=false;
+  }
   render();focusSelection();status('Saved locally');
   if(embedded)reviewReady();
   if(['queued','rendering'].includes(data.preview_status))watchPreviews();
@@ -718,6 +722,8 @@ window.flushReview=async()=>{
 $('library').addEventListener('click',async event=>{event.preventDefault();try{await window.flushReview();window.location.assign(data.library_url);}catch(error){status(error.message,true);}});
 $('draft-status').addEventListener('click',resumeDraft);
 $('progress').addEventListener('click',()=>{$('review-summary').scrollIntoView({block:'start'});(data.applied?$('copy-request'):$('finish-review')).focus({preventScroll:true});});
+async function runHostCommand(name){try{await hostCommand(name);}catch(error){status(error.message,true);}}
+$('compare-saved').addEventListener('click',()=>runHostCommand('reviewSavedChanges'));
 $('reload-review').addEventListener('click',async()=>{try{await window.flushReview();window.location.reload();}catch(error){status(error.message,true);}});
 if(embedded)window.addEventListener('message',async event=>{
  if(event.source)return;

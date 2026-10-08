@@ -45,6 +45,9 @@ existing library operation compares saved files as a new round. Decisions and co
 use the same record transactions as the standalone app. The extension host keeps service
 tokens private, pins queued operations to their intended review, and passes requests
 through `host.js` to the shared focused-review client. Navigation stays in webview state.
+Apply checks unsaved repository buffers immediately before sending its queued transaction;
+the review engine retains its source, revision, and Git checks. Comparing saved source
+checks buffers both before flushing the focused panel and before creating the new round.
 
 The extension bundles a pinned adaptation of LaTeX Workshop's PDF viewer. Its parent
 bridge supplies immutable comparison PDF bytes and the existing normalized change

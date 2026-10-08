@@ -6,7 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 const identifier = /^[a-f0-9]{24}$/;
 const scopes = new Set(['round', 'baseline', 'manuscript']);
 const libraryWrites = new Set(['/inspect', '/prepare', '/manuscript', '/update', '/open']);
-const reviewWrites = new Set(['/editor', '/note', '/save', '/ui', '/responses', '/retain']);
+const reviewWrites = new Set(['/editor', '/note', '/save', '/apply', '/ui', '/responses', '/retain']);
 
 function localURL(value) {
     if (typeof value !== 'string' || !/^http:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*\/$/.test(value)) {
@@ -201,15 +201,17 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         });
     }
 
-    async function request(path, body) {
+    async function request(path, body, checkSource) {
         if (!reviewRoute(path, body !== undefined)) throw new Error('This review operation is unavailable in VS Code.');
         if (body !== undefined && (!body || typeof body !== 'object' || Array.isArray(body))) throw new Error('A request needs an object.');
+        if (path === '/apply' && typeof checkSource !== 'function') throw new Error('Apply requires a source editor check.');
         const expectedReview=selected?.id;
         await start();
         return serialized(async () => {
             if (!selected) throw new Error('Open a manuscript review first.');
             if(selected.id!==expectedReview)throw new Error('The manuscript review changed. Return to the original review before continuing.');
             const requestBody = body === undefined ? undefined : {revision: selected.revision, ...body};
+            if (path === '/apply') checkSource();
             return updateReview(await send(selected.url, path, reviewToken, requestBody));
         });
     }

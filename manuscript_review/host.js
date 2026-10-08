@@ -23,6 +23,7 @@ export async function request(path,options={}){
  return {ok:response.status>=200&&response.status<300,status:response.status,json:async()=>response.data};
 }
 export function openSource(values){return call('source',values);}
+export function hostCommand(name){return call('command',{name});}
 export async function imageSource(image,path){
  if(!call){image.src=path;return;}
  try{const source=await call('asset',{path});if(image.isConnected)image.src=source;}
@@ -46,7 +47,7 @@ if(api)globalThis.addEventListener('message',async event=>{
   if(event.source!==frame.contentWindow||event.origin!==new URL(frame.src).origin)continue;
   if(event.data.type==='review-pdf-key'){
    const {key,shiftKey,repeat}=event.data;
-   if(typeof key==='string'&&/^[asdfucevrtg]$/i.test(key))document.dispatchEvent(new KeyboardEvent('keydown',{key,shiftKey:Boolean(shiftKey),repeat:Boolean(repeat),bubbles:true,cancelable:true}));
+   if(typeof key==='string'&&/^[asdfucevrtgpnqmi?\[\]]$/i.test(key))document.dispatchEvent(new KeyboardEvent('keydown',{key,shiftKey:Boolean(shiftKey),repeat:Boolean(repeat),bubbles:true,cancelable:true}));
    return;
   }
   if(event.data.type==='review-pdf-error'){frame.replaceWith(Object.assign(document.createElement('p'),{className:'render-note',textContent:event.data.error}));frames.delete(frame);return;}
