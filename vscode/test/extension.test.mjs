@@ -32,7 +32,7 @@ async function fixture(t,options={}) {
   const editor={document:doc,viewColumn:1,selection:new Selection(new Position(0,0),new Position(0,1)),revealRange(range){this.revealed=range;}};
   const disposable=()=>({dispose(){}});
   function event(name){return callback=>{events[name]=callback;return disposable();};}
-  const vscode={Uri:{file:uri},Selection,ViewColumn:{One:1},ProgressLocation:{Notification:15},TextEditorRevealType:{InCenterIfOutsideViewport:2},env:{clipboard:{async writeText(text){calls.push({kind:'clipboard',text});}}},
+  const vscode={Uri:{file:uri},Selection,QuickPickItemKind:{Separator:-1},ViewColumn:{One:1},ProgressLocation:{Notification:15},TextEditorRevealType:{InCenterIfOutsideViewport:2},env:{clipboard:{async writeText(text){calls.push({kind:'clipboard',text});}}},
     RelativePattern:class{constructor(base,pattern){Object.assign(this,{base,pattern});}},
     commands:{registerCommand(name,callback){handlers.set(name,callback);return {dispose(){handlers.delete(name);}};},
       async executeCommand(name,...args){calls.push({kind:'command',name,args});if(name==='setContext')contexts.set(args[0],args[1]);}},
@@ -58,7 +58,7 @@ async function fixture(t,options={}) {
   let selected,panelCallbacks,commentsCallbacks;
   const runtime={get review(){return selected?{...selected}:undefined;},
     async library(route,body){calls.push({kind:'library',route,body});if(route==='/import')return {review:reviewId};return route==='/inspect'
-      ?{repo,entries:options.entries||['main.tex'],...options.inspect}: {reviews:options.reviews||[]};},
+      ?{repo,base:'1'.repeat(40),head:'2'.repeat(40),entries:options.entries||['main.tex'],...options.inspect}: {reviews:options.reviews||[]};},
     async prepare(route,body){calls.push({kind:'prepare',route,body});return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id){calls.push({kind:'open',id});selected={id,repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){return {id:selected.id,repo,revision:selected.revision,drafts:options.drafts||{}};},
@@ -303,8 +303,8 @@ test('native comparison chooses pinned commits and the saved working tree',async
   const base='1'.repeat(40),f=await fixture(t,{inspect:{references:[{name:'origin/main',revision:base,subject:'Starting manuscript'}],commits:[{subject:'Revision',short:'2222222',date:'2026-10-08',revision:'2'.repeat(40)}]},pick:items=>items[0]});
   await f.command('compare');
   const comparison=f.calls.find(call=>call.kind==='prepare'&&call.route==='/prepare');
-  assert.deepEqual(JSON.parse(JSON.stringify(comparison.body)),{repo:f.repo,base,base_label:'origin/main',proposed:'working',entry:'main.tex'});
-  assert.deepEqual(f.calls.filter(call=>call.kind==='pick').map(call=>call.configuration.title),['Compare from','Compare to']);
+  assert.deepEqual(JSON.parse(JSON.stringify(comparison.body)),{repo:f.repo,base,base_label:'origin/main',proposed:'working',proposed_label:'Working files',entry:'main.tex'});
+  assert.deepEqual(f.calls.filter(call=>call.kind==='pick').map(call=>call.configuration.title),['Compare versions: manuscript']);
   assert.equal(f.calls.filter(call=>call.kind==='show-review').length,1);
 });
 

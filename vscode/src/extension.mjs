@@ -9,6 +9,7 @@ import {createAgentTools} from './agent.mjs';
 import {resolvePython} from './python.mjs';
 import {createViewer} from './viewer-server.mjs';
 import {agents,commentTask,openAgent} from './dispatch.mjs';
+import {chooseComparison,comparisonRequest} from './comparison.mjs';
 import {manuscriptReviews} from '../../manuscript_review/review_model.js';
 
 let disposeExtension;
@@ -205,19 +206,26 @@ export function activate(context){
  function compareVersions(repo){return navigateReview(()=>prepareComparison(repo));}
  async function prepareComparison(repo){
   await start();await prepareTools();await panel.flush();
-  let folder=repo||vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const active=vscode.window.activeTextEditor?.document.uri;
+  let folder=repo||(active?.scheme==='file'?path.dirname(active.fsPath):runtime.review?.repo||vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
   if(!folder){const folders=await vscode.window.showOpenDialog({canSelectFolders:true,canSelectFiles:false,canSelectMany:false,openLabel:'Choose manuscript'});if(!folders)return;folder=folders[0].fsPath;}
   const info=await inspectRepository(folder);if(!info)return;
-  const choices=[...(info.checkpoints||[]).map(item=>({label:item.subject,description:item.short+' '+item.date,revision:item.revision})),
-   ...(info.references||[]).map(item=>({label:item.name,description:item.subject,revision:item.revision})),
-   ...(info.commits||[]).map(item=>({label:item.subject,description:item.short+' '+item.date,revision:item.revision}))];
-  const base=await vscode.window.showQuickPick(choices,{title:'Compare from',matchOnDescription:true});if(!base)return;
-  const proposed=await vscode.window.showQuickPick([{label:'Working files',description:'Saved tracked source',revision:'working'},...choices],{title:'Compare to',matchOnDescription:true});if(!proposed)return;
-  if(proposed.revision==='working')requireRepositorySaved(info.repo);
-  const entry=await entryFile(info);if(entry===undefined)return;
-  if(proposed.revision==='working')requireRepositorySaved(info.repo);
-  const job=await prepareReview('/prepare',{repo:info.repo,base:base.revision,base_label:base.label,proposed:proposed.revision,entry},'Preparing comparison');
+  const entry=info.entries.find(file=>active?.fsPath===path.join(info.repo,file));
+  const comparison=await chooseComparison(vscode,{info,entry,chooseRepository:chooseComparisonRepository,
+   fetch:async repo=>{await prepareReview('/fetch',{repo},'Fetching manuscript history');return inspectRepository(repo);}});
+  if(!comparison)return;
+  if(comparison.proposed.revision==='working')requireRepositorySaved(comparison.info.repo);
+  const job=await prepareReview('/prepare',comparisonRequest(comparison),'Preparing comparison');
   await selectRound(job.review);await panel.show();
+ }
+ async function chooseComparisonRepository(){
+  const folders=vscode.workspace.workspaceFolders||[];
+  const options=folders.map(folder=>({label:folder.name||path.basename(folder.uri.fsPath),description:folder.uri.fsPath,folder:folder.uri.fsPath}));
+  options.push({label:'Choose another folder…'});
+  const selected=await vscode.window.showQuickPick(options,{title:'Manuscript folder',matchOnDescription:true});if(!selected)return;
+  let folder=selected.folder;
+  if(!folder){const chosen=await vscode.window.showOpenDialog({canSelectFolders:true,canSelectFiles:false,canSelectMany:false,openLabel:'Choose manuscript'});if(!chosen)return;folder=chosen[0].fsPath;}
+  return inspectRepository(folder);
  }
  async function cloneRepository(){
   await start();const url=await vscode.window.showInputBox({title:'Clone manuscript repository',prompt:'GitHub repository URL'});if(!url)return;

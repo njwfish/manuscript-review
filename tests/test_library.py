@@ -10,9 +10,51 @@ from unittest.mock import patch
 from manuscript_review.server import create_server
 from manuscript_review.storage import ReviewStore
 from manuscript_review.comparison import git
+from manuscript_review.session import ReviewSession
 
 
 class LibraryTests(ReviewFixture):
+    def test_comparison_from_an_inspected_draft_keeps_choices_feedback_and_baseline(self):
+        library = Library(self.root / 'library')
+        library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'one')
+        identifier = library.jobs['one']['review']
+        session = ReviewSession(library.directory(identifier))
+        record = session.store.read()
+        edit = record['snapshot']['files'][0]['edits'][0]
+        session.update('save', {'revision': record['revision'], 'decisions': {edit['id']: 'reject'},
+                               'comments': {edit['id']: 'Keep my original wording.'}})
+        before = session.store.path.read_bytes()
+        record = session.store.read()
+        checkpoint = library.inspect(str(self.repo))['checkpoints'][0]
+        self.assertEqual(checkpoint['revision'], record['result'])
+        self.assertEqual(checkpoint['review'], identifier)
+        self.assertEqual(checkpoint['review_revision'], record['revision'])
+        request = {'repo': str(self.repo), 'base': checkpoint['revision'], 'previous': checkpoint['review'],
+                   'expected_revision': checkpoint['review_revision'], 'proposed': 'working',
+                   'proposed_label': 'Working files', 'require_changes': True}
+        library.prepare(request, 'two')
+        self.assertEqual(library.jobs['two']['status'], 'ready')
+        revised = ReviewStore(library.directory(library.jobs['two']['review'])).read()
+        self.assertEqual(revised['snapshot']['base'], record['result'])
+        self.assertEqual(revised['baseline'], self.base)
+        self.assertEqual(revised['metadata']['previous'], identifier)
+        self.assertEqual(revised['history'][0]['comment'], 'Keep my original wording.')
+        self.assertTrue(revised['metadata']['proposal_label'].startswith('Working files ('))
+        self.assertEqual(session.store.path.read_bytes(), before)
+        session.update('save', {'revision': record['revision'], 'decisions': {}, 'comments': record['comments']})
+        library.prepare(request, 'stale')
+        self.assertEqual(library.jobs['stale']['status'], 'error')
+        self.assertIn('earlier review changed', library.jobs['stale']['error'])
+
+    def test_git_comparison_retains_the_readable_proposal_label_and_pinned_version(self):
+        library = Library(self.root / 'library')
+        proposed = git(self.repo, 'rev-parse', 'HEAD').decode().strip()
+        library.prepare({'repo': str(self.repo), 'base': self.base, 'base_label': 'origin/main',
+                         'proposed': proposed, 'proposed_label': 'Revised argument'}, 'comparison')
+        record = ReviewStore(library.directory(library.jobs['comparison']['review'])).read()
+        self.assertEqual(record['snapshot']['proposed'], proposed)
+        self.assertEqual(record['metadata']['proposal_label'], f'Revised argument ({proposed[:7]})')
+
     def test_update_forwards_the_pinned_revision_and_refuses_an_empty_source_pass(self):
         library = Library(self.root / 'library')
         library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'initial')

@@ -50,8 +50,13 @@ the review engine retains its source, revision, and Git checks. Comparing saved 
 checks buffers both before flushing the focused panel and before creating the new round.
 
 The extension's setup, repository comparison, library, Apply, response imports, and
-agent workflow use the shared operations directly. Git comparisons select commits or
-checkpoints through native pickers. Source drafts from the shared library can open as
+agent workflow use the shared operations directly. Git comparisons show both endpoints,
+repository, and PDF entry in one native overview. Grouped version pickers change either
+endpoint without discarding the remaining choices. An inspected checkpoint includes
+its review ID and content revision; using it as the starting draft creates a checked
+follow-up round through the existing prepare operation. Other Git starting versions
+establish a new baseline. The focused view displays the actual pinned endpoints for
+its current comparison scope. Source drafts from the shared library can open as
 untitled editor copies or be explicitly discarded; opening a copy leaves its saved
 record and the working file intact. New editor drafts use VS Code's own buffer and
 recovery behavior. Saved edits become a new round through the shared update operation.

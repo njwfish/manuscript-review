@@ -46,11 +46,26 @@ opens the history picker for that manuscript. **Browse review library** groups s
 rounds by manuscript.
 **Import saved review** imports a `review.json` through the shared record operations.
 
-**Compare manuscript versions** lets you choose a starting and proposed version from
-Git commits, branches, tags, and saved review checkpoints. **Working files** uses saved
-tracked source. For a GitHub manuscript, run **Clone manuscript from GitHub**, choose
-a parent directory, then open a review in the cloned folder. **Fetch manuscript history**
-updates remote history and opens the version picker without merging into your files.
+**Compare versions** shows **From**, **To**, the manuscript folder, and the PDF document
+together. Choose **Review changes** to use that pair, or select a row to change it.
+Version pickers group review drafts, branches and tags, and commits; search by name,
+message, date, or hash. Back or Escape returns to the comparison without losing
+the other choices. The active source file determines the manuscript folder;
+**Folder** also lets you choose another workspace folder or local directory.
+
+**From** is the starting wording; **To** is the proposed wording. **Working files**
+captures saved tracked files, including staged new files, as a fixed snapshot.
+Choosing a **selected draft** for **From** starts a new round with its decisions, original baseline,
+and discussion preserved. Choosing a Git version starts a fresh comparison whose
+baseline is that version. Both versions remain visible above the focused review;
+hover to inspect their exact hashes, or click to choose another comparison.
+**This round** compares the starting and proposed drafts; **Since baseline** compares
+the original baseline with your current selected wording.
+
+**PDF document** selects the LaTeX entry file; choose **Source only** to skip compilation.
+**Fetch latest commits** updates available history without moving the selected versions
+or changing your working files. For a GitHub manuscript, run **Clone manuscript from
+GitHub**, choose a parent directory, then open a review in the cloned folder.
 A manuscript repository needs at least one commit and tracked source files.
 
 ## Edit and discuss

@@ -49,9 +49,11 @@ body.vscode-review{
 .vscode-review .review-summary{padding-block:10px}
 .vscode-review header{backdrop-filter:none}
 .vscode-review #round-state{cursor:pointer}
+.vscode-review #comparison-versions{max-width:100%;padding:7px 24px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:12px;border-radius:0;border-bottom:1px solid var(--line)}
+.vscode-review #comparison-versions:hover{color:var(--ink);background:var(--hover)}
 .vscode-review .pdf-viewer{display:block;width:100%;height:100%;min-height:240px;border:1px solid var(--line);border-radius:6px}
 .vscode-review.pdf-review{height:100vh;display:flex;flex-direction:column}
-.vscode-review.pdf-review header,.vscode-review.pdf-review .review-summary,.vscode-review.pdf-review .review-notice{flex-shrink:0}
+.vscode-review.pdf-review header,.vscode-review.pdf-review #comparison-versions,.vscode-review.pdf-review .review-summary,.vscode-review.pdf-review .review-notice{flex-shrink:0}
 .vscode-review.pdf-review .shell{flex:1;min-height:0;grid-template-rows:minmax(0,1fr)}
 .vscode-review.pdf-review main{display:flex;flex-direction:column;height:100%;min-height:0;max-width:none;align-self:stretch;overflow:auto;padding:16px 20px 0}
 .vscode-review.pdf-review .contextbar{flex-shrink:0}

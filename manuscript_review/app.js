@@ -1,5 +1,5 @@
 'use strict';
-import {choiceFor,selectedSource,editLocations,feedbackForPassage,decisionShortcut,reviewProgress,editContext,currentFeedback,sourceRange,agentRequest,commentThreads,commentShortcut} from './review_model.js';
+import {choiceFor,selectedSource,editLocations,feedbackForPassage,decisionShortcut,reviewProgress,editContext,currentFeedback,sourceRange,agentRequest,commentThreads,commentShortcut,comparisonContext} from './review_model.js';
 import {createEditor} from './editor.js';
 import {request,openSource,hostCommand,imageSource,copyText,exportFile,reviewReady,pdfFrame,hostMessage,openAgentTask,focusSource} from './host.js';
 const embedded=Boolean(globalThis.acquireVsCodeApi);
@@ -517,6 +517,7 @@ function bulkControls(id,members,scope){
 }
 function render(){
  if(!data)return;
+ if(embedded){const {from,to,title}=comparisonContext(data),control=$('comparison-versions');control.hidden=false;control.textContent=`${from} → ${to}`;control.title=title+'\nChoose comparison versions';control.setAttribute('aria-label',`Choose comparison versions. From ${from} to ${to}.`);}
  document.body.classList.remove('pdf-review');
  if(fileEditor&&editorFile===currentFile()?.path){fileEditor.goTo(currentEdit()?.id);renderSelection();updateSidebar();updateProgress();renderDiscussion();return;}
  if(fileEditor)closeEditor(false);
@@ -784,6 +785,7 @@ $('draft-status').addEventListener('click',resumeDraft);
 $('progress').addEventListener('click',()=>{$('review-summary').scrollIntoView({block:'start'});(data.applied?$('copy-request'):$('finish-review')).focus({preventScroll:true});});
 async function runHostCommand(name){try{await hostCommand(name);}catch(error){status(error.message,true);}}
 $('compare-saved').addEventListener('click',()=>runHostCommand('reviewSavedChanges'));
+$('comparison-versions').addEventListener('click',()=>runHostCommand('compare'));
 for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
 $('reload-review').addEventListener('click',async()=>{try{await window.flushReview();window.location.reload();}catch(error){status(error.message,true);}});
 if(embedded)window.addEventListener('message',async event=>{

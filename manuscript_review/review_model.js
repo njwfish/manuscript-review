@@ -1,4 +1,10 @@
 // Review rules only: no DOM, network, or persistent-storage side effects.
+export function comparisonContext(data){
+ const label=(name,revision)=>name?name.replace(/ \([a-f0-9]{7,40}\)$/,''):revision.slice(0,7);
+ const from=label(data.base_label,data.base),to=label(data.proposal_label,data.proposed);
+ return {from,to,title:`${data.repo}\nFrom: ${from} (${data.base})\nTo: ${to} (${data.proposed})\n${data.scope==='baseline'?'Original baseline to your selected manuscript.':'Starting draft to the proposed draft, before accept/reject decisions.'}`};
+}
+
 export const choiceFor=(id,decisions)=>decisions[id]||'pending';
 export function selectedSource(file,decisions){
  if(file.status==='new'&&choiceFor(file.edits[0].id,decisions)==='reject')return null;
