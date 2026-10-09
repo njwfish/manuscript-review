@@ -33,7 +33,7 @@ class DiscussionTests(ReviewFixture):
         path.write_text(path.read_text().replace('chosen cells', 'chosen measured cells'))
         self.commit()
         next_snapshot = build_snapshot(self.repo, record['result'], 'HEAD')
-        report = feedback_report(self.session.snapshot, record['decisions'], record['comments'], record['history'])
+        report = feedback_report(self.session.snapshot, record['decisions'], record['comments'], record['history'], record['metadata']['id'])
         history = build_history(self.session.snapshot, next_snapshot, record, report, record['history'], self.directory)
         self.assertEqual(history[0]['id'], identifier)
         self.assertEqual(history[0]['context_before'], original)

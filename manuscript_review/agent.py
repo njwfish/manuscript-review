@@ -7,6 +7,7 @@ from .session import ReviewSession
 from .repositories import working_snapshot
 from .comparison import git
 from . import __version__
+from .setup import install_skill, setup_status
 
 
 def main():
@@ -14,7 +15,11 @@ def main():
     parser.add_argument('--version', action='version', version=__version__)
     parser.add_argument('--home', type=Path, default=default_home())
     commands = parser.add_subparsers(dest='command', required=True)
-    commands.add_parser('migrate', help='Upgrade a v5 library to file drafts; quit the app first.')
+    commands.add_parser('setup', help='Report prerequisites without opening the review library.')
+    installation = commands.add_parser('install-skill', help='Install the bundled skill for an agent.')
+    installation.add_argument('--agent', required=True, choices=('codex', 'claude'))
+    installation.add_argument('--source', type=Path)
+    commands.add_parser('migrate', help='Upgrade earlier records, preserving originals; close review interfaces first.')
     checkpoint = commands.add_parser('checkpoint', help='Pin the actual manuscript before the first revision.')
     checkpoint.add_argument('--repo', required=True, type=Path)
     compare = commands.add_parser('compare', help='Create a review from two manuscript versions.')
@@ -40,6 +45,11 @@ def main():
     respond.add_argument('--review', required=True)
     respond.add_argument('--revision', required=True, type=int)
     respond.add_argument('--responses', required=True, type=Path)
+    for name in ('resolve', 'reopen'):
+        thread = commands.add_parser(name, help='Change thread status only when the author requests it.')
+        thread.add_argument('--review', required=True)
+        thread.add_argument('--revision', required=True, type=int)
+        thread.add_argument('--thread', required=True)
     apply = commands.add_parser('apply', help='Apply saved choices when the author has requested it.')
     apply.add_argument('--review', required=True)
     apply.add_argument('--revision', required=True, type=int)
@@ -54,11 +64,15 @@ def main():
     finish.add_argument('--revision', required=True, type=int)
     finish.add_argument('--from', dest='starting_version', required=True)
     args = parser.parse_args()
-    library = Library(args.home)
     try:
+        if args.command in ('setup', 'install-skill'):
+            result = {'setup': setup_status, 'install-skill': lambda: install_skill(args.agent, source=args.source)}[args.command]()
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+        library = Library(args.home)
         if args.command == 'migrate':
-            from .migrations.v5 import upgrade
-            result = {'upgraded': upgrade(args.home), 'originals': 'migration-v5/review.json'}
+            from .migrations.v6 import upgrade
+            result = {'upgraded': upgrade(args.home), 'originals': 'migration-vN/review.json beside each upgraded record'}
         elif args.command == 'checkpoint':
             repo = str(args.repo.expanduser().resolve())
             starting, _ = working_snapshot(repo)
@@ -76,7 +90,7 @@ def main():
             reviews = library.listing()
             if args.repo:
                 repo = str(args.repo.expanduser().resolve())
-                reviews = [r for r in reviews if r['repo'] == repo]
+                reviews = [r for r in reviews if repo in (r['repo'], r.get('workspace'))]
             result = reviews
         elif args.command == 'begin':
             result = library.begin(args.review)
@@ -102,6 +116,8 @@ def main():
             elif args.command == 'explain':
                 records = json.loads(args.explanations.read_text())
                 session.import_explanations(records, args.revision)
+            elif args.command in ('resolve', 'reopen'):
+                session.resolve_thread({'revision': args.revision, 'id': args.thread, 'resolved': args.command == 'resolve'})
             elif args.command == 'apply':
                 with session.store.transaction():
                     record = session.store.read()

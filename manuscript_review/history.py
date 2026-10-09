@@ -62,14 +62,14 @@ def discussion_id(snapshot, target, text, author):
 
 
 def discussion_note(note, snapshot, review, author):
-    return {**{key: value for key, value in note.items() if key != 'discussion_id'},
+    return {**{key: value for key, value in note.items() if key not in ('discussion_id', 'thread_id', 'resolved')},
             'id': discussion_id(snapshot, note['id'], note['comment'], author),
-            'author': author, 'origin_id': note['id'], 'origin_review': str(review),
+            'author': author, 'origin_id': note['origin_id'], 'origin_review': str(review),
             'created': snapshot['created'], 'round_id': round_id(snapshot),
             'base': snapshot['base'], 'source_proposed': snapshot['proposed'], 'replies': []}
 
 
-def add_explanations(snapshot, decisions, entries, records, review):
+def add_explanations(snapshot, decisions, entries, records, review, review_id):
     """Record agent rationale against exact passage or edit IDs, without changing notes."""
     from .feedback import feedback_report, validate_comments
     if not isinstance(records, list):
@@ -90,7 +90,7 @@ def add_explanations(snapshot, decisions, entries, records, review):
     known = {entry['id']: entry for entry in result}
     targets = {item['id']: item for file in snapshot['files'] for passage in file['hunks']
                for item in [passage, *passage['edits']]}
-    for note in feedback_report(snapshot, decisions, comments, [])['comments']:
+    for note in feedback_report(snapshot, decisions, comments, [], review_id)['comments']:
         identifier = discussion_id(snapshot, note['id'], note['comment'], 'agent')
         if identifier not in known:
             target = targets[note['id']]
@@ -138,7 +138,7 @@ def build_history(previous, current, state, report, inherited, previous_review):
         comment = state['comments'][note['id']]
         # Keep existing history ids. New messages are identified by round,
         # original anchor and exact text, so editing a note cannot erase it.
-        if any(e['author'] == 'user' and e['origin_id'] == note['id'] and e['base'] == previous['base']
+        if any(e['author'] == 'user' and e['origin_id'] == note['origin_id'] and e['base'] == previous['base']
                and e['source_proposed'] == previous['proposed']
                and e['created'] == previous['created'] and e['comment'] == comment for e in entries):
             continue

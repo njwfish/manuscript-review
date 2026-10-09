@@ -1,23 +1,13 @@
-Step through manuscript comments with the sidebar arrows or **⌘/Ctrl+Shift+[ / ]**, including while editing. The selector jumps across files, and **View change** returns to the attached diff. Follow-ups remain one thread; comments on removed files stay readable in All feedback. Pending comments and drafts save before navigation.
+Manuscript Review 0.14.6 includes the standalone macOS app and VS Code extension 0.1.13, built from the same commit. Both interfaces and the shared engine are maintained on `main`.
 
-The bundled agent skill can now ingest a referee report as comments anchored to exact source quotes before editing. Agents revise the manuscript in a new round and respond to those original comments, keeping the feedback and explanation beside the resulting changes. The optional feedback CSV stays with the manuscript project.
+Download the app ZIP for Apple Silicon macOS 13 or later, or install the `.vsix` through **Extensions → Install from VSIX…**. The extension runs independently on macOS and Linux with Git and Python 3.12 or later. [Installation](https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md) covers prerequisites and agent skill setup; the [VS Code guide](https://github.com/njwfish/manuscript-review/blob/main/vscode/README.md) and [standalone guide](https://github.com/njwfish/manuscript-review/blob/main/README.md#review-in-the-standalone-app) describe the review cycle.
 
-The source editor now uses restrained LaTeX syntax highlighting: commands and math delimiters in a muted blue, with comments and braces in gray. Review additions and deletions retain their green and red highlights.
+Manual editing now behaves consistently in both interfaces. A comparison from A to B keeps A fixed while saves update the same review to B plus local edits. Unaffected decisions, comments, replies, and the original baseline remain. If the current folder contains another version or unrelated changes, a separate Git worktree supplies the proposed source. **Open editing folder** gives access to that checkout for normal Git and LaTeX work; the browser interface copies its path. VS Code refreshes the word diff without moving the source cursor.
 
-**PDF pages** shows the original and proposed manuscript pages with the current edit highlighted. Prose can be highlighted at word level; equations and ambiguous text use their source-linked region. The exact source change remains below the pages. **D / F** moves through edits, **V** switches to word changes, and **PageUp / PageDown** scrolls the PDF panes. Zoom keeps the highlighted area visible.
+Review supports full-file source editing, word changes, typeset equations and algorithms, highlighted PDF pages, and keyboard decisions. Accept/reject selects wording; Resolve/Reopen settles a discussion. Initial reviewer feedback can be imported as source comments, and agent revisions publish a new round with final responses attached to those comments. Working agent transcripts stay with the provider.
 
-Selecting text in the source editor reveals a small **Comment** button beside the selection. It opens the existing sidebar and preserves the selected quote. **⌘/Ctrl+Shift+M** still works.
+Both packages include the agent skill and command launcher. **Setup and agent skill** in VS Code or **Library → Setup** in the standalone app checks prerequisites and installs the skill for Codex or Claude Code. Each interface works without the other installed. See the installation guide for native extension and CLI dispatch requirements.
 
-Version 0.11 through 0.13 libraries use the same record format and require no migration.
+Reviews from 0.14.2 or newer need no format migration. For older libraries, close review windows and run the bundled agent command with `migrate` before reopening. The migration preserves decisions, comments, replies, source versions, and drafts, retains original records, and leaves manuscript files unchanged. [Upgrade instructions](https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md#upgrade-an-existing-library) cover both installations.
 
-Click proposed text or a proposed LaTeX preview to edit the full file at that passage. The monospace editor occupies the review surface, with change highlights, undo/redo, find, and discussion in a collapsible sidebar. Save writes only manual changes and refreshes the word diff; unrelated decisions and discussion survive. Escape retains a file draft.
-
-**Existing version 0.10 libraries need an explicit format upgrade.** Quit the app, replace it, then run:
-
-```sh
-"/Applications/Manuscript Review.app/Contents/MacOS/manuscript-review-agent" migrate
-```
-
-The command retains choices, comments, replies, source versions, and unfinished drafts, and archives the original records. It does not edit manuscript files. See the [upgrade instructions](https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md#upgrade-an-existing-library) for source installations and separate libraries.
-
-Download the ZIP and move the app to **Applications**. The app supports Apple Silicon Macs on macOS 13 or later. It is locally signed and has not been notarized. The browser interface runs from source on macOS and Linux with Git and Python 3.12 or later. CodeMirror and its licenses are bundled; no editor assets load from the internet.
+The macOS app includes Python and is locally signed, without notarization. LaTeX and Poppler are optional for typeset and PDF previews. The browser interface runs from source on macOS and Linux. All review state stays in the local library; replacing a package preserves it.

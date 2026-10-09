@@ -2,17 +2,38 @@
 
 Read and annotate a manuscript, or review revisions one word change at a time, with highlighted LaTeX previews, full-file editing, and comments that stay with each round.
 
+**VS Code is the primary interface and the target for production releases.** The extension
+includes the review engine, PDF viewer, and agent skill. Use the native source editor
+and comments alongside focused word and PDF comparisons. The standalone app remains
+available and uses the same review records.
+
 The app is designed for authors reviewing substantial edits from students, collaborators, or agents. In comparisons, text opens as a short excerpt with the exact additions and deletions highlighted. Equations and algorithms open side by side as typeset LaTeX. **PDF pages** shows the full original and proposed pages with the current edit highlighted. Reviews stay on your computer; an agent can read your saved feedback and prepare another round through the bundled skill.
 
 ![A sample manuscript review](docs/images/review.png)
 
 ## Install
 
-Download the [macOS app](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** to **Applications**. The app supports Apple Silicon Macs on macOS 13 or later and includes Python. Git is required; LaTeX and Poppler are optional for typeset previews.
+Download the `.vsix` from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest),
+then install it in VS Code through **Extensions → Install from VSIX…**. It runs independently
+on macOS or Linux with Git and Python 3.12 or later. LaTeX and Poppler enable rendered
+previews. Click **Review manuscript** in the source toolbar or left activity bar;
+**Compare versions** chooses a starting draft and proposal from Git history.
+**Setup and agent skill** checks prerequisites and installs the bundled skill for your
+agent. The VS Code extension is a preview; [building from source](vscode/README.md#build)
+is also supported.
 
-See [Installation](docs/INSTALL.md) for prerequisites, first launch, the agent skill, and running from source on macOS or Linux.
+For the standalone interface, download the [macOS app](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** to **Applications**. It supports Apple Silicon Macs on macOS 13 or later and includes Python.
 
-## Review a manuscript
+See the [VS Code guide](vscode/README.md) for its review cycle and shortcuts, and
+[Installation](docs/INSTALL.md) for either interface's prerequisites. The interface
+guide below describes the standalone app.
+
+Both interfaces are maintained together on `main`: `manuscript_review/` contains the
+shared engine and standalone interface, and `vscode/` contains the extension. Each
+release includes the app ZIP and VSIX built from the same commit. They share review
+records, decisions, and discussion; either interface works on its own.
+
+## Review in the standalone app
 
 Start with manuscript text sources in a Git repository with at least one commit; [prepare a plain manuscript folder](docs/INSTALL.md#prepare-a-manuscript-folder) if needed. **Open manuscript** opens the whole selected manuscript for reading, editing, and comments, even when there are no changes to compare. Reopening the same repository resumes its latest saved review, including choices and drafts. To bring in subsequent changes made outside the app, use **New round** or **Compare versions**.
 
@@ -22,7 +43,7 @@ Pick **Compare from** and **Compare to** from dropdowns of saved review checkpoi
 
 The Library shows one entry per manuscript, with its latest review and earlier rounds under **History**. **Open** resumes the current round. **New round** compares working files against the latest selected draft and preserves the original baseline. Earlier choices are already part of the starting draft, so rejecting a new edit keeps that earlier wording. **Compare…** lets you choose another pair of versions.
 
-The review opens in **This round**, showing only changes from its starting draft to its proposal. Switch to **Since baseline**, or press **T**, to inspect the selected manuscript against the original baseline. This cumulative view updates with your decisions; review decisions belong to **This round**. Earlier comments and replies remain available beside matching edits and in **All feedback**. The app reopens your last review on launch.
+The review opens in **This round**, showing only changes from its starting draft to its proposal. Switch to **Since baseline**, or press **T**, to inspect the selected manuscript against the original baseline. This cumulative view updates with your decisions; review decisions belong to **This round**. Earlier comments and replies remain available beside matching edits and in **Comments**. The app reopens your last review on launch.
 
 Use **Accept** or **A** to keep an edit, **Reject** or **S** to restore this round’s starting wording, and **Reset** or **U** to leave it undecided. Accepting or rejecting advances to the next edit; **D / F** moves backward or forward. Choices and comments save automatically. When the review is complete, **Apply review** writes the selected wording to your manuscript.
 
@@ -32,11 +53,15 @@ Choose **PDF pages** from the review view to see each edit in the manuscript’s
 
 Click proposed text, click a proposed LaTeX preview, or press **E** to edit the file at the current passage. The source editor replaces the passage display and shows the whole selected file in monospace, with change highlights. Selecting text reveals a small **Comment** button beside it; the existing keyboard shortcut opens the same sidebar. Scroll elsewhere to make additional changes; **⌘/Ctrl+F** finds text and standard undo/redo keys work throughout.
 
-**Save changes**, **⌘/Ctrl+S**, or **⌘/Ctrl+Enter** writes your manual changes and refreshes the diff against this round’s starting draft. Your new changes are accepted. Unrelated decisions and working-file text stay as they were; **Apply review** writes the remaining selected wording. Comments on revised edits move into discussion, and saving refreshes equation previews. **Esc** returns to review and retains the file draft across app restarts; Manuscript view stays in the editor. The draft indicator or **Shift+E** resumes it; **Discard draft** clears it. Save or discard a file draft before changing decisions in that file.
+**Save changes**, **⌘/Ctrl+S**, or **⌘/Ctrl+Enter** writes your manual changes and refreshes the diff against this round’s starting draft. Your new changes are accepted. Unrelated decisions and working-file text stay as they were; **Apply review** writes the remaining selected wording. The starting version stays fixed and the proposal includes your local edits. Comments on revised edits move into discussion, and saving refreshes equation previews. **Esc** returns to review and retains the file draft across app restarts; Manuscript view stays in the editor. The draft indicator or **Shift+E** resumes it; **Discard draft** clears it. Save or discard a file draft before changing decisions in that file.
+
+**Open editing folder** in Review tools opens the source checkout in Finder. The browser interface copies its path. Editing uses the proposed source; if the original folder contains another version or unrelated changes, the app creates a separate Git worktree and keeps the original folder intact.
 
 **Manuscript** in the comparison selector shows all supported source files, including unchanged ones. Select text and choose **Comment selection**, or press **⌘/Ctrl+Shift+M**; without a selection, it comments on the current line. The marked text opens its discussion in the right sidebar. Comments save automatically, retain their original source context, and carry into later rounds. After an agent replies, the field creates a follow-up while preserving the exchange. **⌘/Ctrl+Shift+R** copies an agent request while the editor has focus.
 
-Discussion appears in a collapsible right sidebar. Press **C** to comment on an edit, or **Shift+C** for a passage note; the selector changes the scope. Selecting a highlighted change in the editor brings its discussion alongside the source. Earlier feedback and replies appear above the comment field. Use the sidebar arrows or **⌘/Ctrl+Shift+[ / ]** to step through comments across files; the selector jumps directly to a comment. **View change** opens its attached diff. **Q** searches all comments and responses. Replies append, so each revision pass retains the exchange.
+Discussion appears in a collapsible right sidebar. Press **C** to comment on an edit, or **Shift+C** for a passage note; the selector changes the scope. Selecting a highlighted change in the editor brings its discussion alongside the source. Earlier feedback and replies appear above the comment field. Use the sidebar arrows or **⌘/Ctrl+Shift+[ / ]** to step through comments across files; the selector jumps directly to a comment. **View change** opens its attached diff. **Q** searches comments and responses. Navigation visits unresolved threads by default; choose **All** to revisit resolved threads. **Resolve** and **Reopen** change thread status independently of wording decisions. Replies append, so each revision pass retains the exchange.
+
+Choose **Codex** or **Claude Code** beneath the comment field, then press **Enter** or **Send** to dispatch that comment through its installed CLI. **Shift+Enter** inserts a newline. The app remembers your provider and keeps focus in the manuscript; it opens no agent tabs or windows. [Install and sign in to the CLI](docs/INSTALL.md#agent-clis) first. The provider retains the working session, while the review receives only the final response. Pending decisions or unsaved source drafts limit the task to a reply; a completed review allows surgical revisions. A notice offers **Reload review** when a response arrives, or **Open Library** when the agent publishes a new round. Your active input stays in place until you continue.
 
 ![Whole-manuscript source editing with comments and responses](docs/images/manuscript.png)
 
@@ -70,24 +95,28 @@ The macOS library lives in `~/Library/Application Support/Manuscript Review/`, s
 | V | Switch word changes / rendered view |
 | PageUp / PageDown | Scroll both PDF panes |
 | G | Next undecided edit |
+| Enter / Shift+Enter | Send a comment / insert a newline in its field |
 | ? | All shortcuts |
 | ⌘Shift+L / ⌘N | Library / compare versions in the native app |
 
-Holding a key does not repeat decisions. Shortcuts pause while typing; Tab and Enter work on controls.
+Holding a key does not repeat decisions. Review shortcuts pause while typing; Tab and Enter work on controls.
 
 ## Work with an agent
 
 Use **Library → Setup** to check dependencies and install the [manuscript-review skill](skills/manuscript-review/SKILL.md) for Codex or Claude Code. The [installation guide](docs/INSTALL.md#install-the-agent-skill) also covers manual setup. The skill uses the same review operations as the app; an agent needs local filesystem and shell access to your manuscript and saved library.
 
-The cycle is **review → apply → ask the agent → review the next round**. When you finish deciding, use **Apply review** to write the selected wording, then **Copy agent request** or **R** and paste the prompt into your agent's chat. The prompt identifies the exact review and tells the agent to read your decisions, comments, and earlier responses. You can also request responses while decisions are still in progress.
+The cycle is **review → apply → ask the agent → review the next round**. When you finish deciding, use **Apply review** to write the selected wording. **Send** or **Enter** in a comment field asks the agent to address that thread. To address the whole round, use **Copy agent request** or **R** and paste the prompt into your agent's chat. Both requests identify the exact review and ask the agent to read your decisions and earlier responses. You can also request responses while decisions are still in progress.
 
-For a manuscript without a diff, read, comment, and save any manual edits, then copy the agent request. The same skill reads these source comments and prepares a reviewable revision. Existing prose is settled wording: a style guide alone does not authorize rewriting it.
+For a manuscript without a diff, read, comment, and save any manual edits, then send a comment or copy the whole-review request. The same skill reads these source comments and prepares a reviewable revision. Existing prose is settled wording: a style guide alone does not authorize rewriting it.
 
-Replies without source changes stay in the current round. Text revisions create a new round against the previously selected draft, preserving earlier choices and the original baseline. Open the new round from the Library; **Since baseline** shows the accumulated selected changes. Agent conversation takes place in your existing chat, while the app keeps comments and responses beside their source context.
+Replies without source changes stay in the current round. Text revisions create a new round against the previously selected draft, preserving earlier choices and the original baseline. Open the new round from the Library; **Since baseline** shows the accumulated selected changes. The provider session retains the agent's working conversation, while the app keeps comments and responses beside their source context.
 
 For an initial referee report, ask the agent to anchor its actionable points as comments before editing. You can work through these comments yourself or ask the agent to prepare surgical revisions and respond on each comment. The next round shows the changes with the original feedback and responses. For a long report, the skill can maintain an optional feedback CSV beside the manuscript.
 
 ## Development
+
+The [VS Code extension](vscode/README.md) builds as a self-contained VSIX. Both interfaces
+use the same engine; core features remain available in the extension.
 
 See [Development](docs/DEVELOPMENT.md) for tests, native builds, and releases, and [Architecture](ARCHITECTURE.md) for the record model and transaction boundaries. The service uses Python's standard library, with a small JavaScript interface and a Swift macOS wrapper.
 

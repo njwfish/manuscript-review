@@ -1,14 +1,14 @@
 # Manuscript Review architecture
 
-The native app hosts one Python service and one web interface. All application code lives in `manuscript_review/`; there are no repository-specific wrappers or alternate implementations. The runtime uses Python's standard library.
+VS Code is the primary interface. Its extension bundles and starts the Python review service, hosts focused comparisons and PDF review, and uses the native editor and comments for manuscript work. The standalone app remains another interface to the same service and review records. Shared review operations live in `manuscript_review/`; VS Code adapters live in `vscode/`. The Python runtime uses its standard library.
 
 ## The review record
 
-Each library entry owns one `review.json` with schema version 6. It contains the original baseline, round comparison, selected result version, conceptual decisions, current notes, discussion history, expected working-file hashes, metadata, source drafts, and navigation preferences. Files under `renders/`, `baseline-renders/`, and `comparisons/` are disposable caches; `versions/` holds records preceding source changes. Patch and feedback exports are generated from the current record.
+Each library entry owns one `review.json` with schema version 7. It contains the original baseline, round comparison, selected result version, conceptual decisions, current notes, discussion history, resolved thread origins, expected working-file hashes, metadata, source drafts, and navigation preferences. Files under `renders/`, `baseline-renders/`, and `comparisons/` are disposable caches; `versions/` holds records preceding source changes. Patch and feedback exports are generated from the current record.
 
 | Primitive | Meaning |
 | --- | --- |
-| Source version | A reachable Git commit created without changing HEAD or the index |
+| Source version | A pinned Git commit from repository history or a checkpoint captured without changing HEAD or the index |
 | Round | A starting draft, proposed draft, and selected result, linked to the preceding review |
 | Baseline | The fixed source version from the first round of a comparison |
 | Edit | A continuous replacement, with spans in the starting draft and proposal |
@@ -24,6 +24,32 @@ Current notes remain editable. Replying to a current note records it in discussi
 
 Comments on arbitrary source selections use the same discussion records, with `kind: source`. Their anchors pin the exact captured editor text, including an unsaved draft, without writing manuscript files. The original anchor and context remain immutable; attachment to later edits is derived separately. A user-written root comment is editable until a response arrives; imported feedback retains its original wording. A follow-up is another ordinary discussion entry with the same origin ID, preserving the preceding exchange.
 
+Resolution belongs to the discussion origin. A current note’s origin combines its review ID and target ID, so a new round’s comment cannot inherit status from an earlier comment on the same passage. Sealed messages and explicit follow-ups retain their origin. The record stores its resolved origins once;
+view and feedback operations derive status for every message in the thread. Replies,
+wording decisions, source edits, and new rounds preserve that status. Resolve/reopen
+uses the same revision-checked transaction as other content changes and does not write
+source or create a source version. Earlier rounds retain their status at that point.
+
+## Component ownership
+
+| Component | Owns |
+| --- | --- |
+| Git and repository workflow | Source history, branches, commits, PR publication and merging |
+| `ReviewSession` and `ReviewStore` | Author decisions, discussion status, validated writes and record transactions |
+| `history.py` and `feedback.py` | Anchored messages, responses and exports of thread identity and status |
+| `review_model.js` | Shared thread grouping and source selection rules |
+| Native comments and focused review | Rendering, navigation, filters and author actions through the session API |
+| `dispatch.py` | One comment's canonical task and standalone CLI handoff |
+| VS Code dispatch adapter | Native provider extension handoff and return focus |
+| Agent skill and commands | Reading feedback, making authorized revisions, publishing their diff and appending final responses |
+
+The author selects wording and resolves issues. Agent providers retain working
+transcripts; the review stores comments and final responses. The UI can navigate
+unresolved threads independently of undecided source edits. Native comments use
+VS Code’s resolved/unresolved state and display filters; source navigation has an
+Unresolved/All picker. The focused interface keeps the same filter beside its
+comment arrows. Resolved discussions collapse and remain available to reopen.
+
 Agents can also create a discussion entry directly against a passage or edit. Existing diff explanations use this operation. Initial external feedback imports exact source quotes through the same source-comment operation as the editor; revision passes append replies to those comments. The same record fields hold both, with explicit `author` attribution. Explanation imports preserve editable user notes and decisions, use the same revision check, and deduplicate by author, round, target, and text. The UI displays relevant agent notes from the current proposal beside the diff, and keeps earlier notes in discussion. External feedback inventories belong in agent-maintained project files, not the app record.
 
 ## Source changes
@@ -38,9 +64,95 @@ Source segments locate manual intervals in the validated working projection, inc
 
 CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights. The small adapter in `frontend/editor.js` connects document changes to the existing review client. It owns no review persistence or manuscript writes. The bundle and dependency licenses are checked in; `npm run build` regenerates them without adding a runtime network dependency.
 
+The VS Code preview uses its native source editor and CommentController. The same
+`ReviewSession.editor` operation projects spans onto an exact external buffer without
+saving it; offsets use UTF-16 for both editors. VS Code owns source saves.
+`source-edits.mjs` flushes pending review choices, captures the latest saved file
+through `ReviewSession.capture_file`, and refreshes the same comparison without
+replacing the native buffer or taking focus. Unsaved typing remains in VS Code. Decisions and comments
+use the same record transactions as the standalone app. The extension host keeps service
+tokens private, pins queued operations to their intended review, and passes requests
+through `host.js` to the shared focused-review client. Navigation stays in webview state.
+Apply checks unsaved repository buffers immediately before sending its queued transaction;
+the review engine retains its source, revision, and Git checks. Comparing saved source
+checks buffers both before flushing the focused panel and before creating the new round.
+
+The extension's setup, repository comparison, library, Apply, response imports, and
+agent workflow use the shared operations directly. Git comparisons show both endpoints,
+repository, and PDF entry in one native overview. Grouped version pickers change either
+endpoint without discarding the remaining choices. An inspected checkpoint includes
+its review ID and content revision; using it as the starting draft creates a checked
+follow-up round through the existing prepare operation. Other Git starting versions
+establish a new baseline. The focused view displays the actual pinned endpoints for
+its current comparison scope. Source drafts from the shared library can open as
+untitled editor copies or be explicitly discarded; opening a copy leaves its saved
+record and the working file intact. New editor drafts use VS Code's own buffer and
+recovery behavior. Native author saves update the current proposal; external revision
+passes use the shared begin/finish operations to create a new round.
+
+The agent skill, command engine, and referenced guides ship in the VSIX. Setup reports
+prerequisites without opening a review library, so its commands remain available for
+explicit migrations. On setup or opening a review,
+the extension copies its engine into a versioned directory in VS Code global storage
+and refreshes one stable skill directory there. The skill launcher captures that engine
+path and its Python interpreter and is published by atomic rename. Installed agent links target the stable directory;
+earlier engine copies remain available through extension upgrades. Review data lives
+in the review library, independently of extension storage. Agent result links select
+an exact round through the extension's URI handler.
+
+Enter saves a comment and opens a prepared task for the remembered Codex or Claude Code provider;
+Shift+Enter inserts a newline. The native extension tab opens beside the source or
+focused review. Codex opens its registered conversation editor at the home route
+with a unique URI; its New Codex Agent command currently opens the introduction
+route. Claude uses its editor-open command. On local macOS, a small Accessibility helper targets the extension
+host's VS Code process and pins its original window before opening the provider.
+It excludes existing webview IDs, verifies the complete composer text, and presses
+one enabled Send button once. Confirmation requires a changed, readable composer
+and the saved discussion ID in conversation text outside the composer. It follows
+that ID through Markdown rendering and the provider's first-message remount.
+Author focus returns only while the opened agent tab remains active. A paste retains
+all clipboard formats. Uncertain submission is never retried automatically.
+Without Accessibility, or on other platforms and remote workspaces, the native tab
+retains manual submission: Claude receives an initial prompt; Codex receives a
+copied request.
+The prompt pins the review and discussion, reads
+the current record, and returns only a final reply through existing response commands.
+The agent owns its transcript; the app stores no task or conversation records. Pending
+decisions and unsaved source limit the request to a reply. Source changes use the same
+begin/finish round operations. Focused comparisons dim surrounding context; clicking
+the passage expands it, and entering the native source editor clears its dimming.
+
+Both interfaces obtain the comment task through `ReviewSession.agent_request`, which checks the saved revision and reads the current discussion without changing the record. Standalone dispatch uses `codex exec` with file-backed prompt stdin or Claude's native `--bg` command. The processes run independently of the app, and the providers retain their sessions. The macOS wrapper includes the usual native CLI installation directories on PATH. Agent replies and revisions use the existing respond and begin/finish commands; a polling notice detects returned responses and newer rounds without replacing active input. The remembered provider is a navigation preference, preserved in follow-up rounds.
+
+The extension discovers Python 3.12 or newer before importing the engine, skipping older
+environments on the path. An explicit interpreter setting is validated and respected.
+The engine service and agent commands use the resolved executable.
+
+The extension bundles a pinned adaptation of LaTeX Workshop's PDF viewer. A separate
+loopback server serves only its bundled static assets, with bounded paths and a restricted
+content policy. VS Code resolves the client-facing URI before the webview pins its frame
+origin. Manuscript PDFs remain on the private host bridge; the viewer cannot access the
+review document or its controls. The server closes with the extension. Its parent
+bridge supplies immutable comparison PDF bytes and the existing normalized change
+bounds. An overlay maps those bounds through PDF.js viewports as zoom and rotation
+change. The installed Workshop extension retains live compilation and SyncTeX; the
+adapted viewer owns neither. Viewer sources, provenance, and notices live in `vscode/`.
+
 ## Transactions
 
 `ReviewSession` coordinates operations; HTTP handlers route requests. `ReviewStore` owns persistence. Follow-up rounds compare the previous selected draft to a new proposal, keeping the original baseline separately pinned. Their identity includes both endpoints, the original baseline, the previous review ID, and its saved revision. The previous record remains unchanged. `result` is a reachable Git version of the projected decisions; note-only saves reuse it. **Since baseline** derives a read-only comparison from the original baseline to that result.
+
+`workspace.py` owns the source checkout used for editing. The record binds its
+absolute `workspace` path and pinned `workspace_version` together. The latter records
+physical source wording, which can differ from the proposal after choices are applied.
+A matching checkout is reused; otherwise a detached Git worktree in the review’s
+`source/` directory starts from its selected draft. The canonical repository remains
+the library identity and Git object store. Imports discard local checkout bindings.
+Source writes and their recovery journal use the bound checkout. Native captures read
+saved bytes without writing source or moving the fixed comparison base. They map the
+physical delta back into the proposal through the same manual-edit projection as the
+standalone editor. Managed checkouts remain available for ordinary Git work; the app
+does not delete an author’s files or commits.
 
 `repositories.py` owns repository discovery, readable Git history, cloning, fetching, and working-copy capture. Agent **begin** pins the actual working input, validating reviewed files against the saved selection. **Finish** requires that input checkpoint and the unchanged review revision, then rejects an empty source-changing pass. Commits made between these operations do not change their comparison endpoints.
 
@@ -58,7 +170,7 @@ Record replacement uses a unique temporary file, `fsync`, atomic rename, and dir
 
 Library cards group records by manuscript repository and show rounds in chronological history. Applied status is derived from the saved source hashes and selected wording; notes and replies do not reset it.
 
-The app reads only schema 6. The explicit migrations in `migrations/` port retired records and preserve byte-exact originals. The v2 upgrade retains selected manuscript content and leaves the checkout and Git index unchanged. The v3 upgrade adds user attribution to existing discussion; the v4 upgrade moves source drafts out of navigation preferences. These preserve discussion IDs, notes, replies, decisions, and review revisions, and validate the library before replacing canonical files. The v5 migration combines located passage drafts into full-file drafts against the same selected version and retains detached source drafts. The explicit agent `migrate` command validates the whole library before replacing records and archives their original bytes. Migrations are never imported by the service.
+The app reads only schema 7. The explicit migrations in `migrations/` port retired records and preserve byte-exact originals. The v2 upgrade retains selected manuscript content and leaves the checkout and Git index unchanged. The v3 upgrade adds user attribution to existing discussion; the v4 upgrade moves source drafts out of navigation preferences. These preserve discussion IDs, notes, replies, decisions, and review revisions, and validate the library before replacing canonical files. The v5 migration combines located passage drafts into full-file drafts against the same selected version and retains detached source drafts. The v6 migration starts existing threads unresolved and qualifies legacy origins with saved current follow-ups to keep their exchanges together. Message IDs, source context, replies, choices, and drafts remain intact. The explicit agent `migrate` command validates the whole library before replacing records and archives their original bytes. Migrations are never imported by the service.
 
 ## Verification
 

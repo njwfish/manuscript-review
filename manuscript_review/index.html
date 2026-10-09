@@ -118,12 +118,17 @@ h1{font-size:13px;font-weight:600;letter-spacing:-.1px;margin:0 2px 0 6px}
 .discussion-head select{min-width:0;max-width:100%;flex:1;background:transparent;border:0;box-shadow:none;font-size:12px;padding:2px 0}
 .comment-navigation{display:flex;align-items:center;gap:4px;margin:-6px 0 14px;color:var(--faint);font-size:11px}
 .comment-navigation span{flex:1}
+.comment-navigation select{font-size:11px;padding:2px 4px;background:transparent;border-color:transparent;color:var(--muted)}
+.discussion-thread{margin-bottom:16px}
+.resolved-discussion>summary{font-size:12px;color:var(--muted);cursor:pointer;overflow-wrap:anywhere}
 #discussion textarea{width:100%;min-height:110px;resize:vertical}
 .editing-file main{max-width:none;padding:18px 24px}
 .editing-file .contextbar{margin-bottom:10px}
 .editing-file .contextbar .view-select,.editing-file .contextbar .zoom-control{display:none}
 .editor-toolbar{display:flex;gap:6px;align-items:center;padding:8px 0 12px}
 .editor-toolbar button{font-size:12px}
+.agent-composer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.agent-choice{font:inherit;color:var(--muted);background:transparent;border:0;max-width:140px}
 .file-editor{height:calc(100vh - var(--header-h) - 155px);min-height:320px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .file-editor:focus-within{border-color:var(--accent)}
 .source-text,.editable-preview{cursor:text}
@@ -214,7 +219,7 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .comment-meta{font-size:11px;color:var(--faint);margin-top:7px}
 .busy main,.busy aside,.busy header{pointer-events:none;opacity:.6}
 
-/* Discussion entries (sidebar and All feedback) */
+/* Discussion entries (sidebar and Comments) */
 .discussion{margin-top:14px}
 .discussion-entry{padding:4px 0 16px}
 .discussion-entry+.discussion-entry{border-top:1px solid var(--line);padding-top:16px}
@@ -224,6 +229,7 @@ ins{color:var(--ins);background:var(--insbg);text-decoration:underline;text-deco
 .discussion-context{font-size:11px;color:var(--muted);margin-top:10px}
 .discussion-original{font:12px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .discussion-link{background:none;border:0;box-shadow:none;padding:0;margin-top:10px;font-size:12px;color:var(--accent)}
+.discussion-thread>.discussion-link{margin-right:12px}
 .discussion-link:hover{text-decoration:underline}
 .discussion-quote{font-family:var(--mono);font-size:12px;white-space:pre-wrap;color:var(--muted);margin:0 0 18px;padding:0 0 14px;border-bottom:1px solid var(--line)}
 
@@ -293,20 +299,22 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <button id="more" class="icon" title="Review tools (M)" aria-label="Review tools (M)"><svg width="16" height="14" viewBox="0 0 16 14" fill="currentColor" aria-hidden="true"><circle cx="3" cy="7" r="1"/><circle cx="8" cy="7" r="1"/><circle cx="13" cy="7" r="1"/></svg></button>
  <button id="help" class="icon" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts (?)">?</button>
 </header>
+<button id="comparison-versions" class="quiet" hidden></button>
 <div id="review-notice" class="review-notice" hidden><span>This review changed elsewhere. Reload to continue.</span><button id="reload-review">Reload review</button></div>
 <section id="review-summary" class="review-summary" hidden><div><h2>Review complete</h2><p id="review-state"></p><p id="handoff-hint" class="muted"></p></div><div class="summary-actions"><button id="finish-review" class="primary">Apply review</button><button id="copy-request" class="quiet">Copy agent request</button></div></section>
 <dialog id="actions">
  <div class="dialog-head"><h2>Review tools</h2><button id="close-actions" class="quiet">Close</button></div>
  <div id="retained-drafts" class="dialog-section" hidden></div>
- <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button></div>
+ <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button><button id="compare-saved" hidden>Compare saved changes</button><button id="editing-folder">Open editing folder</button></div>
+ <div id="host-tools" class="dialog-section" hidden><div class="dialog-actions"><button id="compare-versions">Compare versions</button><button id="review-library">Library</button><button id="saved-drafts">Saved source drafts</button><button id="review-setup">Setup</button></div></div>
  <div class="dialog-section"><h3>Share your review</h3><div class="dialog-actions"><button id="copy-request-more">Copy agent request</button><button id="choices">Export feedback</button><button id="export">Export selected patch</button></div></div>
- <div class="dialog-section"><h3>Discussion</h3><div class="dialog-actions"><button id="review-comments">Review comments</button><button id="show-feedback">All feedback</button><button id="import-responses">Import responses</button><input id="response-file" type="file" accept=".json,application/json" hidden></div><p id="response-error" class="error" role="status"></p></div>
+ <div class="dialog-section"><h3>Discussion</h3><div class="dialog-actions"><button id="review-comments">Next comment</button><button id="show-feedback">Browse comments</button><button id="import-responses">Import responses</button><input id="response-file" type="file" accept=".json,application/json" hidden></div><p id="response-error" class="error" role="status"></p></div>
  <div class="dialog-section"><h3>Whole passage (Shift+A / S / U)</h3><div class="dialog-actions" id="passage-actions"></div></div>
  <div class="dialog-section"><h3>Whole file (Ctrl+A / S / U)</h3><div class="dialog-actions" id="file-actions"></div></div>
  <div id="snapshot"></div><p>Choices and comments save locally. Apply writes your choices to the manuscript; undecided edits retain the proposed wording.</p>
 </dialog>
 <dialog id="feedback">
- <div class="dialog-head"><h2>All feedback</h2><button id="copy-request-feedback">Copy agent request</button><button id="close-feedback" class="quiet">Close</button></div>
+ <div class="dialog-head"><h2>Comments</h2><button id="copy-request-feedback">Copy agent request</button><button id="close-feedback" class="quiet">Close</button></div>
  <input id="feedback-search" type="search" aria-label="Search feedback" placeholder="Search comments and responses…"><div id="feedback-count" class="muted"></div>
  <div id="feedback-list"></div>
 </dialog>
@@ -320,25 +328,26 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <tr><th>Shift+A / Shift+S / Shift+U</th><td>Decide the whole passage</td></tr>
  <tr><th>Ctrl+A / Ctrl+S / Ctrl+U</th><td>Decide the whole file</td></tr>
  <tr><th>E</th><td>Edit the file at this passage</td></tr>
- <tr><th>Shift+E</th><td>Resume a saved file draft</td></tr>
- <tr><th>⌘/Ctrl+Shift+M</th><td>Comment on selected text or the current line</td></tr>
- <tr><th>⌘/Ctrl+Shift+R</th><td>Copy an agent request from the editor</td></tr>
+ <tr data-standalone><th>Shift+E</th><td>Resume a saved file draft</td></tr>
+ <tr data-standalone><th>⌘/Ctrl+Shift+M</th><td>Comment on selected text or the current line</td></tr>
+ <tr data-standalone><th>⌘/Ctrl+Shift+R</th><td>Copy an agent request from the editor</td></tr>
  <tr><th>C / Shift+C</th><td>Discussion for edit / passage</td></tr>
- <tr><th>Q</th><td>All saved feedback and responses</td></tr>
+ <tr><th>Q</th><td>Saved comments and responses</td></tr>
  <tr><th>⌘/Ctrl+Shift+[ / ]</th><td>Previous / next comment</td></tr>
+ <tr><th>Enter / Shift+Enter</th><td>Send comment / insert a newline in its field</td></tr>
  <tr><th>R</th><td>Copy an agent request to paste into your chat</td></tr>
- <tr><th>Ctrl+Enter / ⌘+Enter</th><td>Save source / comment; apply completed review</td></tr>
- <tr><th>⌘/Ctrl+S, ⌘/Ctrl+F</th><td>Save or find while editing source</td></tr>
- <tr><th>Esc</th><td>Return to review; keep source draft</td></tr>
+ <tr id="apply-shortcut"><th>Ctrl+Enter / ⌘+Enter</th><td>Save source / comment; apply completed review</td></tr>
+ <tr data-standalone><th>⌘/Ctrl+S, ⌘/Ctrl+F</th><td>Save or find while editing source</td></tr>
+ <tr data-standalone><th>Esc</th><td>Return to review; keep source draft</td></tr>
  <tr><th>T</th><td>This round / since baseline</td></tr>
  <tr><th>V</th><td>Switch rendered / word changes</td></tr>
  <tr><th>I</th><td>Show all edits in this passage</td></tr>
- <tr><th>B</th><td>Toggle file list</td></tr>
- <tr><th>+ / −</th><td>Enlarge / reduce typeset previews</td></tr>
- <tr><th>H / L or ← / →</th><td>Pan both previews left / right</td></tr>
- <tr><th>PageUp / PageDown</th><td>Scroll PDF panes or the passage</td></tr>
+ <tr data-standalone><th>B</th><td>Toggle file list</td></tr>
+ <tr data-standalone><th>+ / −</th><td>Enlarge / reduce typeset previews</td></tr>
+ <tr data-standalone><th>H / L or ← / →</th><td>Pan both previews left / right</td></tr>
+ <tr data-standalone><th>PageUp / PageDown</th><td>Scroll PDF panes or the passage</td></tr>
  <tr><th>G / M / ?</th><td>Next undecided / review tools / shortcuts</td></tr>
- </tbody></table><p>Holding a key does not repeat decisions. Shortcuts pause while typing. Tab and Enter work normally on controls.</p>
+ </tbody></table><p>Holding a key does not repeat decisions. Review shortcuts pause while typing. Tab and Enter work normally on controls.</p><p id="pdf-shortcut-hint" hidden>Use the review panel for whole-file shortcuts and Apply. Modified keys in PDF panes retain their usual behavior.</p>
 </dialog>
 <div class="shell">
  <aside aria-label="Changed files" id="files"></aside>

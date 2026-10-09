@@ -23,6 +23,7 @@ from .server import create_server
 from .session import ReviewSession
 from .application import is_applied
 from .editing import selected_content
+from .workspace import working_directory, same_repository
 from .http import LocalHandler
 from .setup import setup_status, install_skill
 
@@ -62,17 +63,26 @@ class Library:
         if len(repositories) > 1:
             return {'repositories': repositories}
         info = inspect_repo(repositories[0])
+        info['workspace'] = info['repo']
         info['checkpoints'] = []
-        reviews = [review for review in self.listing() if review['repo'] == info['repo']]
+        working_parent = None
+        reviews = [review for review in self.listing() if info['repo'] in (review['repo'], review.get('workspace'))]
+        if reviews and reviews[0].get('workspace') == info['repo']:
+            info['workspace'] = info['repo']
+            info['repo'] = reviews[0]['repo']
         for index, review in enumerate(reviews):
             store = ReviewStore(self.directory(review['id']))
             with store.transaction():
                 record = store.read()
-            info['checkpoints'].append({'revision': record['result'], 'subject': f'Round {len(reviews)-index}: ' + review['title'],
-                                        'date': review['created'][:10], 'short': record['result'][:7]})
+            if index == 0 and str(working_directory(record)) == info.get('workspace', info['repo']):
+                working_parent = record['metadata'].get('workspace_version')
+            info['checkpoints'].append({'revision': record['result'], 'subject': f'Round {len(reviews)-index} selected draft',
+                                        'date': review['created'][:10], 'short': record['result'][:7],
+                                        'review': review['id'], 'review_revision': record['revision'],
+                                        'entry': record['snapshot']['entry']})
         if info['checkpoints']:
             info['base'] = info['checkpoints'][0]['revision']
-        working, _ = working_snapshot(info['repo']) if info['dirty'] else (info['head'], info['head'])
+        working, _ = working_snapshot(info.get('workspace', info['repo']), parent=working_parent) if info['dirty'] or working_parent else (info['head'], info['head'])
         info['working_version'] = working
         revisions = list(dict.fromkeys([working, *[r['revision'] for r in info['commits']],
                                        *[r['revision'] for r in info['references']],
@@ -82,12 +92,17 @@ class Library:
         return info
 
     def begin(self, identifier):
-        store = ReviewStore(self.directory(identifier))
-        with store.transaction():
-            record = store.read()
+        session = ReviewSession(self.directory(identifier))
+        with session.store.transaction():
+            record = session.store.read()
             if record['drafts']:
                 raise ValueError('Save or discard the active source drafts before beginning another round.')
-            repo = Path(record['snapshot']['repo'])
+        session.edit_workspace({'revision': record['revision']})
+        with session.store.transaction():
+            record = session.store.read()
+            if record['drafts']:
+                raise ValueError('Save or discard the active source drafts before beginning another round.')
+            repo = working_directory(record)
             for file in record['snapshot']['files']:
                 path = repo / file['path']
                 actual = path.read_bytes().decode() if path.is_file() else None
@@ -96,7 +111,7 @@ class Library:
             starting, head = working_snapshot(repo, parent=record['result'])
             git(repo, 'update-ref', f'refs/manuscript-review/{identifier}/inputs/{starting}', starting)
             return {'review': identifier, 'revision': record['revision'], 'starting_version': starting,
-                    'baseline': record['baseline'], 'source_head': head}
+                    'baseline': record['baseline'], 'source_head': head, 'workspace': str(repo)}
 
     def repository_job(self, operation, *arguments):
         job = secrets.token_hex(12)
@@ -137,7 +152,8 @@ class Library:
             record = store.read()
         return {'status': 'ready', 'review': identifier, 'reused': reused,
                 'edits': sum(len(f['edits']) for f in record['snapshot']['files']),
-                'starting_version': record['snapshot']['base'], 'baseline': record['baseline']}
+                'starting_version': record['snapshot']['base'], 'proposed_version': record['snapshot']['proposed'],
+                'baseline': record['baseline']}
 
     def prepare(self, request, job):
         try:
@@ -152,8 +168,9 @@ class Library:
                 previous_store = ReviewStore(previous_dir)
                 with previous_store.transaction():
                     saved = previous_store.read()
-                if saved['snapshot']['repo'] != repo:
+                if not same_repository(saved['snapshot']['repo'], repo):
                     raise ValueError('Earlier feedback belongs to a different repository.')
+                repo = saved['snapshot']['repo']
                 if request.get('manuscript'):
                     self.jobs[job] = self.prepared_result(previous_id, reused=True)
                     return
@@ -171,15 +188,19 @@ class Library:
                     if pinned != starting:
                         raise ValueError('The starting version belongs to a different review.')
                     base_ref = starting
+            workspace = request.get('workspace') or (str(working_directory(saved)) if saved else repo)
+            if not same_repository(repo, workspace):
+                raise ValueError('The source checkout belongs to a different repository.')
             if request.get('manuscript'):
-                starting, head = working_snapshot(repo, parent=saved['result'] if saved else None)
+                starting, head = working_snapshot(workspace, parent=saved['result'] if saved else None)
                 base_ref = starting
             proposed_ref = request.get('proposed', 'working').strip()
             if request.get('manuscript'):
                 proposed_ref = starting
             base = git(repo, 'rev-parse', '--verify', base_ref + '^{commit}').decode().strip()
             if proposed_ref == 'working':
-                proposed, source_head = working_snapshot(repo, parent=base)
+                proposed, source_head = working_snapshot(workspace, parent=saved['metadata'].get('workspace_version', base)
+                                                         if saved and Path(workspace).resolve() == working_directory(saved) else base)
             else:
                 proposed = git(repo, 'rev-parse', '--verify', proposed_ref + '^{commit}').decode().strip()
                 # A branch comparison may be viewed/exported anywhere. Applying
@@ -215,7 +236,7 @@ class Library:
                 raise ValueError('No reviewable source changes in this pass. Add a reply in the existing round instead.')
             choices, comments, history = {}, {}, []
             if saved:
-                report = feedback_report(saved['snapshot'], saved['decisions'], saved['comments'], saved['history'])
+                report = feedback_report(saved['snapshot'], saved['decisions'], saved['comments'], saved['history'], saved['metadata']['id'])
                 history = build_history(saved['snapshot'], snapshot, saved, report, saved['history'], previous_dir)
             with self.lock, FileLock(self.home / '.prepare.lock'):
                 if (directory / 'review.json').exists():
@@ -232,7 +253,7 @@ class Library:
                     'base': base_ref, 'proposed': proposed_ref, 'entry': entry,
                     'base_label': f'Starting draft ({base[:7]})' if saved else request.get('base_label', base[:7]),
                     'baseline_label': saved['metadata'].get('baseline_label', saved['metadata']['base_label']) if saved else request.get('base_label', base[:7]),
-                    'proposal_label': ('Working copy' if proposed_ref == 'working' else proposed_ref) + f' ({proposed[:7]})',
+                    'proposal_label': request.get('proposed_label', 'Working copy' if proposed_ref == 'working' else proposed_ref) + f' ({proposed[:7]})',
                     'created': snapshot['created'], 'preview_status': 'queued' if entry else 'none',
                     'previous': previous_id, 'previous_revision': saved['revision'] if saved else None}
                 if saved:
@@ -240,6 +261,12 @@ class Library:
                         if previous_store.read()['revision'] != saved['revision']:
                             raise ValueError('The earlier review changed while preparing this round. Try again.')
                 record = new_record(snapshot, metadata, choices, comments, history, baseline=baseline)
+                if proposed_ref == 'working' or request.get('manuscript'):
+                    record['metadata'].update(workspace=workspace, workspace_version=proposed)
+                if saved:
+                    record['resolved'] = saved['resolved'].copy()
+                    if 'commentAgent' in saved['ui']:
+                        record['ui']['commentAgent'] = saved['ui']['commentAgent']
                 if request.get('manuscript'):
                     record['ui']['scope'] = 'manuscript'
                 atomic_json(directory / 'review.json', record)
@@ -261,8 +288,8 @@ class Library:
 
     def manuscript_request(self, repo, entry=''):
         repo = inspect_repo(str(Path(repo).expanduser().resolve()))['repo']
-        previous = next((review for review in self.listing() if review['repo'] == repo), None)
-        return {'repo': repo, 'entry': entry, 'manuscript': True,
+        previous = next((review for review in self.listing() if repo in (review['repo'], review.get('workspace'))), None)
+        return {'repo': previous['repo'] if previous else repo, 'entry': entry, 'manuscript': True,
                 'previous': previous['id'] if previous else None}
 
     def preview(self, identifier):
@@ -284,7 +311,15 @@ class Library:
         identifier = secrets.token_hex(12)
         destination = self.reviews / identifier
         destination.mkdir()
+        prefix = record['metadata']['id'] + ':'
+        def imported_origin(origin):
+            return identifier + ':' + origin[len(prefix):] if origin.startswith(prefix) else origin
+        record['resolved'] = [imported_origin(origin) for origin in record['resolved']]
+        for entry in record['history']:
+            entry['origin_id'] = imported_origin(entry['origin_id'])
         record['snapshot']['token'] = secrets.token_urlsafe(32)
+        record['metadata'].pop('workspace', None)
+        record['metadata'].pop('workspace_version', None)
         record['metadata'].update(id=identifier, imported_from=str(source))
         snapshot = record['snapshot']
         git(snapshot['repo'], 'update-ref', f'refs/manuscript-review/{identifier}/base', snapshot['base'])
@@ -360,7 +395,11 @@ def create_library_server(library, port=0):
                     result = {'url': library.open(request['id'], request.get('scope'))}
                 elif self.path == '/update':
                     metadata = library.metadata(request['id'])
-                    result = {'job': library.start({**metadata, 'proposed': 'working', 'previous': request['id']})}
+                    update = {**metadata, 'proposed': 'working', 'previous': request['id'],
+                              'require_changes': request.get('require_changes', False)}
+                    if 'expected_revision' in request:
+                        update['expected_revision'] = request['expected_revision']
+                    result = {'job': library.start(update)}
                 elif self.path == '/import':
                     result = {'review': library.import_review(request['source'])}
                 elif self.path == '/install-skill':

@@ -14,6 +14,7 @@ from manuscript_review.application import digest
 from manuscript_review.comparison import build_snapshot, compare, enrich_snapshot, git, stable_id
 from manuscript_review.history import attach
 from manuscript_review.storage import atomic_json, new_record, read_json
+from manuscript_review.migrations import port_thread_origins
 from manuscript_review.versions import source_version, selected_version
 
 
@@ -143,7 +144,7 @@ def import_v1(source, destination, reviewed_ref=None, history_source=None):
                 'base_label': meta.get('base_label', raw['base'][:7]),
                 'proposal_label': 'Your reviewed draft' if reviewed_ref else meta.get('proposal_label', raw['proposed'][:7]),
                 'preview_status': 'queued' if snapshot['entry'] else 'none', 'imported_from': str(source)}
-    record = new_record(snapshot, metadata, decisions, notes, history)
+    record = port_thread_origins(new_record(snapshot, metadata, decisions, notes, history))
     record['result'] = selected_version(record)
     record['revision'] = state['revision']
     record['applied'] = read_json(source / 'applied.json', {})

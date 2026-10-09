@@ -3,10 +3,11 @@ import copy
 import json
 import re
 import secrets
+import subprocess
 from datetime import datetime, timezone
-from .application import apply_record, write_file_edit, is_applied
-from .comparison import compare, enrich_snapshot, make_patch, validate_decisions, build_snapshot, read_blob, stable_id
-from .editing import selected_content, project_source
+from .application import apply_record, write_file_edit, is_applied, repository_lock, digest
+from .comparison import compare, enrich_snapshot, make_patch, validate_decisions, build_snapshot, read_blob, stable_id, git
+from .editing import selected_content, project_source, projection_blocks
 from .file_editing import file_replacements, replace_ranges
 from .anchors import SourceSpan, SourceMap
 from .feedback import feedback_report, validate_comments
@@ -16,6 +17,12 @@ from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
 from .documents import document_file, manuscript_files, source_point
 from .render_latex import RENDER_VERSION
+from .workspace import edit_checkout, working_directory, same_repository
+
+
+def local_edit_label(label, version):
+    label = re.sub(r'(?: \+ local edits)? \([a-f0-9]{7,40}\)$', '', label)
+    return f'{label} + local edits ({version[:7]})'
 
 
 class ReviewSession:
@@ -38,9 +45,18 @@ class ReviewSession:
     def report(self):
         with self.store.transaction():
             r = self.store.read()
-            return {**feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history']),
+            return {**feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'], r['resolved']),
                     'baseline': r['baseline'], 'result': r['result'],
-                    'previous': r['metadata'].get('previous'), 'drafts': r['drafts'], 'comparison': 'round'}
+                    'previous': r['metadata'].get('previous'), 'workspace': str(working_directory(r)),
+                    'drafts': r['drafts'], 'comparison': 'round'}
+
+    def agent_request(self, request):
+        from .dispatch import comment_task
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision(request, record)
+            return comment_task(record, self.directory, request['id'], skill=request.get('skill'),
+                                launcher=request.get('launcher'), dirty=bool(request.get('dirty')))
 
     def selected_patch(self, scope='round'):
         with self.store.transaction():
@@ -78,7 +94,7 @@ class ReviewSession:
             with self.comparison_lock:
                 key = (r['revision'], r['result'])
                 if self.cumulative_history is None or self.cumulative_history[0] != key:
-                    report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'])
+                    report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'])
                     entries = build_history(r['snapshot'], snapshot, r, report, r['history'], self.directory)
                     self.cumulative_history = (key, entries)
                 history = copy.deepcopy(self.cumulative_history[1])
@@ -98,7 +114,7 @@ class ReviewSession:
         context = self.review_context() if self.review_context else {}
         return {**snapshot, **r['metadata'], **context, 'base': snapshot['base'], 'proposed': snapshot['proposed'],
                 'revision': r['revision'], 'decisions': decisions, 'comments': comments,
-                'history': history, 'drafts': r['drafts'], 'ui': r['ui'], 'round_id': round_id(snapshot),
+                'history': history, 'resolved': r['resolved'], 'drafts': r['drafts'], 'ui': r['ui'], 'round_id': round_id(snapshot),
                 'scope': scope, 'baseline': r['baseline'], 'result': r['result'],
                 'documents': manifest.get('documents', {}) if valid else {},
                 'preview_status': preview_status, 'preview_error': r['metadata'].get(error_key),
@@ -116,15 +132,18 @@ class ReviewSession:
             self.store.commit(record)
         return {'message': 'Review position saved.'}
 
-    def editor(self, path):
-        """The selected file and its retained draft, with exact editor highlights."""
+    def editor(self, path, text=None, point=None):
+        """Project review spans onto selected wording or an exact external buffer."""
         with self.store.transaction():
             record = self.store.read()
         file = document_file(record, path)
         projected = project_source(file, record['decisions'])
         original = projected.content or ''
         draft = record['drafts'].get(path)
-        text = draft['text'] if draft else original
+        if text is None:
+            text = draft['text'] if draft else original
+        elif not isinstance(text, str) or len(text) > 1_000_000:
+            raise ValueError('An editor buffer needs at most 1,000,000 characters.')
         mapping = SourceMap(original, text)
         def offset(point):
             return len(text[:point].encode('utf-16-le')) // 2
@@ -133,6 +152,11 @@ class ReviewSession:
             span = mapping.project(SourceSpan(*projected.ranges[group['id']]))
             ranges.append({'id': group['id'], 'from': offset(span.start), 'to': offset(span.end),
                            'rejected': record['decisions'].get(group['id']) == 'reject'})
+        baseline = SourceMap(file['before'] or '', text)
+        passages = []
+        for passage in file['hunks']:
+            span = baseline.project(SourceSpan(*passage['base_span']))
+            passages.append({'id': passage['id'], 'from': offset(span.start), 'to': offset(span.end)})
         notes = []
         sources = {}
         for entry in record['history']:
@@ -144,8 +168,12 @@ class ReviewSession:
                 sources[version] = SourceMap(read_blob(record['snapshot']['repo'], version, path) or '', text)
             span = sources[version].project(SourceSpan(anchor['start'], anchor['end']))
             notes.append({'id': entry['id'], 'from': offset(span.start), 'to': offset(span.end), 'note': True})
+        position = None
+        if point is not None:
+            start = source_point(original, point)
+            position = offset(mapping.project(SourceSpan(start, start)).start)
         return {'revision': record['revision'], 'file': path, 'source': draft['source'] if draft else record['result'],
-                'original': original, 'text': text, 'ranges': ranges, 'notes': notes}
+                'original': original, 'text': text, 'ranges': ranges, 'passages': passages, 'notes': notes, 'position': position}
 
     def save_note(self, request):
         """Use ordinary discussion entries for comments on any source selection."""
@@ -282,6 +310,35 @@ class ReviewSession:
                 self.store.commit(record)
             return {'revision': record['revision'], 'message': 'Draft saved.' if draft is not None else 'Draft discarded.'}
 
+    def resolve_thread(self, request):
+        """Resolve one discussion origin without changing wording or its messages."""
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision(request, record)
+            if type(request.get('resolved')) is not bool:
+                raise ValueError('Choose resolved or unresolved for this thread.')
+            if not isinstance(request.get('id'), str) or not request['id']:
+                raise ValueError('Choose a saved discussion thread.')
+            report = feedback_report(record['snapshot'], record['decisions'], record['comments'], record['history'], record['metadata']['id'])
+            entries = [*report['comments'], *report['history']]
+            entry = next((entry for entry in entries if entry['thread_id'] == request['id']), None)
+            if entry is None:
+                entry = next((entry for entry in entries if request['id'] in (entry['id'], entry.get('discussion_id'))), None)
+            if entry is None:
+                raise ValueError('Choose a saved discussion thread.')
+            origin = entry['thread_id']
+            resolved = set(record['resolved'])
+            if (origin in resolved) != request['resolved']:
+                if request['resolved']:
+                    resolved.add(origin)
+                else:
+                    resolved.discard(origin)
+                record['resolved'] = sorted(resolved)
+                record['revision'] += 1
+                self.store.commit(record)
+            return {'revision': record['revision'], 'resolved': record['resolved'],
+                    'message': 'Comment resolved.' if request['resolved'] else 'Comment reopened.'}
+
     def import_responses(self, records, revision):
         with self.store.transaction():
             r = self.store.read()
@@ -289,10 +346,10 @@ class ReviewSession:
             if not isinstance(records, list):
                 raise ValueError('Responses must be a list of {id, text} records.')
             identifiers = {row.get('id') for row in records if isinstance(row, dict) and isinstance(row.get('id'), str)}
-            report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'])
+            report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'])
             notes = {n['id']: n['comment'] for n in report['comments'] if n['discussion_id'] in identifiers}
             state = {**r, 'comments': notes}
-            selected = feedback_report(r['snapshot'], r['decisions'], notes, r['history'])
+            selected = feedback_report(r['snapshot'], r['decisions'], notes, r['history'], r['metadata']['id'])
             entries = build_history(r['snapshot'], r['snapshot'], state, selected, r['history'], self.directory)
             r['history'] = add_responses(entries, records)
             r['comments'] = {key: text for key, text in r['comments'].items() if key not in notes}
@@ -304,7 +361,7 @@ class ReviewSession:
         with self.store.transaction():
             r = self.store.read()
             self.check_revision({'revision': revision, 'explanations': records}, r)
-            entries = add_explanations(r['snapshot'], r['decisions'], r['history'], records, self.directory)
+            entries = add_explanations(r['snapshot'], r['decisions'], r['history'], records, self.directory, r['metadata']['id'])
             if entries != r['history']:
                 r['history'] = entries
                 r['revision'] += 1
@@ -369,14 +426,112 @@ class ReviewSession:
             self.store.commit(record)
             return {'message': 'No source changes to save.'}
         after = replace_ranges(file['after'] or '', replacements)
+        changed = [SourceSpan(start, end) for start, end, _ in replacements]
+        revised = self.replace_proposal_file(previous, record, file, after, changed)
+        if selected_content(revised, record['decisions']) != text:
+            raise ValueError('The revision could not preserve all selected wording. Your draft is retained; revise a smaller region.')
+        record['drafts'].pop(path, None)
+        current = record['snapshot']
+        record['metadata'].update(preview_status='queued' if current['entry'] else 'none',
+                                  proposal_label=local_edit_label(previous['metadata']['proposal_label'], current['proposed']))
+        self.store.archive(previous)
+        write_file_edit(self.store, previous, record, file, selected_replacements, request['decisions'])
+        if current['entry']:
+            self.previews.queue()
+        return {'message': f'Saved changes to {path} and refreshed the word diff.'}
+
+    def edit_workspace(self, request):
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision(request, record)
+            with repository_lock(record['snapshot']['repo']):
+                workspace, version = edit_checkout(self.directory, record)
+                if 'workspace' not in record['metadata']:
+                    record['metadata'].update(workspace=str(workspace), workspace_version=version)
+                    record['applied'] = {file['path']: digest(read_blob(record['snapshot']['repo'], version, file['path']))
+                                         for file in record['snapshot']['files']}
+                    record['snapshot']['source_head'] = git(workspace, 'rev-parse', 'HEAD').decode().strip()
+                    record['revision'] += 1
+                    self.store.commit(record)
+            return {'revision': record['revision'], 'workspace': str(workspace), 'workspace_version': version}
+
+    def capture_file(self, request):
+        """Capture a saved native edit without writing source or moving the base."""
+        with self.store.transaction():
+            previous = self.store.read()
+            self.check_revision(request, previous)
+            metadata, snapshot = previous['metadata'], previous['snapshot']
+            if 'workspace' not in metadata or request.get('source') != metadata['workspace_version']:
+                raise ValueError('The source checkout changed. Reload this review before saving its edits.')
+            workspace = working_directory(previous)
+            if not same_repository(workspace, snapshot['repo']):
+                raise ValueError('Choose the review’s source checkout.')
+            path, text = request['file'], request['text']
+            destination = workspace / path
+            if (not isinstance(text, str) or len(text) > 1_000_000 or '\0' in text
+                    or not path.endswith(('.tex', '.bib', '.md', '.txt', '.typ', '.rst'))
+                    or destination.is_symlink() or not destination.resolve().is_relative_to(workspace)):
+                raise ValueError('Choose a regular manuscript source file of at most 1,000,000 characters.')
+            if previous['drafts'].get(path):
+                raise ValueError('Save or discard this file’s retained draft before capturing native edits.')
+            with repository_lock(snapshot['repo']):
+                head = git(workspace, 'rev-parse', 'HEAD').decode().strip()
+                if head != snapshot['source_head']:
+                    try:
+                        git(workspace, 'merge-base', '--is-ancestor', snapshot['source_head'], head)
+                    except subprocess.CalledProcessError:
+                        raise ValueError('The editing checkout moved away from B. Return to the review checkout.') from None
+                if not destination.is_file() or destination.read_bytes().decode() != text:
+                    raise ValueError('The saved file changed again. Save its latest text before capturing the diff.')
+                before_blob = read_blob(snapshot['repo'], metadata['workspace_version'], path)
+                before = before_blob or ''
+                if before_blob is not None and before == text:
+                    return {'revision': previous['revision'], 'message': 'No source changes to capture.'}
+                try:
+                    file = document_file(previous, path)
+                except ValueError:
+                    if read_blob(snapshot['repo'], snapshot['proposed'], path) is not None:
+                        raise
+                    file = enrich_snapshot({'files': [compare(path, read_blob(snapshot['repo'], snapshot['base'], path), None)]})['files'][0]
+                if (file['before'] is None and file['after'] is None) or (before_blob is None and text == ''):
+                    replacements = [(0, len(file['after'] or ''), text)]
+                else:
+                    groups = {group['id']: group for group in file['edits']}
+                    working_choices = {identifier: 'reject' for _, _, start, end, identifier in projection_blocks(file, before)
+                                       if identifier and before[start:end] == groups[identifier]['old']}
+                    replacements, _ = file_replacements(file, working_choices, text)
+                record = copy.deepcopy(previous)
+                after = replace_ranges(file['after'] or '', replacements)
+                changed = [SourceSpan(start, end) for start, end, _ in replacements]
+                self.replace_proposal_file(previous, record, file, after, changed)
+                current = record['snapshot']
+                record['metadata']['workspace_version'] = source_version(
+                    snapshot['repo'], metadata['workspace_version'], {path: text},
+                    'refs/manuscript-review/' + metadata['id'] + '/workspace',
+                    'Manuscript Review saved source')
+                record['metadata'].update(proposal_label=local_edit_label(metadata['proposal_label'], current['proposed']),
+                                          preview_status='queued' if current['entry'] else 'none')
+                current['source_head'] = head
+                record['applied'][path] = digest(text)
+                record['revision'] += 1
+                self.store.archive(previous)
+                self.store.commit(record)
+        if current['entry']:
+            self.previews.queue()
+        return {'revision': record['revision'], 'data': self.view(), 'message': f'Saved edits to {path}; comparison updated.'}
+
+    def replace_proposal_file(self, previous, record, file, after, changed):
+        path, old = file['path'], previous['snapshot']
         current = record['snapshot']
         revised = enrich_snapshot({'files': [compare(path, file['before'], after)]})['files'][0]
-        current['files'] = [f for f in current['files'] if f['path'] != path] + [revised]
+        if any(f['path'] == path for f in current['files']):
+            current['files'] = [revised if f['path'] == path else f for f in current['files']]
+        else:
+            current['files'].append(revised)
         current['files'] = [f for f in current['files'] if f['before'] != f['after']]
         current['proposed'] = source_version(old['repo'], old['proposed'], {path: after},
                                             'refs/manuscript-review/' + record['metadata']['id'] + '/versions',
                                             'Manuscript Review file revision')
-        changed = [SourceSpan(start, end) for start, end, _ in replacements]
         affected = {item['id'] for item in [*file['edits'], *file['hunks']]
                     if any(span.overlaps(SourceSpan(*item['proposal_span'])) for span in changed)}
         valid = {g['id'] for f in current['files'] for g in f['edits']}
@@ -385,25 +540,16 @@ class ReviewSession:
             raise ValueError('The revision changes another decision’s alignment. Your draft is retained; revise a smaller region.')
         archived = {key: value for key, value in record['comments'].items() if key in affected or key not in valid_notes}
         state = {**record, 'comments': archived}
-        report = feedback_report(old, record['decisions'], archived, record['history'])
+        report = feedback_report(old, record['decisions'], archived, record['history'], record['metadata']['id'])
         record['history'] = build_history(old, current, state, report, record['history'], self.directory)
         old_edits = {g['id'] for g in file['edits']} - affected
         record['decisions'] = {key: value for key, value in record['decisions'].items() if key in valid and key not in affected}
         for group in revised['edits']:
             if group['id'] not in old_edits:
                 record['decisions'][group['id']] = 'accept'
-        if selected_content(revised, record['decisions']) != text:
-            raise ValueError('The revision could not preserve all selected wording. Your draft is retained; revise a smaller region.')
         record['comments'] = {key: value for key, value in record['comments'].items() if key not in archived}
-        record['drafts'].pop(path, None)
         record['result'] = selected_version(record)
-        record['metadata'].update(preview_status='queued' if current['entry'] else 'none',
-                                  proposal_label=f'Your revision ({current["proposed"][:7]})')
-        self.store.archive(previous)
-        write_file_edit(self.store, previous, record, file, selected_replacements, request['decisions'])
-        if current['entry']:
-            self.previews.queue()
-        return {'message': f'Saved changes to {path} and refreshed the word diff.'}
+        return revised
 
     def resume_previews(self):
         with self.store.transaction():

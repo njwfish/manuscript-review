@@ -1,0 +1,432 @@
+{
+  "name": "manuscript-review",
+  "displayName": "Manuscript Review",
+  "activationEvents": [
+    "onUri"
+  ],
+  "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
+  "version": "0.1.13",
+  "publisher": "njwfish",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/njwfish/manuscript-review.git"
+  },
+  "engines": {
+    "vscode": "^1.114.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "manuscriptReview.review",
+        "title": "Review manuscript",
+        "category": "Manuscript Review",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "manuscriptReview.open",
+        "title": "Open manuscript review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.focusedReview",
+        "title": "Focus review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.reviewSavedChanges",
+        "title": "Review saved source changes",
+        "category": "Manuscript Review",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "manuscriptReview.refresh",
+        "title": "Reload review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.comment",
+        "title": "Comment on selection",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.previousComment",
+        "title": "Previous comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.nextComment",
+        "title": "Next comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.livePDF",
+        "title": "Show location in LaTeX Workshop PDF",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.reply",
+        "title": "Add comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.editComment",
+        "title": "Edit comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.saveComment",
+        "title": "Save comment",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.cancelComment",
+        "title": "Cancel edit",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.viewCommentChange",
+        "title": "View change",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.compare",
+        "title": "Compare manuscript versions",
+        "category": "Manuscript Review",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "manuscriptReview.clone",
+        "title": "Clone manuscript from GitHub",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.fetch",
+        "title": "Fetch manuscript history",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.library",
+        "title": "Browse review library",
+        "category": "Manuscript Review",
+        "icon": "$(library)"
+      },
+      {
+        "command": "manuscriptReview.import",
+        "title": "Import saved review",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.setup",
+        "title": "Setup and agent skill",
+        "category": "Manuscript Review",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "manuscriptReview.sourceDrafts",
+        "title": "Saved source drafts",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.sendComment",
+        "title": "Send to agent",
+        "category": "Manuscript Review",
+        "icon": "$(send)"
+      },
+      {
+        "command": "manuscriptReview.commentAgent",
+        "title": "Send to agent",
+        "category": "Manuscript Review",
+        "icon": "$(send)"
+      },
+      {
+        "command": "manuscriptReview.chooseAgent",
+        "title": "Choose comment agent",
+        "category": "Manuscript Review",
+        "icon": "$(chevron-down)"
+      },
+      {
+        "command": "manuscriptReview.resolveComment",
+        "title": "Resolve comment",
+        "category": "Manuscript Review",
+        "icon": "$(check)"
+      },
+      {
+        "command": "manuscriptReview.reopenComment",
+        "title": "Reopen comment",
+        "category": "Manuscript Review",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "manuscriptReview.commentFilter",
+        "title": "Comment navigation",
+        "category": "Manuscript Review",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "manuscriptReview.editingFolder",
+        "title": "Open editing folder",
+        "category": "Manuscript Review",
+        "icon": "$(folder-opened)"
+      }
+    ],
+    "configuration": {
+      "title": "Manuscript Review",
+      "properties": {
+        "manuscriptReview.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Python 3.12 or newer executable. Leave empty to find a supported interpreter automatically.",
+          "scope": "machine-overridable"
+        },
+        "manuscriptReview.libraryDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Review library directory. Leave empty to use the default user library.",
+          "scope": "machine-overridable"
+        }
+      }
+    },
+    "menus": {
+      "comments/commentThread/context": [
+        {
+          "command": "manuscriptReview.reply",
+          "when": "commentController == manuscript-review",
+          "group": "inline@1"
+        },
+        {
+          "command": "manuscriptReview.sendComment",
+          "when": "commentController == manuscript-review",
+          "group": "inline@0"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "manuscriptReview.editComment",
+          "when": "comment == manuscriptReview.editable",
+          "group": "inline"
+        }
+      ],
+      "comments/comment/context": [
+        {
+          "command": "manuscriptReview.saveComment",
+          "when": "comment == manuscriptReview.editing",
+          "group": "inline"
+        },
+        {
+          "command": "manuscriptReview.cancelComment",
+          "when": "comment == manuscriptReview.editing",
+          "group": "inline"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "manuscriptReview.chooseAgent",
+          "when": "commentController == manuscript-review",
+          "group": "inline@2"
+        },
+        {
+          "command": "manuscriptReview.viewCommentChange",
+          "when": "commentThread == manuscriptReview || commentThread == manuscriptReview.resolved",
+          "group": "inline"
+        },
+        {
+          "command": "manuscriptReview.commentAgent",
+          "when": "commentThread == manuscriptReview || commentThread == manuscriptReview.resolved",
+          "group": "inline@1"
+        },
+        {
+          "command": "manuscriptReview.resolveComment",
+          "when": "commentThread == manuscriptReview",
+          "group": "inline@0"
+        },
+        {
+          "command": "manuscriptReview.reopenComment",
+          "when": "commentThread == manuscriptReview.resolved",
+          "group": "inline@0"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "manuscriptReview.review",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/",
+          "group": "navigation@21"
+        },
+        {
+          "command": "manuscriptReview.comment",
+          "when": "manuscriptReview.source && resourceScheme == file",
+          "group": "navigation@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "manuscriptReview.reply",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.editComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.saveComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.cancelComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.viewCommentChange",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.sendComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.commentAgent",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.resolveComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.reopenComment",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "manuscriptReview.review",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/",
+          "group": "navigation@3"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "manuscriptReview.compare",
+          "when": "view == manuscriptReview.start",
+          "group": "review@2"
+        },
+        {
+          "command": "manuscriptReview.library",
+          "when": "view == manuscriptReview.start",
+          "group": "navigation@2"
+        },
+        {
+          "command": "manuscriptReview.reviewSavedChanges",
+          "when": "view == manuscriptReview.start && manuscriptReview.active",
+          "group": "review@1"
+        },
+        {
+          "command": "manuscriptReview.setup",
+          "when": "view == manuscriptReview.start",
+          "group": "setup@1"
+        },
+        {
+          "command": "manuscriptReview.clone",
+          "when": "view == manuscriptReview.start",
+          "group": "setup@2"
+        },
+        {
+          "command": "manuscriptReview.import",
+          "when": "view == manuscriptReview.start",
+          "group": "setup@3"
+        },
+        {
+          "command": "manuscriptReview.commentFilter",
+          "when": "view == manuscriptReview.start && manuscriptReview.active",
+          "group": "review@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "default:type",
+        "key": "shift+enter",
+        "args": {
+          "text": "\n"
+        },
+        "when": "commentEditorFocused && commentController == manuscript-review && !inComposition"
+      },
+      {
+        "command": "editor.action.submitComment",
+        "key": "enter",
+        "when": "commentEditorFocused && commentController == manuscript-review && !commentIsEmpty && !suggestWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.comment",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "manuscriptReview.source && editorTextFocus"
+      },
+      {
+        "command": "manuscriptReview.previousComment",
+        "key": "ctrl+alt+[",
+        "mac": "cmd+alt+[",
+        "when": "manuscriptReview.source && editorTextFocus"
+      },
+      {
+        "command": "manuscriptReview.nextComment",
+        "key": "ctrl+alt+]",
+        "mac": "cmd+alt+]",
+        "when": "manuscriptReview.source && editorTextFocus"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "manuscriptReview",
+          "title": "Manuscript Review",
+          "icon": "dist/review.svg"
+        }
+      ]
+    },
+    "views": {
+      "manuscriptReview": [
+        {
+          "id": "manuscriptReview.start",
+          "name": "Manuscript Review"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "manuscriptReview.start",
+        "when": "workspaceFolderCount > 0",
+        "contents": "[Review manuscript](command:manuscriptReview.review)\n\n[Compare versions](command:manuscriptReview.compare) of this manuscript."
+      },
+      {
+        "view": "manuscriptReview.start",
+        "when": "workspaceFolderCount == 0",
+        "contents": "[Open manuscript folder](command:vscode.openFolder)\n\nOr [clone from GitHub](command:manuscriptReview.clone)."
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node src/build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-$npm_package_version.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "pdfjs-dist": "6.2.108"
+  }
+}

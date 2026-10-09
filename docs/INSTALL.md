@@ -1,5 +1,23 @@
 # Installation
 
+## VS Code extension
+
+VS Code is the primary interface. Download the `.vsix` from the
+[latest release](https://github.com/njwfish/manuscript-review/releases/latest), then
+install it through **Extensions → Install from VSIX…**. Alternatively,
+[build it from source](../vscode/README.md#build). The extension includes the engine, comparison viewer, and agent
+skill. Use VS Code 1.114 or later. Its workspace host needs macOS or Linux, Git, and Python 3.12 or later. Set
+**Manuscript Review: Python Path** when `python3` refers to a different interpreter.
+LaTeX and Poppler enable typeset previews, as described below.
+
+Run **Manuscript Review: Setup and agent skill** to check prerequisites and install
+the bundled skill for Codex or Claude Code. **Open manuscript review** opens a local
+manuscript; **Clone manuscript from GitHub** clones into a chosen directory and opens
+that folder. **Compare manuscript versions** selects commits or saved checkpoints.
+The [VS Code guide](../vscode/README.md) covers editing, comments, review rounds, and
+Apply. Reviews use the default library unless **Library Directory** is set; an existing
+library retains its choices, replies, and history. The standalone app is optional.
+
 ## macOS app
 
 Download the app ZIP from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** into **Applications**. Open the app to start reviewing. The app supports Apple Silicon Macs running macOS 13 or later and includes its Python runtime.
@@ -20,15 +38,51 @@ For typeset equation and algorithm previews, install a TeX distribution such as 
 brew install poppler
 ```
 
-The app finds tools on your PATH and in `/Library/TeX/texbin`, `/opt/homebrew/bin`, and `/usr/local/bin`. Word-level review works without these optional preview tools. Manuscripts with custom styles or packages need their usual TeX dependencies installed.
+The app finds tools on your PATH and in `~/.local/bin`, `/Library/TeX/texbin`, `/opt/homebrew/bin`, and `/usr/local/bin`. Word-level review works without these optional preview tools. Manuscripts with custom styles or packages need their usual TeX dependencies installed.
 
 To update, quit the app and replace it with the new release. Your review library stays in `~/Library/Application Support/Manuscript Review`, outside the app bundle.
+
+## Agent CLIs
+
+Standalone comment dispatch needs the CLI for the provider you choose. Install a current [Codex CLI](https://learn.chatgpt.com/docs/cli) or [Claude Code](https://code.claude.com/docs/en/setup), sign in, and keep its executable on PATH. You can install either or both; ordinary review and manual agent requests work without them. The VS Code interface uses the providers' native extensions instead.
+
+On macOS, install Codex with Homebrew and sign in:
+
+```sh
+brew install --cask codex
+codex login
+codex --version
+```
+
+Install Claude Code with its native installer, then start it in your manuscript directory to sign in and confirm that you trust the folder:
+
+```sh
+curl -fsSL https://claude.ai/install.sh | bash
+cd /path/to/manuscript
+claude
+```
+
+Update existing installations with:
+
+```sh
+codex update
+claude update
+```
+
+Standalone dispatch is tested with Codex CLI **0.162.0** and Claude Code **2.1.295**. It uses `codex login status`, `codex exec --add-dir … -`, and `claude --bg --add-dir … -- PROMPT`. Codex receives the prompt through stdin; the `--` keeps Claude's directory flag from consuming it. Both providers use your configured model and permissions. Replies need write access to the review library; source revisions also need access to the manuscript and its Git objects and review refs. Configure that access through the provider. The app does not change your global settings.
+
+Codex retains its execution sessions for `codex resume`. Claude retains background sessions in `claude agents`; use `claude attach SESSION_ID` to inspect one and handle any pending approvals. The app launches no provider UI. Desktop session visibility depends on the provider; CLI persistence does not guarantee automatic appearance in a desktop app. Claude's `claude --desktop --resume SESSION_ID` provides an explicit desktop handoff when wanted. See the providers' [Codex execution guide](https://learn.chatgpt.com/docs/non-interactive-mode) and [Claude CLI reference](https://code.claude.com/docs/en/cli-reference) for session controls.
 
 ## Install the agent skill
 
 The skill gives an agent the commands and review cycle needed to read your comments, append responses, and create another round. It requires an agent with local filesystem and shell access on the same machine as your manuscript and review library.
 
-Open **Library → Setup** and click **Install skill** beside Codex or Claude Code. The app links its bundled skill into the agent’s personal skills directory, preserving any existing skill. Start a new agent session after installing.
+In VS Code, run **Setup and agent skill** and choose your agent. The extension retains
+its command engine in VS Code storage and links the bundled skill into the agent's
+personal directory. Extension updates refresh this stable skill directory. In the
+standalone app, use **Library → Setup** and click **Install skill** beside Codex or
+Claude Code. Both installers preserve existing personal skills; replace an older link
+explicitly when changing installations. Start a new agent session after installing.
 
 For manual setup with Codex, link the bundled skill into its [personal skills directory](https://developers.openai.com/codex/skills):
 
@@ -58,10 +112,13 @@ Then use **Copy agent request** in a review and paste the prompt into your agent
 
 ## Run from source
 
+The `main` branch contains both interfaces and their shared engine. No separate
+standalone or VS Code branch is needed.
+
 The browser interface runs on macOS and Linux with Git and Python 3.12 or later. The native macOS app is the packaged desktop interface; Windows is not currently supported.
 
 ```sh
-git clone https://github.com/njwfish/manuscript-review.git
+git clone --branch main https://github.com/njwfish/manuscript-review.git
 cd manuscript-review
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
@@ -88,13 +145,20 @@ Keep the checkout and its `.venv` in place while using the linked skill. See [De
 
 ## Upgrade an existing library
 
-Version 0.11 uses full-file source drafts. Before opening an existing version 0.10 library in the updated app, quit the old app, replace it, and run:
+For the VS Code extension, run **Setup and agent skill → Copy agent command**. Setup
+prepares its command launcher even when an older library cannot open. Close VS Code
+and any standalone review windows, paste that command into a terminal, and append
+`migrate`. For another library, append `--home /absolute/path/to/library migrate`
+instead. Reopen the extension after migration. The command preserves original records
+and leaves manuscript files unchanged.
+
+Version 0.14.2 adds independent thread resolution. Before opening an earlier library, close its review interfaces, replace the standalone app if installed, and run:
 
 ```sh
 "/Applications/Manuscript Review.app/Contents/MacOS/manuscript-review-agent" migrate
 ```
 
-For a source installation, use `.venv/bin/manuscript-review-agent migrate`. Add `--home /path/to/library` before `migrate` for a separate library. The command preserves review choices, comments, replies, and source versions, combines saved passage drafts into file drafts, and archives each original record under `migration-v5/review.json`. It leaves manuscript files unchanged and is safe to repeat. Then open the updated app.
+For a source installation, use `.venv/bin/manuscript-review-agent migrate`. Add `--home /path/to/library` before `migrate` for a separate library. The command preserves review choices, comments, replies, and source versions, starts existing threads unresolved, and archives each original record under `migration-vN/review.json`, where N is its previous schema version. Older passage drafts become file drafts. It leaves manuscript files unchanged and is safe to repeat. Then open the updated app.
 
 ## Prepare a manuscript folder
 
