@@ -11,7 +11,7 @@ import {build} from 'esbuild';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const bundle=build({entryPoints:[path.join(root,'src/extension.mjs')],bundle:true,write:false,platform:'node',format:'cjs',
   plugins:[{name:'test-adapters',setup(builder){
-    builder.onResolve({filter:/^\.\/(runtime|comments|panel|decorations|agent|python|viewer-server|dispatch)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
+    builder.onResolve({filter:/^\.\/(runtime|comments|panel|decorations|agent|python|viewer-server|dispatch|sidebar)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
   }}],external:['vscode']}).then(result=>result.outputFiles[0].text);
 const nativeRequire=createRequire(import.meta.url);
 const reviewId='a'.repeat(24);
@@ -42,7 +42,7 @@ async function fixture(t,options={}) {
       async openTextDocument(requested){calls.push({kind:'document',file:requested.fsPath,content:requested.content,language:requested.language});if(requested.content!==undefined)return {uri:{scheme:'untitled'},getText:()=>requested.content};assert.equal(requested.fsPath,source);return doc;},
       createFileSystemWatcher(pattern){const watcher={pattern,onDidChange:event('record-change'),onDidCreate:event('record-create'),dispose(){this.disposed=true;}};watchers.push(watcher);return watcher;},
       onDidChangeTextDocument:event('document-change'),onDidSaveTextDocument:event('document-save')},
-    window:{activeTextEditor:editor,visibleTextEditors:[editor],tabGroups:{activeTabGroup:{viewColumn:1}},
+    window:{activeTextEditor:options.active===false?undefined:editor,visibleTextEditors:[editor],tabGroups:{activeTabGroup:{viewColumn:1}},
       registerTreeDataProvider(id,provider){calls.push({kind:'view',id,provider});return disposable();},
       createOutputChannel:()=>({appendLine:text=>output.push(text),dispose(){}}),
       async showErrorMessage(message){errors.push(message);},
@@ -52,41 +52,49 @@ async function fixture(t,options={}) {
       async showOpenDialog(configuration){calls.push({kind:'folder',configuration});return options.folder?.map(uri);},
       registerUriHandler(handler){events.uri=handler.handleUri;return disposable();},
       async showQuickPick(items,configuration){calls.push({kind:'pick',items,configuration});return options.pick?.(items,configuration);},
+      createQuickPick(){
+        const handlers={},picker={onDidAccept:fn=>listen('accept',fn),onDidHide:fn=>listen('hide',fn),
+          show(){calls.push({kind:'pick',items:this.items,configuration:{title:this.title}});const item=options.pick?.(this.items,{title:this.title});if(item===undefined)this.hide();else{this.selectedItems=[item];handlers.accept();}},
+          hide(){handlers.hide();},dispose(){}};
+        function listen(name,fn){handlers[name]=fn;return {dispose(){delete handlers[name];}};}return picker;
+      },
       async showTextDocument(document,configuration){calls.push({kind:'show-source',document,configuration});this.activeTextEditor=editor;return editor;},
       onDidChangeVisibleTextEditors:event('visible-change'),onDidChangeActiveTextEditor:event('active-change'),onDidChangeTextEditorSelection:event('selection-change')},
     extensions:{getExtension(id){calls.push({kind:'extension',id});return options.workshop===false?undefined:{async activate(){calls.push({kind:'activate-workshop'});}};}}};
-  let selected,panelCallbacks,commentsCallbacks;
+  let selected,panelCallbacks,commentsCallbacks,preparedRepo;
   const runtime={get review(){return selected?{...selected}:undefined;},
     async library(route,body){calls.push({kind:'library',route,body});if(route==='/import')return {review:reviewId};return route==='/inspect'
-      ?{repo,base:'1'.repeat(40),head:'2'.repeat(40),entries:options.entries||['main.tex'],...options.inspect}: {reviews:options.reviews||[]};},
-    async prepare(route,body){calls.push({kind:'prepare',route,body});return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
-    async open(id){calls.push({kind:'open',id});selected={id,repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
-    async data(){return {id:selected.id,repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/workspace'){selected.workspace=options.workspace||repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/agent-request')return {prompt:'Scoped comment request',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+      ?{repo,base:'1'.repeat(40),head:'2'.repeat(40),entries:options.entries||['main.tex'],...options.inspect}: {reviews:typeof options.reviews==='function'?options.reviews(repo):options.reviews||[]};},
+    async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
+    async open(id){calls.push({kind:'open',id});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
+    async data(){return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:{},comments:{},history:[],resolved:[],drafts:options.drafts||{}};},
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/agent-request')return {prompt:'Scoped comment request',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const panel={setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
     async refresh(options){calls.push({kind:'panel-refresh',options});},changed(){calls.push({kind:'panel-change'});},dispose(){calls.push({kind:'dispose-panel'});}};
-  const comments={setAgent(label){calls.push({kind:'comment-agent',label});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){calls.push({kind:'annotate',editor});},
+  const comments={setEnabled(enabled){calls.push({kind:'comments-enabled',enabled});},setAgent(label){calls.push({kind:'comment-agent',label});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){await commentsCallbacks.onSource(editor.document);calls.push({kind:'annotate',editor});},
     async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
-  const {sourceFile}=await import('../src/comments.mjs');
+  const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
+  let sidebarCallbacks;
   const adapters={
+    'test-sidebar':{createSidebar(_vscode,_context,callbacks){sidebarCallbacks=callbacks;return {async refresh(){calls.push({kind:'sidebar-refresh'});},async show(){calls.push({kind:'sidebar-show'});},dispose(){}};},sidebarState:(...values)=>values},
     'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
     'test-python':{async resolvePython(configured){calls.push({kind:'resolve-python',configured});await options.onResolvePython?.(configured);return configured||'/automatic/python';}},
     'test-agent':{createAgentTools(configuration){calls.push({kind:'create-agent-tools',configuration});return {launcher:'/stored/skills/manuscript-review/scripts/review-agent',command:"'/stored/skills/manuscript-review/scripts/review-agent'",skill:'/stored/skills/manuscript-review',async setup(){await options.onToolsSetup?.(configuration);calls.push({kind:'prepare-tools',python:'/python'});return {python:'/python',git:true,preview_tools:{},agents:[{id:'codex',name:'Codex'}]};},async install(agent){calls.push({kind:'install-skill',agent});return {message:'Skill installed.'};}};}},
     'test-runtime':{createRuntime(configuration){calls.push({kind:'create-runtime',configuration});return runtime;}},
     'test-panel':{createPanel(_vscode,_context,_runtime,callbacks){panelCallbacks=callbacks;return panel;}},
-    'test-comments':{sourceFile,createComments(_vscode,_runtime,callbacks){commentsCallbacks=callbacks;return comments;}},
+    'test-comments':{sourceFile,sourceDocument,createComments(_vscode,_runtime,callbacks){commentsCallbacks=callbacks;return comments;}},
     'test-decorations':{createDecorations(){return {update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
   };
-  const preferences=new Map([['commentAgent',options.agent]]);
-  const module={exports:{}},context={globalState:{get:key=>preferences.get(key),async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
+  const preferences=new Map([['commentAgent',options.agent],...(options.commentsEnabled===undefined?[]:[['commentsEnabled',options.commentsEnabled]])]);
+  const module={exports:{}},context={globalState:{get:(key,fallback)=>preferences.has(key)?preferences.get(key):fallback,async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
   vm.runInNewContext(await bundle,{exports:module.exports,module,require:name=>name==='vscode'?vscode:adapters[name]||nativeRequire(name),process,AbortController,setTimeout,clearTimeout,console},{filename:'extension.cjs'});
-  module.exports.activate(context);t.after(()=>module.exports.deactivate());
+  module.exports.activate(context);await new Promise(resolve=>setImmediate(resolve));t.after(()=>module.exports.deactivate());
   return {vscode,runtime,doc,editor,source,repo,calls,errors,contexts,events,watchers,deactivate:()=>module.exports.deactivate(),
     command:(name,...args)=>handlers.get('manuscriptReview.'+name)(...args),
-    get panelCallbacks(){return panelCallbacks;},get commentsCallbacks(){return commentsCallbacks;}};
+    get sidebarCallbacks(){return sidebarCallbacks;},get panelCallbacks(){return panelCallbacks;},get commentsCallbacks(){return commentsCallbacks;}};
 }
 
 test('activation is lazy and an untrusted workspace cannot start the backend',async t=>{
@@ -134,7 +142,7 @@ test('choosing among multiple root documents forwards the selected entry',async 
   assert.equal(f.calls.filter(call=>call.kind==='pick').length,1);
 });
 
-test('initial annotation retains the native editor selection across review setup and webview focus',async t=>{
+test('initial annotation prepares comments without a round picker or taking native editor focus',async t=>{
   const f=await fixture(t,{onPanelShow:vscode=>{vscode.window.activeTextEditor=undefined;}});
   await f.command('comment');
   assert.equal(f.calls.find(call=>call.kind==='annotate').editor,f.editor);
@@ -288,8 +296,8 @@ test('saved-change review requests a nonempty round against the exact reviewed r
 });
 
 test('live source PDF navigation delegates to Workshop without starting the review service',async t=>{
-  const f=await fixture(t);await f.command('livePDF');
-  assert.equal(f.calls.some(call=>call.kind==='create-runtime'),false);
+  const f=await fixture(t,{commentsEnabled:false});const starts=f.calls.filter(call=>call.kind==='create-runtime').length;await f.command('livePDF');
+  assert.equal(f.calls.filter(call=>call.kind==='create-runtime').length,starts);
   assert.equal(f.calls.find(call=>call.kind==='extension').id,'James-Yu.latex-workshop');
   assert.equal(f.calls.some(call=>call.kind==='activate-workshop'),true);
   assert.equal(f.calls.some(call=>call.kind==='command'&&call.name==='latex-workshop.synctex'),true);
@@ -333,19 +341,19 @@ test('source navigation is cancelled if the selected review changes during proje
 test('native comparison chooses pinned commits and the saved working tree',async t=>{
   const base='1'.repeat(40),f=await fixture(t,{inspect:{references:[{name:'origin/main',revision:base,subject:'Starting manuscript'}],commits:[{subject:'Revision',short:'2222222',date:'2026-10-08',revision:'2'.repeat(40)}]},pick:items=>items[0]});
   await f.command('compare');
+  await f.sidebarCallbacks.load();await f.sidebarCallbacks.onAction('review');
   const comparison=f.calls.find(call=>call.kind==='prepare'&&call.route==='/prepare');
   assert.deepEqual(JSON.parse(JSON.stringify(comparison.body)),{repo:f.repo,base,base_label:'origin/main',proposed:'working',proposed_label:'Working files',entry:'main.tex'});
-  assert.deepEqual(f.calls.filter(call=>call.kind==='pick').map(call=>call.configuration.title),['Compare versions: manuscript']);
+  assert.equal(f.calls.some(call=>call.kind==='pick'),false);
   assert.equal(f.calls.filter(call=>call.kind==='show-review').length,1);
 });
 
 test('commit comparison refuses unsaved working files and cancelled endpoints',async t=>{
   const options={inspect:{references:[{name:'main',revision:'1'.repeat(40)}]},pick:items=>items[0]},f=await fixture(t,options);
-  f.doc.isDirty=true;await f.command('compare');
-  assert.match(f.errors[0],/Save or discard/);
+  f.doc.isDirty=true;await f.command('compare');await f.sidebarCallbacks.load();
+  await assert.rejects(f.sidebarCallbacks.onAction('review'),/Save or discard/);
   assert.equal(f.calls.some(call=>call.kind==='prepare'),false);
-  f.doc.isDirty=false;options.pick=()=>undefined;await f.command('compare');
-  assert.equal(f.errors.length,1);assert.equal(f.calls.some(call=>call.kind==='prepare'),false);
+  assert.equal(f.errors.length,0);
 });
 
 test('GitHub clone opens the cloned folder without preparing a review in the old workspace',async t=>{
@@ -410,7 +418,7 @@ test('Setup opens the bundled guide without relying on package metadata filename
 });
 
 test('Setup can retry a failed interpreter without opening the library',async t=>{
-  const options={config:{pythonPath:'/missing/python'},onToolsSetup:config=>{if(config.python==='/missing/python')throw new Error('Missing interpreter.');}},f=await fixture(t,options);
+  const options={active:false,commentsEnabled:false,config:{pythonPath:'/missing/python'},onToolsSetup:config=>{if(config.python==='/missing/python')throw new Error('Missing interpreter.');}},f=await fixture(t,options);
   await f.command('setup');assert.match(f.errors[0],/Missing interpreter/);
   options.config.pythonPath='/correct/python';await f.command('setup');
   assert.equal(f.calls.filter(call=>call.kind==='create-agent-tools').length,2);
@@ -441,10 +449,10 @@ test('an unrelated command error cannot dispose the healthy runtime while Open i
   release();await opening;assert.equal(f.runtime.review.id,reviewId);
 });
 
-test('the review sidebar activates without launching a service and the toolbar opens an unchanged manuscript',async t=>{
+test('the sidebar registers on activation and the toolbar opens an unchanged manuscript',async t=>{
   const f=await fixture(t,{files:[]});
-  assert.deepEqual(Array.from(f.calls.find(call=>call.kind==='view').provider.getChildren()),[]);
-  assert.equal(f.calls.some(call=>call.kind==='create-runtime'),false);
+  assert.ok(f.sidebarCallbacks);
+  assert.equal(f.calls.some(call=>call.kind==='sidebar-show'),false);
   await f.command('review',uri(f.source));
   assert.equal(f.runtime.review.id,reviewId);
   assert.equal(f.calls.filter(call=>call.kind==='show-review').length,1);
@@ -587,4 +595,72 @@ test('an overlapping native send cannot unlock the first comment save',async t=>
  assert.equal(f.calls.some(call=>call.kind==='unlock'),false);
  release();await first;assert.equal(f.calls.filter(call=>call.kind==='unlock').length,1);
  assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent-request').body.id,'first-comment');
+});
+
+test('saved threads restore with new-comment controls disabled without opening focused review',async t=>{
+ const f=await fixture(t,{commentsEnabled:false,reviews:repo=>[{id:reviewId,repo,workspace:repo}]});
+ assert.equal(f.runtime.review.id,reviewId);assert.equal(f.contexts.get('manuscriptReview.source'),true);assert.equal(f.contexts.get('manuscriptReview.commentsEnabled'),false);
+ assert.equal(f.calls.find(call=>call.kind==='comments-enabled').enabled,false);
+ assert.equal(f.calls.some(call=>call.kind==='show-review'),false);
+ assert.equal(f.calls.some(call=>call.kind==='prepare'),false);
+ const manifest=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
+ assert.ok(manifest.contributes.keybindings.find(binding=>binding.command==='manuscriptReview.comment').when.includes('manuscriptReview.commentsEnabled'));
+ assert.ok(manifest.contributes.keybindings.filter(binding=>['manuscriptReview.previousComment','manuscriptReview.nextComment'].includes(binding.command)).every(binding=>!binding.when.includes('manuscriptReview.commentsEnabled')));
+});
+
+test('a late sidebar inspection cannot overwrite a newly opened round',async t=>{
+ const f=await fixture(t);let release,entered,first=true;
+ const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve),library=f.runtime.library;
+ f.runtime.library=async(route,body)=>{
+  if(route==='/inspect'&&first){first=false;entered();await gate;return {repo:'/stale/manuscript',base:'3'.repeat(40),entries:[]};}
+  return library(route,body);
+ };
+ const stale=f.sidebarCallbacks.load();await started;
+ await f.command('open');release();await stale;
+ const [comparison,data]=await f.sidebarCallbacks.load();
+ assert.equal(comparison.info.repo,f.repo);assert.equal(comparison.base.revision,data.base);assert.equal(comparison.proposed.revision,data.proposed);
+});
+
+test('a sidebar inspection failure cannot dispose the runtime owned by a pending Open',async t=>{
+ let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ const f=await fixture(t,{onFlush:async()=>{entered();await gate;}}),library=f.runtime.library;
+ const opening=f.command('open');await started;
+ let failing=true;f.runtime.library=async(route,body)=>{if(failing&&route==='/inspect'){failing=false;throw new Error('Inspection failed.');}return library(route,body);};
+ await assert.rejects(f.sidebarCallbacks.load(),/Inspection failed/);
+ assert.equal(f.calls.some(call=>call.kind==='dispose-runtime'),false);
+ release();await opening;assert.equal(f.runtime.review.id,reviewId);assert.deepEqual(f.errors,[]);
+});
+
+test('opening another sidebar repository prepares its pair instead of reusing the current review',async t=>{
+ const f=await fixture(t,{pick:items=>items[0]});await f.command('open');await f.sidebarCallbacks.load();
+ const library=f.runtime.library;f.runtime.library=(route,body)=>route==='/inspect'
+  ?{repo:'/another/paper',workspace:'/another/paper',base:'3'.repeat(40),entries:['paper.tex']}:library(route,body);
+ await f.sidebarCallbacks.onAction('repository');await f.sidebarCallbacks.load();await f.sidebarCallbacks.onAction('review');
+ assert.equal(f.calls.findLast(call=>call.kind==='prepare').body.repo,'/another/paper');
+});
+
+test('Apply refuses a stale sidebar even after pending saves have flushed',async t=>{
+ const f=await fixture(t);await f.command('open');await f.sidebarCallbacks.load();
+ await assert.rejects(f.sidebarCallbacks.onAction('apply',{review:reviewId,revision:0,folder:f.repo}),/review changed/i);
+ assert.equal(f.calls.some(call=>call.route==='/apply'),false);
+ await assert.rejects(f.sidebarCallbacks.onAction('apply',{review:'b'.repeat(24),revision:1,folder:f.repo}),/review changed/i);
+ assert.equal(f.calls.some(call=>call.route==='/apply'),false);
+});
+
+test('Apply stays pinned to its review while a panel save is pending',async t=>{
+ const options={},f=await fixture(t,options);await f.command('open');await f.sidebarCallbacks.load();
+ options.onFlush=()=>f.runtime.open('b'.repeat(24));
+ await assert.rejects(f.sidebarCallbacks.onAction('apply',{review:reviewId,revision:1,folder:f.repo}),/review changed/i);
+ assert.equal(f.calls.some(call=>call.route==='/apply'),false);
+});
+
+
+test('Review changes rechecks its displayed round when queued navigation completes',async t=>{
+ let release,entered;const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
+ const options={},f=await fixture(t,options);await f.command('open');await f.sidebarCallbacks.load();
+ options.onFlush=async()=>{entered();await gate;};
+ const opening=f.events.uri({path:'/review/'+'b'.repeat(24)});await began;
+ const pending=assert.rejects(f.sidebarCallbacks.onAction('review',{review:reviewId,folder:f.repo}),/(review|comparison) changed/i);
+ release();await opening;await pending;
+ assert.equal(f.runtime.review.id,'b'.repeat(24));
 });

@@ -34,10 +34,9 @@ Library Directory** to use another library. Updating the extension preserves rev
 ## Open and compare
 
 Click **Review manuscript** in the source editor's toolbar, beside the LaTeX Workshop
-buttons, or open **Manuscript Review** from the left activity bar. Its sidebar offers
-one Review button and a Compare versions link. Library is in its title bar; Setup
-and saved-source review are in its menu. With no folder open, choose Open manuscript folder or Clone
-from GitHub.
+buttons, or open **Manuscript Review** from the left activity bar. Its sidebar keeps **From**, **To**, and **PDF** visible, with review progress and
+**Apply review** when every edit has a decision. **Source comments** toggles the editor
+comment controls. Library is in the title bar; Setup and saved-source review are in its menu. With no folder open, choose a manuscript folder or clone from GitHub.
 
 Choose a saved round; a repository with no reviews opens for annotation. The toolbar
 button opens focused review beside the source. **Open manuscript review** from the
@@ -47,12 +46,12 @@ opens the history picker for that manuscript. **Browse review library** groups s
 rounds by manuscript.
 **Import saved review** imports a `review.json` through the shared record operations.
 
-**Compare versions** shows **From**, **To**, the manuscript folder, and the PDF document
-together. Choose **Review changes** to use that pair, or select a row to change it.
+**Compare versions** opens this sidebar. Click **From**, **To**, or **PDF** to change
+a field, then choose **Review changes** to open that pair. The current review and its
+decisions stay intact while you choose another comparison.
 Version pickers group review drafts, branches and tags, and commits; search by name,
-message, date, or hash. Back or Escape returns to the comparison without losing
-the other choices. The active source file determines the manuscript folder;
-**Folder** also lets you choose another workspace folder or local directory.
+message, date, or hash. Escape closes a picker without changing the other fields. The initial manuscript folder comes from the active source file.
+The folder name also lets you choose another workspace folder or local directory.
 
 **From** is the starting wording; **To** is the proposed wording. **Working files**
 captures saved tracked files, including staged new files, as a fixed snapshot.
@@ -64,21 +63,27 @@ hover to inspect their exact hashes, or click to choose another comparison.
 the original baseline with your current selected wording.
 
 **PDF document** selects the LaTeX entry file; choose **Source only** to skip compilation.
-**Fetch latest commits** updates available history without moving the selected versions
-or changing your working files. For a GitHub manuscript, run **Clone manuscript from
+**Fetch manuscript history** updates available history without changing your working
+files. For a GitHub manuscript, run **Clone manuscript from
 GitHub**, choose a parent directory, then open a review in the cloned folder.
 A manuscript repository needs at least one commit and tracked source files.
 
 ## Edit and discuss
 
+Source comments are on by default for `.tex`, `.bib`, `.md`, `.txt`, `.typ`, and `.rst`
+files. You can comment before opening a comparison; the first comment opens its
+manuscript quietly in the background. Existing comments resume when their source
+folder is opened. Turn **Source comments** off in the sidebar to hide new-comment
+controls; saved threads and replies remain.
+
 Select source text and run **Comment on selection** (⌘/Ctrl+Shift+M), or use the editor
-context menu. With no selection, the comment covers the current line. Responses and
+context menu or the comment gutter. With no selection, the comment covers the current line. Responses and
 follow-ups stay together in VS Code's Comments view. **Resolve comment** closes a thread;
 **Reopen comment** returns it to the queue. Resolved threads collapse and retain their
 messages across revisions. **Previous comment** and **Next comment** (⌘/Ctrl+Alt+[ / ])
 visit unresolved threads across files; **Manuscript Review: Comment navigation → All** in the Command Palette includes resolved
-threads. The Comments view also provides its native resolved/unresolved filter. Comment shortcuts apply
-while a review is open and the source editor has focus; remap them in Keyboard Shortcuts.
+threads. The Comments view also provides its native resolved/unresolved filter. New-comment shortcuts require source comments to be on; navigation stays available
+for saved threads. These shortcuts require source editor focus and can be remapped in Keyboard Shortcuts.
 
 Clicking proposed text in the focused review opens the source file at the change.
 Focused review shows the exact word changes with faded surrounding context. Click

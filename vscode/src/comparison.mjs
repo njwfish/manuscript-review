@@ -1,4 +1,5 @@
 import path from 'node:path';
+import {comparisonContext} from '../../manuscript_review/review_model.js';
 
 function versions(vscode,info){
  const groups=[
@@ -12,51 +13,60 @@ function versions(vscode,info){
 function pickVersion(vscode,items,current,title){
  const picker=vscode.window.createQuickPick();
  picker.title=title;picker.placeholder='Search by branch, commit message, date, or hash';
- picker.matchOnDescription=picker.matchOnDetail=true;picker.items=items;
- picker.buttons=[vscode.QuickInputButtons.Back];
- const active=items.find(item=>item.revision===current?.revision&&item.label===current?.label);
- if(active)picker.activeItems=[active];
+ picker.matchOnDescription=picker.matchOnDetail=true;
+ const active=items.find(item=>item.revision===current.revision&&item.label===current.label)||current;
+ picker.items=items.includes(active)?items:[active,...items];picker.activeItems=[active];
  return new Promise(resolve=>{
   const listeners=[picker.onDidAccept(()=>{const item=picker.selectedItems[0];if(item){resolve(item);picker.hide();}}),
-   picker.onDidTriggerButton(()=>picker.hide()),picker.onDidHide(()=>{resolve(undefined);listeners.forEach(listener=>listener.dispose());picker.dispose();})];
+   picker.onDidHide(()=>{resolve(undefined);listeners.forEach(listener=>listener.dispose());picker.dispose();})];
   picker.show();
  });
 }
 
-function defaults(vscode,info,entry){
+export function comparisonState(vscode,info,entry){
  const choices=versions(vscode,info),base=choices.find(item=>item.revision===info.base)
   ||choices.find(item=>item.revision)||{label:info.base.slice(0,7),revision:info.base};
  return {info,choices,base,proposed:{label:'Working files',revision:'working',detail:'Saved tracked files, including staged new files'},
   entry:entry||info.checkpoints?.[0]?.entry||info.entries[0]||''};
 }
 
-/** One native overview keeps the pair visible while either endpoint is changed. */
-export async function chooseComparison(vscode,{info,entry,chooseRepository,fetch}){
- let state=defaults(vscode,info,entry);
- while(true){
-  const {info,choices,base,proposed,entry}=state;
-  const nextRound=Boolean(base.review);
-  const options=[
-   {label:'Review changes',description:`${base.label} → ${proposed.label}`,detail:nextRound?'New round, preserving the original baseline and discussion.':'New comparison, with the starting version as its baseline.',action:'review'},
-   {label:'From',description:base.label,detail:`Starting wording   ${base.revision.slice(0,7)}`,action:'base'},
-   {label:'To',description:proposed.label,detail:proposed.revision==='working'?'Saved tracked files. The review captures a fixed snapshot.':`Proposed wording   ${proposed.revision.slice(0,7)}`,action:'proposed'},
-   ...(info.entries.length?[{label:'PDF document',description:entry||'Source only',action:'entry'}]:[]),
-   {label:'Folder',description:info.workspace||info.repo,action:'repository'},
-   ...(info.has_origin?[{label:'Fetch latest commits',detail:'Updates Git history; keeps your selected versions and working files.',action:'fetch'}]:[])
-  ];
-  const selected=await vscode.window.showQuickPick(options,{title:`Compare versions: ${path.basename(info.repo)}`,matchOnDescription:true});
-  if(!selected)return;
-  const actions={
-   review:()=>state,
-   base:async()=>{const item=await pickVersion(vscode,choices,base,`From: starting wording in ${path.basename(info.repo)}`);if(item)state.base=item;},
-   proposed:async()=>{const item=await pickVersion(vscode,[state.proposed.revision==='working'?state.proposed:{label:'Working files',revision:'working',detail:'Saved tracked files, including staged new files'},...choices],proposed,`To: proposed wording in ${path.basename(info.repo)}`);if(item)state.proposed=item;},
-   entry:async()=>{const item=await vscode.window.showQuickPick([...info.entries,'Source only'],{title:'PDF document',placeHolder:entry||'Source only'});if(item!==undefined)state.entry=item==='Source only'?'':item;},
-   repository:async()=>{const next=await chooseRepository();if(next)state=defaults(vscode,next);},
-   fetch:async()=>{const updated=await fetch(info.workspace||info.repo);if(updated){state.info=updated;state.choices=versions(vscode,updated);}}
-  };
-  const result=await actions[selected.action]();
-  if(result)return result;
- }
+export function reviewComparison(state,data){
+ const labels=comparisonContext(data);
+ const checkpoint=state.choices.find(item=>item.revision===data.base&&item.review);
+ const base={...checkpoint,revision:data.base,label:labels.from};
+ return {...state,base,proposed:{revision:data.proposed,label:labels.to},entry:data.entry||''};
+}
+
+export function comparisonMatches(state,data){
+ return Boolean(state&&data&&!state.pending&&state.info.repo===data.repo
+  &&(state.info.workspace||state.info.repo)===(data.workspace||data.repo)
+  &&state.base.revision===data.base&&state.proposed.revision===data.proposed&&state.entry===(data.entry||''));
+}
+
+export function refreshComparison(vscode,state,info){
+ const choices=versions(vscode,info);
+ const pinned=item=>{
+  const found=choices.find(choice=>choice.revision===item.revision&&choice.review===item.review&&(item.review||choice.label===item.label));
+  return found?{...found,label:item.label}:item;
+ };
+ return {...state,info,choices,base:pinned(state.base),proposed:pinned(state.proposed)};
+}
+
+export async function changeComparison(vscode,state,field){
+ const {info,choices,base,proposed,entry}=state;
+ const name=path.basename(info.repo);
+ const actions={
+  base:()=>pickVersion(vscode,choices,base,`From: ${name}`),
+  proposed:()=>pickVersion(vscode,[{label:'Working files',revision:'working',detail:'Saved tracked files, including staged new files'},...choices],proposed,`To: ${name}`),
+  entry:()=>vscode.window.showQuickPick([...info.entries,'Source only'],{title:'PDF document',placeHolder:entry||'Source only'})
+ };
+ if(!Object.hasOwn(actions,field))throw new Error('Choose a comparison field.');
+ const choice=await actions[field]();
+ if(choice===undefined)return state;
+ const value=field==='entry'?(choice==='Source only'?'':choice):choice;
+ if(field==='entry'?value===entry:value.revision===state[field].revision&&value.review===state[field].review&&value.label===state[field].label)
+  return field==='entry'||value===state[field]?state:{...state,[field]:value};
+ return {...state,[field]:value,pending:true};
 }
 
 export function comparisonRequest({info,base,proposed,entry}){

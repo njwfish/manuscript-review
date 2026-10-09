@@ -2,10 +2,11 @@
   "name": "manuscript-review",
   "displayName": "Manuscript Review",
   "activationEvents": [
-    "onUri"
+    "onUri",
+    "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -183,6 +184,11 @@
         "title": "Open editing folder",
         "category": "Manuscript Review",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "manuscriptReview.toggleComments",
+        "title": "Toggle source comments",
+        "category": "Manuscript Review"
       }
     ],
     "configuration": {
@@ -269,7 +275,7 @@
         },
         {
           "command": "manuscriptReview.comment",
-          "when": "manuscriptReview.source && resourceScheme == file",
+          "when": "manuscriptReview.source && manuscriptReview.commentsEnabled && resourceScheme == file",
           "group": "navigation@20"
         }
       ],
@@ -320,11 +326,6 @@
       ],
       "view/title": [
         {
-          "command": "manuscriptReview.compare",
-          "when": "view == manuscriptReview.start",
-          "group": "review@2"
-        },
-        {
           "command": "manuscriptReview.library",
           "when": "view == manuscriptReview.start",
           "group": "navigation@2"
@@ -374,7 +375,7 @@
         "command": "manuscriptReview.comment",
         "key": "ctrl+shift+m",
         "mac": "cmd+shift+m",
-        "when": "manuscriptReview.source && editorTextFocus"
+        "when": "manuscriptReview.source && manuscriptReview.commentsEnabled && editorTextFocus"
       },
       {
         "command": "manuscriptReview.previousComment",
@@ -402,22 +403,11 @@
       "manuscriptReview": [
         {
           "id": "manuscriptReview.start",
-          "name": "Manuscript Review"
+          "name": "Manuscript Review",
+          "type": "webview"
         }
       ]
-    },
-    "viewsWelcome": [
-      {
-        "view": "manuscriptReview.start",
-        "when": "workspaceFolderCount > 0",
-        "contents": "[Review manuscript](command:manuscriptReview.review)\n\n[Compare versions](command:manuscriptReview.compare) of this manuscript."
-      },
-      {
-        "view": "manuscriptReview.start",
-        "when": "workspaceFolderCount == 0",
-        "contents": "[Open manuscript folder](command:vscode.openFolder)\n\nOr [clone from GitHub](command:manuscriptReview.clone)."
-      }
-    ]
+    }
   },
   "scripts": {
     "build": "node src/build.mjs",
