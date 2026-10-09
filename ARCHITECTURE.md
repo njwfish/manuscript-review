@@ -64,7 +64,13 @@ Source segments locate manual intervals in the validated working projection, inc
 
 CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights. The small adapter in `frontend/editor.js` connects document changes to the existing review client. It owns no review persistence or manuscript writes. The bundle and dependency licenses are checked in; `npm run build` regenerates them without adding a runtime network dependency.
 
-The VS Code preview uses its native source editor and CommentController. The same
+The VS Code preview uses its native source editor and CommentController. The comment controller is registered on activation, independently of a comparison.
+Its range provider accepts supported manuscript sources; a sidebar preference disables
+new-comment controls without disposing threads or replies. The service restores saved
+comments for the active source checkout. A first annotation lazily opens the working
+manuscript through the existing prepare operation, without a round picker or focused
+review tab. The controller reads the current runtime through a getter so failed service
+startup and review switches retain its native editors. The same
 `ReviewSession.editor` operation projects spans onto an exact external buffer without
 saving it; offsets use UTF-16 for both editors. VS Code owns source saves.
 `source-edits.mjs` flushes pending review choices, captures the latest saved file
@@ -79,8 +85,10 @@ checks buffers both before flushing the focused panel and before creating the ne
 
 The extension's setup, repository comparison, library, Apply, response imports, and
 agent workflow use the shared operations directly. Git comparisons show both endpoints,
-repository, and PDF entry in one native overview. Grouped version pickers change either
-endpoint without discarding the remaining choices. An inspected checkpoint includes
+repository, and PDF entry in the review sidebar. `sidebar.mjs` owns the view lifecycle
+and derives display state; `comparison.mjs` owns staged version choices and request
+construction. A field opens one native picker, and preparing that pair is explicit.
+The open review remains intact while another pair is staged. An inspected checkpoint includes
 its review ID and content revision; using it as the starting draft creates a checked
 follow-up round through the existing prepare operation. Other Git starting versions
 establish a new baseline. The focused view displays the actual pinned endpoints for

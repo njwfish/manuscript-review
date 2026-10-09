@@ -81,7 +81,7 @@ function fixture(history=[source('root')]) {
       }
       throw new Error('Unexpected write: '+route);
     }};
-  const comments=createComments(vscode,runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
+  const comments=createComments(vscode,()=>runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
   const editor={document:documents[0],selection:new Selection(new Position(0,6),new Position(0,20))};
   return {comments,vscode,runtime,data,documents,created,requests,errors,opened,editor,controller,projections,sent,
     command:(name,...args)=>handlers.get(`manuscriptReview.${name}`)(...args),
@@ -408,15 +408,22 @@ test('native annotation with an empty selection captures the whole current line'
   f.comments.dispose();
 });
 
-test('native commenting is available only on supported source files within the review repository',async()=>{
-  const f=fixture([]),provider=f.controller.commentingRangeProvider;
+test('native commenting is available on supported source before any review and toggles without losing threads',async()=>{
+  const f=fixture(),provider=f.controller.commentingRangeProvider;
   for(const suffix of ['tex','bib','md','txt','typ','rst'])assert.equal(provider.provideCommentingRanges(document(`file.${suffix}`,'Text')).length,1);
   const unsupported=document('code.js','Text');
   assert.deepEqual(provider.provideCommentingRanges(unsupported),[]);
-  assert.deepEqual(provider.provideCommentingRanges({...unsupported,uri:uri('/elsewhere/file.tex')}),[]);
+  assert.equal(provider.provideCommentingRanges({...unsupported,uri:uri('/elsewhere/file.tex')}).length,1);
   assert.deepEqual(provider.provideCommentingRanges({...unsupported,uri:{scheme:'untitled'}}),[]);
   await assert.rejects(f.comments.annotate({document:unsupported,selection:f.editor.selection}),/source file/);
   assert.equal(f.requests.length,0);
+  await f.comments.refresh();
+  const thread=f.created[0];thread.input='Unsubmitted reply';
+  f.runtime.review=undefined;
+  assert.equal(provider.provideCommentingRanges(f.documents[0]).length,1);
+  f.comments.setEnabled(false);assert.equal(f.controller.commentingRangeProvider,undefined);
+  f.comments.setEnabled(true);assert.equal(f.controller.commentingRangeProvider,provider);
+  assert.equal(thread.disposed,undefined);assert.equal(thread.input,'Unsubmitted reply');
   f.comments.dispose();
 });
 
@@ -472,4 +479,17 @@ test('matching current edit identities in unrelated repositories keep independen
   assert.equal(comment.body,'Unsaved original edit');assert.equal(f.created[1].comments[0].body,'Other repository note');
   assert.equal(f.created[1].uri.toString(),'file:///other-manuscript/main.tex');
   f.comments.dispose();
+});
+
+test('a pending native reply cannot move to another round while its source loads',async()=>{
+ const f=fixture([]),thread=await f.comments.annotate(f.editor);
+ thread.input='My pending annotation';
+ f.vscode.workspace.textDocuments=[];
+ let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ f.vscode.workspace.openTextDocument=async()=>{entered();await gate;return f.documents[0];};
+ const saving=f.command('reply',{thread,text:thread.input});await started;
+ f.runtime.review.id='another-review';release();
+ assert.equal(await saving,false);assert.equal(f.requests.some(request=>request.route==='/note'),false);
+ assert.equal(thread.input,'My pending annotation');assert.match(f.errors.at(-1),/original round|this comment’s review/);
+ f.comments.dispose();
 });

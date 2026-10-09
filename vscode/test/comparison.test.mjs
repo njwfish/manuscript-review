@@ -1,94 +1,82 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {chooseComparison,comparisonRequest} from '../src/comparison.mjs';
-import {comparisonContext} from '../../manuscript_review/review_model.js';
+import {comparisonState,reviewComparison,changeComparison,comparisonRequest,refreshComparison,comparisonMatches} from '../src/comparison.mjs';
 
 const first='1'.repeat(40),second='2'.repeat(40),third='3'.repeat(40);
 const info={repo:'/manuscripts/paper',base:first,head:second,working_version:second,entries:['main.tex','supplement.tex'],
  references:[{name:'origin/main',revision:first,subject:'Original manuscript'}],
- commits:[{revision:second,subject:'A revised argument',short:second.slice(0,7),date:'2026-10-09',refs:'HEAD -> main'},
-  {revision:first,subject:'Original manuscript',short:first.slice(0,7),date:'2026-10-08',refs:'origin/main'}]};
-
-function fixture(steps){
- const calls=[];
- const select=(items,options)=>{calls.push({items,options});const step=steps.shift();assert.ok(step,'Unexpected picker');return step(items,options);};
- const vscode={QuickPickItemKind:{Separator:-1},QuickInputButtons:{Back:{iconPath:'back'}},window:{
-  showQuickPick:async(items,options)=>select(items,options),
+ commits:[{revision:second,subject:'A revised argument',short:second.slice(0,7),date:'2026-10-09'},
+  {revision:first,subject:'Original manuscript',short:first.slice(0,7),date:'2026-10-08'}]};
+function fixture(choose){
+ const calls=[],vscode={QuickPickItemKind:{Separator:-1},window:{
+  showQuickPick:async(items,options)=>{calls.push({items,options});return choose(items,options);},
   createQuickPick(){
-   const handlers={},picker={activeItems:[],buttons:[],onDidAccept:fn=>listen('accept',fn),onDidHide:fn=>listen('hide',fn),onDidTriggerButton:fn=>listen('back',fn),
-    show(){const item=select(this.items,{title:this.title,activeItems:this.activeItems,buttons:this.buttons});if(item===undefined)handlers.hide();else if(item==='back')handlers.back();else{this.selectedItems=[item];handlers.accept();}},
-    hide(){handlers.hide();},dispose(){this.disposed=true;}};
+   const handlers={},picker={onDidAccept:fn=>listen('accept',fn),onDidHide:fn=>listen('hide',fn),
+    show(){calls.push({items:this.items,options:{title:this.title,activeItems:this.activeItems}});const item=choose(this.items);if(item===undefined)this.hide();else{this.selectedItems=[item];handlers.accept();}},
+    hide(){handlers.hide();},dispose(){}};
    function listen(name,fn){handlers[name]=fn;return {dispose(){delete handlers[name];}};}
    return picker;
   }
  }};
- return {vscode,calls};
+ return {calls,vscode};
 }
-const action=name=>items=>items.find(item=>item.action===name);
 
-test('the default pair and document need one overview, with immutable commit endpoints',async()=>{
- const f=fixture([action('review')]),result=await chooseComparison(f.vscode,{info});
- assert.deepEqual(comparisonRequest(result),{repo:info.repo,base:first,base_label:'origin/main',proposed:'working',proposed_label:'Working files',entry:'main.tex'});
- assert.equal(f.calls.length,1);
- assert.equal(f.calls[0].items.find(item=>item.action==='review').description,'origin/main → Working files');
- assert.match(f.calls[0].items.find(item=>item.action==='review').detail,/New comparison/);
+test('sidebar defaults use a pinned starting commit and snapshot working files only when requested',()=>{
+ const f=fixture(),state=comparisonState(f.vscode,info);
+ assert.deepEqual(comparisonRequest(state),{repo:info.repo,base:first,base_label:'origin/main',proposed:'working',proposed_label:'Working files',entry:'main.tex'});
+ assert.equal(f.calls.length,0);
 });
 
-test('changing either side keeps the other choice and shows both before creating a comparison',async()=>{
- const f=fixture([action('proposed'),items=>items.find(item=>item.revision===second),action('base'),items=>items.find(item=>item.revision===first&&item.label==='Original manuscript'),action('review')]);
- const result=await chooseComparison(f.vscode,{info,entry:'supplement.tex'});
- assert.equal(result.proposed.revision,second);assert.equal(result.base.label,'Original manuscript');assert.equal(result.entry,'supplement.tex');
- assert.equal(f.calls[1].items[0].label,'Working files');
- assert.deepEqual(f.calls[1].items.filter(item=>item.kind===-1).map(item=>item.label),['Branches and tags','Commits']);
- assert.equal(f.calls[2].items[0].description,'origin/main → A revised argument');
- assert.equal(f.calls[4].items[0].description,'Original manuscript → A revised argument');
- assert.deepEqual(f.calls[3].options.activeItems.map(item=>item.label),['origin/main']);
+test('changing an endpoint keeps the other endpoint and document without preparing anything',async()=>{
+ const f=fixture(items=>items.find(item=>item.revision===second));
+ const state=comparisonState(f.vscode,info,'supplement.tex'),next=await changeComparison(f.vscode,state,'proposed');
+ assert.equal(next.base,state.base);assert.equal(next.entry,'supplement.tex');assert.equal(next.proposed.revision,second);assert.equal(next.pending,true);
+ assert.equal(state.proposed.revision,'working');assert.equal(f.calls.length,1);
+ assert.deepEqual(f.calls[0].items.filter(item=>item.kind===-1).map(item=>item.label),['Branches and tags','Commits']);
 });
 
-test('Back and Escape in an endpoint return to the intact overview',async()=>{
- const f=fixture([action('base'),()=> 'back',action('proposed'),()=>undefined,action('review')]);
- const result=await chooseComparison(f.vscode,{info});
- assert.equal(result.base.revision,first);assert.equal(result.proposed.revision,'working');
- assert.deepEqual(f.calls[1].options.buttons,[f.vscode.QuickInputButtons.Back]);
+test('cancelling a version or PDF picker retains the exact comparison setup',async()=>{
+ const f=fixture(()=>undefined),state=comparisonState(f.vscode,info);
+ for(const field of ['base','proposed','entry'])assert.equal(await changeComparison(f.vscode,state,field),state);
 });
 
-test('selected drafts create a revision-checked round retaining its baseline and discussion',async()=>{
- const review='a'.repeat(24),checkpoint={revision:third,review,review_revision:7,subject:'Round 3 selected draft',short:third.slice(0,7),date:'2026-10-09',entry:'supplement.tex'};
- const f=fixture([action('review')]),result=await chooseComparison(f.vscode,{info:{...info,base:third,checkpoints:[checkpoint]}});
- assert.deepEqual(comparisonRequest(result),{repo:info.repo,base:third,base_label:checkpoint.subject,proposed:'working',proposed_label:'Working files',entry:'supplement.tex',previous:review,expected_revision:7,require_changes:true});
- assert.match(f.calls[0].items[0].detail,/preserving the original baseline and discussion/);
+test('review fields show the actual fixed endpoints and retain a checkpoint’s revision guard',()=>{
+ const review='a'.repeat(24),checkpoint={revision:first,review,review_revision:7,subject:'Selected draft',short:'1111111',date:'2026-10-09'};
+ const f=fixture(),state=comparisonState(f.vscode,{...info,checkpoints:[checkpoint]});
+ const actual=reviewComparison(state,{repo:info.repo,scope:'round',base:first,proposed:third,base_label:'Initial draft (1111111)',proposal_label:'Proposal + local edits (3333333)',entry:'supplement.tex'});
+ assert.equal(actual.base.label,'Initial draft');assert.equal(actual.proposed.label,'Proposal + local edits');assert.equal(actual.proposed.revision,third);
+ assert.equal(actual.entry,'supplement.tex');assert.equal(comparisonRequest(actual).previous,review);assert.equal(comparisonRequest(actual).expected_revision,7);
 });
 
-test('fetching refreshes available history without moving the pinned choices',async()=>{
- const f=fixture([action('fetch'),action('proposed'),items=>items.find(item=>item.revision===third),action('review')]);
- let fetched;
- const result=await chooseComparison(f.vscode,{info:{...info,has_origin:true},fetch:async repo=>{fetched=repo;return {...info,references:[{name:'origin/main',revision:third,subject:'Latest remote'}]};}});
- assert.equal(fetched,info.repo);assert.equal(result.base.revision,first);assert.equal(result.proposed.revision,third);
- assert.equal(f.calls[1].items.find(item=>item.action==='base').detail,'Starting wording   1111111');
+test('a captured proposal not in ordinary Git history stays visible and selected in the picker',async()=>{
+ const f=fixture(()=>undefined),state=reviewComparison(comparisonState(f.vscode,info),{repo:info.repo,scope:'round',base:first,proposed:third,base_label:'Initial draft',proposal_label:'Proposal + local edits',entry:''});
+ await changeComparison(f.vscode,state,'proposed');
+ assert.equal(f.calls[0].items[0].revision,third);assert.equal(f.calls[0].options.activeItems[0].label,'Proposal + local edits');
 });
 
-test('folder selection resets the pair and document together; cancellation keeps the setup intact',async()=>{
- const f=fixture([action('repository'),action('repository'),action('review')]);let attempts=0;
- const result=await chooseComparison(f.vscode,{info,chooseRepository:async()=>++attempts===1?undefined:{...info,repo:'/manuscripts/other',base:second,entries:['other.tex'],checkpoints:[]}});
- assert.equal(result.info.repo,'/manuscripts/other');assert.equal(result.base.revision,second);assert.equal(result.entry,'other.tex');
+test('PDF selection and Source only are independent of the pinned pair',async()=>{
+ const f=fixture(()=> 'Source only'),state=comparisonState(f.vscode,info,'supplement.tex');
+ const next=await changeComparison(f.vscode,state,'entry');assert.equal(next.entry,'');assert.equal(next.base,state.base);assert.equal(next.proposed,state.proposed);
 });
 
-test('working files are captured at preparation rather than blocked by a cached empty comparison',async()=>{
- const f=fixture([action('review')]);
- const result=await chooseComparison(f.vscode,{info:{...info,trees:{[first]:'same-tree',[second]:'same-tree'}}});
- assert.equal(comparisonRequest(result).proposed,'working');
+test('accepting the active endpoint does not stage a new comparison',async()=>{
+ const f=fixture(items=>items.find(item=>item.revision===first&&item.label==='origin/main'));
+ const current=comparisonState(f.vscode,info),next=await changeComparison(f.vscode,current,'base');
+ assert.equal(next,current);assert.equal(next.pending,undefined);
 });
 
-test('a cancelled history refresh retains all existing choices',async()=>{
- const f=fixture([action('fetch'),action('review')]);
- const result=await chooseComparison(f.vscode,{info:{...info,has_origin:true},fetch:async()=>undefined});
- assert.equal(result.base.revision,first);assert.equal(result.proposed.revision,'working');
+test('fresh history keeps staged endpoints and refreshes their checkpoint guard',()=>{
+ const f=fixture(),checkpoint={revision:first,review:'saved-round',review_revision:7,subject:'Selected draft',short:'1111111',date:'2026-10-09'};
+ const state={...comparisonState(f.vscode,{...info,checkpoints:[checkpoint]},'supplement.tex'),pending:true};
+ const next=refreshComparison(f.vscode,state,{...info,checkpoints:[{...checkpoint,review_revision:8}],commits:[{revision:third,subject:'Latest proposal',short:'3333333',date:'2026-10-10'},...info.commits]});
+ assert.equal(next.pending,true);assert.equal(next.entry,state.entry);assert.equal(next.base.revision,first);assert.equal(next.proposed,state.proposed);
+ assert.equal(comparisonRequest(next).expected_revision,8);assert.equal(next.choices.find(item=>item.revision===third).label,'Latest proposal');
 });
 
-test('the visible comparison labels stay compact while exact versions and scope remain inspectable',()=>{
- const data={repo:info.repo,base:first,proposed:third,base_label:'origin/main',proposal_label:`Working files (${third.slice(0,7)})`,scope:'round'};
- assert.equal(comparisonContext(data).from,'origin/main');assert.equal(comparisonContext(data).to,'Working files');
- assert.match(comparisonContext(data).title,new RegExp(first));assert.match(comparisonContext(data).title,/before accept\/reject/);
- const cumulative=comparisonContext({...data,scope:'baseline',proposal_label:`Selected manuscript (${third.slice(0,7)})`});
- assert.equal(cumulative.to,'Selected manuscript');assert.match(cumulative.title,/Original baseline/);
+test('reuse requires the actual pair, source checkout, and PDF document',()=>{
+ const f=fixture(),data={repo:info.repo,base:first,proposed:third,base_label:'Initial draft',proposal_label:'Proposal',entry:'main.tex'};
+ const state=reviewComparison(comparisonState(f.vscode,info),data);
+ assert.equal(comparisonMatches(state,data),true);
+ for(const change of [{pending:true},{entry:'supplement.tex'},{info:{...info,workspace:'/other/checkout'}},{base:{revision:second}},{proposed:{revision:second}}])
+  assert.equal(comparisonMatches({...state,...change},data),false);
 });

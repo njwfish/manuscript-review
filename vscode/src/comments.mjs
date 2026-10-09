@@ -1,23 +1,28 @@
 import path from 'node:path';
 import {commentThreads,currentFeedback,discussionGroups} from '../../manuscript_review/review_model.js';
 
+export function sourceDocument(document){
+ return document?.uri.scheme==='file'&&['.tex','.bib','.md','.txt','.typ','.rst'].includes(path.extname(document.uri.fsPath));
+}
+
 export function sourceFile(review,document){
- if(!review||document?.uri.scheme!=='file'||!['.tex','.bib','.md','.txt','.typ','.rst'].includes(path.extname(document.uri.fsPath)))return null;
+ if(!review||!sourceDocument(document))return null;
  const relative=path.relative(review.workspace||review.repo,document.uri.fsPath);
  return relative&&!path.isAbsolute(relative)&&relative!=='..'&&!relative.startsWith(`..${path.sep}`)
   ?relative.split(path.sep).join('/'):null;
 }
 
-export function createComments(vscode,runtime,{onChange,onReview,onProjection,onAgent}={}) {
+export function createComments(vscode,getRuntime,{onChange,onReview,onProjection,onAgent,onSource,canComment=sourceDocument}={}) {
   const controller=vscode.comments.createCommentController('manuscript-review','Manuscript Review');
   const subscriptions=[controller],threads=new Map(),pending=new Set();
   let generation=0,disposed=false,activeThread,includeResolved=false;
 
-  const fileFor=document=>sourceFile(runtime.review,document);
+  const fileFor=document=>sourceFile(getRuntime()?.review,document);
   const threadKey=(uri,origin)=>JSON.stringify([uri.toString(),origin]);
 
   function checkReview(state) {
-    if(state.reviewId!==runtime.review?.id)throw new Error('Return to this comment’s review before continuing.');
+    if(disposed)throw new Error('Manuscript Review has closed.');
+    if(state.reviewId!==getRuntime()?.review?.id)throw new Error('Return to this comment’s review before continuing.');
   }
 
   function command(name,handler) {
@@ -28,17 +33,20 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   }
 
   async function documentFor(file) {
+    const runtime=getRuntime();
     const uri=vscode.Uri.file(path.join(runtime.review.workspace||runtime.review.repo,file));
     return vscode.workspace.textDocuments.find(document=>document.uri.toString()===uri.toString())
       || await vscode.workspace.openTextDocument(uri);
   }
 
   async function project(document) {
-    const review=runtime.review,file=fileFor(document),reviewId=review?.id;
+    if(!fileFor(document))await onSource?.(document);
+    const runtime=getRuntime();
+    const review=runtime?.review,file=fileFor(document),reviewId=review?.id;
     if(!file)throw new Error('Choose a source file in the reviewed repository.');
     const text=document.getText(),version=document.version;
     const result=await runtime.request('/editor',{file,text});
-    if(runtime.review?.id!==reviewId||document.version!==version||document.getText()!==text)
+    if(getRuntime()!==runtime||runtime?.review?.id!==reviewId||document.version!==version||document.getText()!==text)
       throw Object.assign(new Error('The source changed while locating this comment. Try again.'),{code:'SourceChanged'});
     return {...result,file,text,document,reviewId};
   }
@@ -110,7 +118,8 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   }
 
   async function refresh() {
-    const ticket=++generation,review=runtime.review;
+    const runtime=getRuntime();
+    const ticket=++generation,review=runtime?.review;
     if(!review||disposed)return;
     const data=await runtime.data('round');
     if(ticket!==generation||disposed||runtime.review?.id!==review.id)return;
@@ -157,9 +166,13 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
 
   async function annotate(editor=vscode.window.activeTextEditor) {
     if(!editor)throw new Error('Select text in a source editor to leave a comment.');
+    if(!sourceDocument(editor.document))throw new Error('Choose a manuscript source file to leave a comment.');
+    if(!canComment(editor.document))throw new Error('Turn on source comments in the Manuscript Review sidebar.');
+    const version=editor.document.version;
     const range=editor.selection.isEmpty
       ? editor.document.lineAt(editor.selection.start.line).range : editor.selection;
     const projection=await project(editor.document);
+    if(editor.document.version!==version)throw new Error('The source changed while opening comments. Select the text again.');
     const thread=makeThread(editor.document,range);
     const state={thread,projection,reviewId:projection.reviewId,
       start:editor.document.offsetAt(range.start),end:editor.document.offsetAt(range.end)};
@@ -183,6 +196,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
       thread.reviewState=state;pending.add(state);
     }
     checkReview(state);
+    const runtime=getRuntime();
     if(state.entry?.current)throw new Error('Edit this note to add detail; it will support replies after an agent responds.');
     let projection=state.projection,start=state.start,end=state.end;
     if(state.entry) {
@@ -194,6 +208,9 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
       const current=await project(await documentFor(projection.file));
       projection={...projection,revision:current.revision,source:current.source};
     }
+    checkReview(state);
+    if(getRuntime()!==runtime||projection.reviewId!==state.reviewId)
+      throw new Error('The review changed while preparing this comment. Return to its original round.');
     const result=await runtime.request('/note',{revision:projection.revision,file:projection.file,
       text:projection.text,source:projection.source,start,end,comment:text,
       ...(state.entry?{parent:state.entry.id}:{})});
@@ -215,6 +232,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   }
 
   async function saveComment(incoming) {
+    const runtime=getRuntime();
     const state=incoming.parent.reviewState,comment=state.thread.comments.find(comment=>comment.id===incoming.id);
     const text=typeof incoming.body==='string'?incoming.body:incoming.body.value;
     comment.body=text;
@@ -236,6 +254,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   }
 
   async function move(direction) {
+    const runtime=getRuntime();
     if(!await refresh())return false;
     const states=[...threads.values()].filter(state=>state.reviewId===runtime.review?.id&&state.thread.range&&(includeResolved||!state.entry.resolved))
       .sort((a,b)=>a.entry.file.localeCompare(b.entry.file)||a.thread.range.start.compareTo(b.thread.range.start));
@@ -263,14 +282,16 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
     return true;
   }
 
-  controller.commentingRangeProvider={provideCommentingRanges:document=>fileFor(document)
+  const rangeProvider={provideCommentingRanges:document=>canComment(document)
     ? [new vscode.Range(document.positionAt(0),document.positionAt(document.getText().length))] : []};
+  function setEnabled(enabled){controller.commentingRangeProvider=enabled?rangeProvider:undefined;}
+  setEnabled(true);
   command('reply',async input=>Boolean(await reply(input)));command('editComment',editComment);command('saveComment',saveComment);command('cancelComment',cancelComment);
   async function setResolved(thread,resolved){
     const state=thread?.reviewState;
     if(!state?.entry)return false;
     checkReview(state);
-    await runtime.request('/thread',{revision:state.data.revision,id:state.entry.origin_id,resolved});
+    await getRuntime().request('/thread',{revision:state.data.revision,id:state.entry.origin_id,resolved});
     await changed();return true;
   }
   command('resolveComment',thread=>setResolved(thread,true));
@@ -290,6 +311,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   command('sendComment',async input=>{
     if(!input.text.trim())return false;
     if(input.thread.reviewState)checkReview(input.thread.reviewState);
+    else await onSource?.(await vscode.workspace.openTextDocument(input.thread.uri));
     return onAgent?.(undefined,()=>reply(input),input.thread.uri);
   });
   command('commentAgent',thread=>{
@@ -307,5 +329,5 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
     for(const subscription of subscriptions)subscription.dispose();
     threads.clear();pending.clear();
   }
-  return {refresh,annotate,move,dispose,setAgent:label=>{controller.options={prompt:`Comment for ${label}…`,placeHolder:`Enter sends to ${label}. Shift+Enter adds a newline.`};}};
+  return {refresh,annotate,move,dispose,setEnabled,setAgent:label=>{controller.options={prompt:`Comment for ${label}…`,placeHolder:`Enter sends to ${label}. Shift+Enter adds a newline.`};}};
 }
