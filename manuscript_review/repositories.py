@@ -58,19 +58,23 @@ def working_snapshot(repo, parent=None):
     head = git(repo, 'rev-parse', 'HEAD').decode().strip()
     if git(repo, 'ls-files', '--unmerged').strip():
         raise ValueError('Resolve Git merge conflicts before starting a review.')
+    parent = parent or head
+    parent_paths = set(filter(None, git(repo, 'ls-tree', '-r', '--name-only', '-z', parent).split(b'\0')))
     tracked = git(repo, 'ls-files', '-z') + git(repo, 'ls-tree', '-r', '--name-only', '-z', head)
-    paths = b'\0'.join(sorted(set(filter(None, tracked.split(b'\0'))))) + b'\0'
+    paths = parent_paths | set(filter(None, tracked.split(b'\0')))
+    paths = b'\0'.join(sorted(path for path in paths if path in parent_paths or os.path.lexists(repo / os.fsdecode(path))))
+    if paths:
+        paths += b'\0'
     with tempfile.TemporaryDirectory(prefix='manuscript-review-index-') as temporary:
         env = {**os.environ, 'GIT_INDEX_FILE': str(Path(temporary) / 'index')}
         def command(*args, input=None):
             result = subprocess.run(['git', '-C', str(repo), *args], input=input,
                                     env=env, capture_output=True, check=True)
             return result.stdout.decode().strip()
-        command('read-tree', head)
+        command('read-tree', parent)
         if paths:
             command('--literal-pathspecs', 'add', '--all', '--pathspec-from-file=-', '--pathspec-file-nul', input=paths)
         tree = command('write-tree')
-        parent = parent or head
         if tree == git(repo, 'rev-parse', parent + '^{tree}').decode().strip():
             return parent, head
         env.update({'GIT_AUTHOR_NAME': 'Manuscript Review', 'GIT_AUTHOR_EMAIL': 'review@localhost',

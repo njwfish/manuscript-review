@@ -1,10 +1,12 @@
 """Validate working files before committing a review and its source writes together."""
 import hashlib
 from pathlib import Path
-from .comparison import git
+from .comparison import git, read_blob
 from .editing import selected_content, projection_blocks, mapped_range
 from .file_editing import replace_ranges
 from .storage import FileLock
+from .workspace import working_directory
+from .versions import source_version
 
 
 def digest(content):
@@ -36,7 +38,11 @@ def checked_content(previous, repo, path, initial):
     if destination.is_symlink() or not destination.resolve().is_relative_to(repo):
         raise ValueError('Unsafe manuscript path: ' + path)
     current = destination.read_bytes().decode() if destination.exists() else None
-    expected = previous['applied'].get(path, digest(initial))
+    if 'workspace_version' in previous['metadata']:
+        initial = read_blob(previous['snapshot']['repo'], previous['metadata']['workspace_version'], path)
+        expected = digest(initial)
+    else:
+        expected = previous['applied'].get(path, digest(initial))
     if digest(current) != expected:
         raise ValueError(f'{path} was edited outside this review. Your draft is retained; update the comparison first.')
     return current
@@ -50,13 +56,19 @@ def commit_sources(store, previous, record, changes):
             plan.append({'path': path, 'before': before, 'after': after})
     if plan:
         store.archive(previous)
+    if 'workspace' in record['metadata']:
+        record['metadata']['workspace_version'] = source_version(
+            record['snapshot']['repo'], previous['metadata']['workspace_version'],
+            {path: after for path, _, after in changes},
+            'refs/manuscript-review/' + record['metadata']['id'] + '/workspace',
+            'Manuscript Review source checkout')
     store.commit(record, plan)
     return len(plan)
 
 
 def write_file_edit(store, previous, record, file, replacements, decisions):
     """Write manual intervals without applying decisions elsewhere in the file."""
-    repo = Path(previous['snapshot']['repo']).resolve()
+    repo = working_directory(previous)
     with repository_lock(repo):
         check_checkout(store, previous, repo)
         current = checked_content(previous, repo, file['path'], file['after'])
@@ -77,7 +89,7 @@ def write_file_edit(store, previous, record, file, replacements, decisions):
 
 
 def apply_record(store, previous, record):
-    snapshot, repo = previous['snapshot'], Path(previous['snapshot']['repo']).resolve()
+    snapshot, repo = previous['snapshot'], working_directory(previous)
     with repository_lock(repo):
         if git(repo, 'rev-parse', 'HEAD').decode().strip() != snapshot['source_head']:
             # A commit cannot prevent acknowledging a selection already on disk.
@@ -88,9 +100,9 @@ def apply_record(store, previous, record):
                     and (repo / file['path']).resolve().is_relative_to(repo)
                     and ((repo / file['path']).read_bytes().decode() if (repo / file['path']).exists() else None)
                         == selected_content(file, record['decisions']) for file in files):
-                record['applied'].update({file['path']: digest(selected_content(file, record['decisions'])) for file in files})
-                store.commit(record)
-                return 0
+                record['snapshot']['source_head'] = git(repo, 'rev-parse', 'HEAD').decode().strip()
+                return commit_sources(store, previous, record,
+                    [(file['path'], selected_content(file, record['decisions']), selected_content(file, record['decisions'])) for file in files])
             raise ValueError('HEAD changed since this review. Open New round in the Library to compare the current manuscript.')
         check_checkout(store, previous, repo)
         old_files = {f['path']: f for f in snapshot['files']}

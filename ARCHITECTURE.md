@@ -65,8 +65,10 @@ CodeMirror owns text input, selection, undo, search, scrolling, and editor highl
 
 The VS Code preview uses its native source editor and CommentController. The same
 `ReviewSession.editor` operation projects spans onto an exact external buffer without
-saving it; offsets use UTF-16 for both editors. VS Code owns source saves, and the
-existing library operation compares saved files as a new round. Decisions and comments
+saving it; offsets use UTF-16 for both editors. VS Code owns source saves.
+`source-edits.mjs` flushes pending review choices, captures the latest saved file
+through `ReviewSession.capture_file`, and refreshes the same comparison without
+replacing the native buffer or taking focus. Unsaved typing remains in VS Code. Decisions and comments
 use the same record transactions as the standalone app. The extension host keeps service
 tokens private, pins queued operations to their intended review, and passes requests
 through `host.js` to the shared focused-review client. Navigation stays in webview state.
@@ -84,7 +86,8 @@ establish a new baseline. The focused view displays the actual pinned endpoints 
 its current comparison scope. Source drafts from the shared library can open as
 untitled editor copies or be explicitly discarded; opening a copy leaves its saved
 record and the working file intact. New editor drafts use VS Code's own buffer and
-recovery behavior. Saved edits become a new round through the shared update operation.
+recovery behavior. Native author saves update the current proposal; external revision
+passes use the shared begin/finish operations to create a new round.
 
 The agent skill, command engine, and referenced guides ship in the VSIX. Setup reports
 prerequisites without opening a review library, so its commands remain available for
@@ -135,6 +138,18 @@ adapted viewer owns neither. Viewer sources, provenance, and notices live in `vs
 ## Transactions
 
 `ReviewSession` coordinates operations; HTTP handlers route requests. `ReviewStore` owns persistence. Follow-up rounds compare the previous selected draft to a new proposal, keeping the original baseline separately pinned. Their identity includes both endpoints, the original baseline, the previous review ID, and its saved revision. The previous record remains unchanged. `result` is a reachable Git version of the projected decisions; note-only saves reuse it. **Since baseline** derives a read-only comparison from the original baseline to that result.
+
+`workspace.py` owns the source checkout used for editing. The record binds its
+absolute `workspace` path and pinned `workspace_version` together. The latter records
+physical source wording, which can differ from the proposal after choices are applied.
+A matching checkout is reused; otherwise a detached Git worktree in the review’s
+`source/` directory starts from its selected draft. The canonical repository remains
+the library identity and Git object store. Imports discard local checkout bindings.
+Source writes and their recovery journal use the bound checkout. Native captures read
+saved bytes without writing source or moving the fixed comparison base. They map the
+physical delta back into the proposal through the same manual-edit projection as the
+standalone editor. Managed checkouts remain available for ordinary Git work; the app
+does not delete an author’s files or commits.
 
 `repositories.py` owns repository discovery, readable Git history, cloning, fetching, and working-copy capture. Agent **begin** pins the actual working input, validating reviewed files against the saved selection. **Finish** requires that input checkpoint and the unchanged review revision, then rejects an empty source-changing pass. Commits made between these operations do not change their comparison endpoints.
 

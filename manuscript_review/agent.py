@@ -90,7 +90,7 @@ def main():
             reviews = library.listing()
             if args.repo:
                 repo = str(args.repo.expanduser().resolve())
-                reviews = [r for r in reviews if r['repo'] == repo]
+                reviews = [r for r in reviews if repo in (r['repo'], r.get('workspace'))]
             result = reviews
         elif args.command == 'begin':
             result = library.begin(args.review)

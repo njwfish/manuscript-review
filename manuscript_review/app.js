@@ -783,7 +783,9 @@ async function copyAgentRequest(){
 for(const id of ['copy-request','copy-request-header','copy-request-more','copy-request-feedback'])$(id).addEventListener('click',copyAgentRequest);
 async function ready(){
  try{
-  const r=await request('/data');if(!r.ok)throw new Error('Could not load review snapshot.');data=await r.json();decisions=data.decisions;comments=data.comments;
+  const r=await request('/data');if(!r.ok)throw new Error('Could not load review snapshot.');data=await r.json();
+  if(!embedded){const checkout=await request('/workspace',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({revision:data.revision})});if(!checkout.ok)throw new Error((await checkout.json()).error);data=await (await request('/data')).json();}
+  decisions=data.decisions;comments=data.comments;
   locations=editLocations(data);
   const ui=data.ui;commentFilter=ui.commentFilter==='all'?'all':'unresolved';
   if(ui.scope&&ui.scope!==data.scope&&(!embedded||ui.scope!=='manuscript')){const response=await request('/data?scope='+ui.scope);if(!response.ok)throw new Error('Could not restore the manuscript view.');data=await response.json();decisions=data.decisions;comments=data.comments;locations=editLocations(data);}
@@ -829,7 +831,7 @@ $('progress').addEventListener('click',()=>{$('review-summary').scrollIntoView({
 async function runHostCommand(name){try{await hostCommand(name);}catch(error){status(error.message,true);}}
 $('compare-saved').addEventListener('click',()=>runHostCommand('reviewSavedChanges'));
 $('comparison-versions').addEventListener('click',()=>runHostCommand('compare'));
-for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
+for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['editing-folder','editingFolder'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
 $('reload-review').addEventListener('click',async()=>{try{await window.flushReview();window.location.reload();}catch(error){status(error.message,true);}});
 if(embedded)window.addEventListener('message',async event=>{
  if(!hostMessage(event))return;

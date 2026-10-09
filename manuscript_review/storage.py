@@ -117,6 +117,13 @@ def validate_record(record):
         raise ValueError('Invalid source drafts.')
     if 'drafts' in record['ui']:
         raise ValueError('Source drafts belong to review content, not navigation preferences.')
+    metadata = record['metadata']
+    if ('workspace' in metadata) != ('workspace_version' in metadata):
+        raise ValueError('A source checkout needs its captured version.')
+    if 'workspace' in metadata and (not isinstance(metadata['workspace'], str)
+            or not Path(metadata['workspace']).is_absolute()
+            or not isinstance(metadata['workspace_version'], str) or len(metadata['workspace_version']) != 40):
+        raise ValueError('Invalid source checkout.')
     return record
 
 
@@ -167,7 +174,8 @@ class ReviewStore:
         if transaction is None:
             return
         snapshot = transaction['record']['snapshot']
-        repo = Path(snapshot['repo']).resolve()
+        from .workspace import working_directory
+        repo = working_directory(transaction['record'])
         from .comparison import git
         if git(repo, 'rev-parse', 'HEAD').decode().strip() != snapshot['source_head']:
             raise ValueError('HEAD changed during an interrupted save. The transaction and draft are retained.')

@@ -6,7 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 const identifier = /^[a-f0-9]{24}$/;
 const scopes = new Set(['round', 'baseline', 'manuscript']);
 const libraryWrites = new Set(['/inspect', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
-const reviewWrites = new Set(['/editor', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain']);
+const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain']);
 
 function localURL(value) {
     if (typeof value !== 'string' || !/^http:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*\/$/.test(value)) {
@@ -179,6 +179,8 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
 
     function updateReview(value) {
         if (Number.isInteger(value?.revision)) selected = {...selected, revision: value.revision};
+        if (typeof value?.workspace === 'string') selected = {...selected, workspace: value.workspace};
+        if (typeof value?.workspace_version === 'string') selected = {...selected, workspace_version: value.workspace_version};
         if (typeof value?.feedback_path === 'string') selected = {...selected, feedback_path: value.feedback_path};
         if (typeof value?.token === 'string' && value.token) reviewToken = value.token;
         if (value?.data) updateReview(value.data);

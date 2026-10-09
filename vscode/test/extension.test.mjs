@@ -41,7 +41,7 @@ async function fixture(t,options={}) {
       getWorkspaceFolder:()=>({uri:uri(repo)}),
       async openTextDocument(requested){calls.push({kind:'document',file:requested.fsPath,content:requested.content,language:requested.language});if(requested.content!==undefined)return {uri:{scheme:'untitled'},getText:()=>requested.content};assert.equal(requested.fsPath,source);return doc;},
       createFileSystemWatcher(pattern){const watcher={pattern,onDidChange:event('record-change'),onDidCreate:event('record-create'),dispose(){this.disposed=true;}};watchers.push(watcher);return watcher;},
-      onDidChangeTextDocument:event('document-change')},
+      onDidChangeTextDocument:event('document-change'),onDidSaveTextDocument:event('document-save')},
     window:{activeTextEditor:editor,visibleTextEditors:[editor],tabGroups:{activeTabGroup:{viewColumn:1}},
       registerTreeDataProvider(id,provider){calls.push({kind:'view',id,provider});return disposable();},
       createOutputChannel:()=>({appendLine:text=>output.push(text),dispose(){}}),
@@ -61,8 +61,8 @@ async function fixture(t,options={}) {
       ?{repo,base:'1'.repeat(40),head:'2'.repeat(40),entries:options.entries||['main.tex'],...options.inspect}: {reviews:options.reviews||[]};},
     async prepare(route,body){calls.push({kind:'prepare',route,body});return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id){calls.push({kind:'open',id});selected={id,repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
-    async data(){return {id:selected.id,repo,revision:selected.revision,drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/feedback.json')return {comments:[],history:[],edits:[]};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async data(){return {id:selected.id,repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,drafts:options.drafts||{}};},
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/workspace'){selected.workspace=options.workspace||repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/feedback.json')return {comments:[],history:[],edits:[]};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const panel={setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
@@ -124,7 +124,7 @@ test('opening a new manuscript uses its active root and leaves source unchanged'
   assert.equal(f.calls.find(call=>call.kind==='create-runtime').configuration.extensionPath,path.join('/test/extension','dist'));
   assert.equal(f.contexts.get('manuscriptReview.active'),true);
   assert.equal(await readFile(f.source,'utf8'),'A manuscript sentence.\n');
-  assert.equal(f.calls.some(call=>call.kind==='request'),false);
+  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace']);
 });
 
 test('choosing among multiple root documents forwards the selected entry',async t=>{
@@ -217,11 +217,42 @@ test('source typing retains decorations until the new projection is ready',async
   assert.equal(f.calls.filter(call=>call.kind==='clear-decorations').length,clears);
 });
 
+test('a native Save captures the same review and refreshes without revealing source or focused panels',async t=>{
+ const f=await fixture(t);await f.command('open');
+ const shown=f.calls.filter(call=>call.kind==='show-source'||call.kind==='show-review').length;
+ f.doc.text='Author saved wording.';f.doc.version++;
+ await f.events['document-save'](f.doc);
+ const request=f.calls.find(call=>call.kind==='request'&&call.route==='/capture');
+ assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,source:'2'.repeat(40)});
+ assert.equal(f.calls.filter(call=>call.kind==='show-source'||call.kind==='show-review').length,shown);
+ assert.equal(f.calls.some(call=>call.kind==='prepare'&&call.route==='/update'),false);
+ assert.equal(f.runtime.review.id,reviewId);assert.deepEqual(f.errors,[]);
+});
+
+test('deactivation waits for the native Save capture before stopping its service',async t=>{
+ const options={},f=await fixture(t,options);await f.command('open');
+ let entered,release;const capturing=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);
+ options.onRequestQueue=async()=>{entered();await gate;};
+ f.doc.text='Saved before reload.';f.doc.version++;
+ const saved=f.events['document-save'](f.doc);await capturing;
+ const closing=f.deactivate();
+ assert.equal(f.calls.some(call=>call.kind==='dispose-runtime'),false);
+ release();await Promise.all([saved,closing]);
+ assert.ok(f.calls.findIndex(call=>call.route==='/capture')<f.calls.findIndex(call=>call.kind==='dispose-runtime'));
+});
+
+test('the editing folder command opens B as a normal folder in another window',async t=>{
+ const f=await fixture(t,{workspace:'/editing/sourceB'});await f.command('open');
+ await f.command('editingFolder');
+ const call=f.calls.find(call=>call.kind==='command'&&call.name==='vscode.openFolder');
+ assert.equal(call.args[0].fsPath,'/editing/sourceB');assert.equal(call.args[1].forceNewWindow,true);
+});
+
 test('source navigation maps the exact dirty native buffer without saving it',async t=>{
   const f=await fixture(t);await f.command('open');
   f.doc.text='🧬 A dirty manuscript sentence.\n';f.doc.version++;f.doc.isDirty=true;
   await f.panelCallbacks.onSource({file:'main.tex',position:8});
-  const request=f.calls.find(call=>call.kind==='request');
+  const request=f.calls.find(call=>call.kind==='request'&&call.route==='/editor');
   assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,point:8});
   assert.deepEqual(f.editor.selection.start,new Position(0,12));assert.equal(f.doc.isDirty,true);
   assert.equal(await readFile(f.source,'utf8'),'A manuscript sentence.\n');
@@ -239,7 +270,7 @@ test('source navigation refuses symlinks leaving the manuscript repository',asyn
   const external=path.join(path.dirname(f.repo),'outside.tex');await writeFile(external,'Outside text.');
   await symlink(external,path.join(f.repo,'escape.tex'));
   await assert.rejects(f.panelCallbacks.onSource({file:'escape.tex'}),/outside this manuscript/);
-  assert.equal(f.calls.some(call=>call.kind==='request'),false);
+  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace']);
 });
 
 test('reviewing saved changes refuses unsaved manuscript buffers',async t=>{

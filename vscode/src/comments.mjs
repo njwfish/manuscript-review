@@ -3,7 +3,7 @@ import {commentThreads,currentFeedback,discussionGroups} from '../../manuscript_
 
 export function sourceFile(review,document){
  if(!review||document?.uri.scheme!=='file'||!['.tex','.bib','.md','.txt','.typ','.rst'].includes(path.extname(document.uri.fsPath)))return null;
- const relative=path.relative(review.repo,document.uri.fsPath);
+ const relative=path.relative(review.workspace||review.repo,document.uri.fsPath);
  return relative&&!path.isAbsolute(relative)&&relative!=='..'&&!relative.startsWith(`..${path.sep}`)
   ?relative.split(path.sep).join('/'):null;
 }
@@ -28,7 +28,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   }
 
   async function documentFor(file) {
-    const uri=vscode.Uri.file(path.join(runtime.review.repo,file));
+    const uri=vscode.Uri.file(path.join(runtime.review.workspace||runtime.review.repo,file));
     return vscode.workspace.textDocuments.find(document=>document.uri.toString()===uri.toString())
       || await vscode.workspace.openTextDocument(uri);
   }

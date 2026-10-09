@@ -177,6 +177,12 @@
         "title": "Comment navigation",
         "category": "Manuscript Review",
         "icon": "$(filter)"
+      },
+      {
+        "command": "manuscriptReview.editingFolder",
+        "title": "Open editing folder",
+        "category": "Manuscript Review",
+        "icon": "$(folder-opened)"
       }
     ],
     "configuration": {

@@ -19,7 +19,7 @@ export function commentTask(data,report,identifier,{launcher,skill,dirty=false})
   :'Work through this comment. Make only the surgical source changes it requires, preserving the author’s wording. Do not apply review decisions automatically.';
  const prompt=`Address only discussion ${id}, at ${note.file}:${note.line}, including its earlier replies. Other comments are context, not additional tasks.
 Read the Manuscript Review skill at ${path.join(skill,'SKILL.md')}. Use this exact command prefix for feedback, begin, finish, and respond: ${shellQuote(launcher)} --home ${shellQuote(home)}.
-Review ${data.id} in ${data.repo}. The saved record is ${data.feedback_path}.
+Review ${data.id} in ${data.workspace||data.repo}. The saved record is ${data.feedback_path}.
 
 Author’s comment:
 ${note.comment}

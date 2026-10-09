@@ -87,16 +87,22 @@ Source remains a normal VS Code document with saving, undo, syntax highlighting,
 LaTeX Workshop compilation. Change backgrounds and hovers show replacements against
 the exact current editor buffer.
 
-After saving manual edits, use **Compare saved changes** in Review tools, or **Review
-saved source changes** from the command palette. This creates a round against the
-preceding selected draft and retains the original baseline and discussion. **Since
-baseline** shows accumulated selected changes. A source-changing round must contain
-a reviewable diff.
+Saving a native source edit refreshes the current comparison automatically. **From**
+stays at A; **To** becomes B plus your local edits. New manual edits are accepted,
+unaffected choices remain, and comments on revised edits move into discussion.
+The original baseline stays fixed. A new agent revision uses a separate round through
+the bundled skill; **Compare saved changes** captures edits made outside this editor.
+
+Source editing uses B’s checkout. If the open folder contains another version or
+unrelated changes, the review creates a separate Git worktree containing its selected
+draft. **Open editing folder** in Review tools opens that source as a normal VS Code
+folder for Git, terminals, and LaTeX Workshop. Your original checkout stays intact;
+create a branch in the editing folder when you want to commit or publish its changes.
 
 **Saved source drafts** opens retained drafts from the shared library as untitled editor
 copies, or discards them explicitly. Opening a copy keeps the saved draft and working
-file intact. Save the copy to the intended source file, then discard its retained draft
-before comparing or applying. New source edits use VS Code's normal unsaved buffers
+file intact. Keep the recovery copy open, discard the retained draft, then save the
+copy to the intended source file. New source edits use VS Code's normal unsaved buffers
 and recovery behavior.
 
 ## Review and apply

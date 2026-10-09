@@ -61,6 +61,10 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                 request = self.read_request()
                 if self.path == '/editor':
                     result = session.editor(request['file'], request['text'], request.get('point'))
+                elif self.path == '/workspace':
+                    result = session.edit_workspace(request)
+                elif self.path == '/capture':
+                    result = session.capture_file(request)
                 elif self.path == '/responses':
                     result = session.import_responses(request['responses'], request['revision'])
                 elif self.path == '/explanations':
