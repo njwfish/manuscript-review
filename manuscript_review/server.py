@@ -71,6 +71,8 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                     result = session.save_draft(request)
                 elif self.path == '/note':
                     result = session.save_note(request)
+                elif self.path == '/thread':
+                    result = session.resolve_thread(request)
                 elif self.path == '/retain':
                     session.store.backup_request(request)
                     result = {'message': 'Unsaved changes retained.'}

@@ -80,6 +80,19 @@ class AgentTests(ReviewFixture):
         self.assertEqual(repeated['history'], result['history'])
         self.assertEqual(repeated['revision'], result['revision'])
 
+    def test_author_status_commands_use_thread_origin_and_latest_revision(self):
+        feedback = self.command('feedback', '--review', self.identifier)
+        note = feedback['comments'][0]
+        before = self.store.read()
+        resolved = self.command('resolve', '--review', self.identifier, '--revision', str(feedback['revision']), '--thread', note['thread_id'])
+        self.assertTrue(next(n for n in resolved['comments'] if n['id'] == note['id'])['resolved'])
+        self.assertEqual(self.store.read(), {**before, 'revision': 10, 'resolved': [note['thread_id']]})
+        stale = self.command('reopen', '--review', self.identifier, '--revision', '9', '--thread', note['thread_id'], check=False)
+        self.assertNotEqual(stale.returncode, 0)
+        reopened = self.command('reopen', '--review', self.identifier, '--revision', str(resolved['revision']), '--thread', note['thread_id'])
+        self.assertFalse(any(n['resolved'] for n in reopened['comments']))
+        self.assertEqual(self.store.read(), {**before, 'revision': 11})
+
     def test_reply_seals_only_its_current_note_and_preserves_every_other_choice(self):
         feedback = self.command('feedback', '--review', self.identifier)
         note = next(n for n in feedback['comments'] if n['id'] == self.first['edits'][0]['id'])

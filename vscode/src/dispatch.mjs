@@ -28,7 +28,7 @@ Original quoted source (read the current manuscript before editing):
 ${note.before||note.proposed||''}
 
 ${scope}
-Read the current feedback and repository instructions first. Use begin before any source changes, then finish to publish a reviewable round. Keep the original baseline and earlier rounds. For replies only, use the existing round. Append only your final, concise explanation to discussion ${id} using respond; keep your working conversation in this agent session. Reread feedback before responding and respect its current revision. Return the resulting review link: vscode://njwfish.manuscript-review/review/REVIEW_ID.`;
+Read the current feedback and repository instructions first. Use begin before any source changes, follow the repository’s Git workflow, run its checks, then finish to publish a reviewable revision. Keep the original baseline and earlier rounds. For replies only, use the existing round. Append only your final, concise explanation to discussion ${id} using respond; identify the published revision when wording changes, and keep your working conversation in this agent session. Preserve thread resolution and review decisions; the author owns both. Reread feedback before responding and respect its current revision. Return the resulting review link: vscode://njwfish.manuscript-review/review/REVIEW_ID.`;
  return {prompt,discussion:id};
 }
 

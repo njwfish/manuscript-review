@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Port passage drafts to pinned file drafts; retain byte-exact v5 records."""
 import copy
-from contextlib import ExitStack
-from pathlib import Path
 from manuscript_review.editing import selected_content, projection_blocks, mapped_range
 from manuscript_review.file_editing import replace_ranges
-from manuscript_review.storage import SCHEMA, FileLock, atomic_bytes, atomic_json, read_json, validate_record
+from manuscript_review.storage import SCHEMA, validate_record
+from . import port_thread_origins, upgrade_records
 
 
 def port_drafts(record):
@@ -27,8 +26,8 @@ def port_drafts(record):
         if any(first[1] > second[0] for first, second in zip(replacements, replacements[1:])):
             raise ValueError('Overlapping passage drafts need reconciliation before upgrading.')
         retained[path] = {'file': path, 'source': record['result'], 'text': replace_ranges(content, replacements)}
-    result.update(schema=SCHEMA, drafts=retained)
-    return validate_record(result)
+    result.update(schema=SCHEMA, drafts=retained, resolved=record.get('resolved', []))
+    return validate_record(port_thread_origins(result))
 
 
 def port_record(old):
@@ -38,24 +37,4 @@ def port_record(old):
 
 
 def upgrade(home):
-    home = Path(home).expanduser().resolve()
-    with FileLock(home / '.prepare.lock'), ExitStack() as locks:
-        pending = []
-        for path in sorted((home / 'reviews').glob('*/review.json')):
-            locks.enter_context(FileLock(path.parent / '.session.lock'))
-            if (path.parent / 'transaction.json').exists():
-                raise ValueError('Recover an interrupted manuscript save before upgrading.')
-            old = read_json(path)
-            if old['schema'] == SCHEMA:
-                validate_record(old)
-                continue
-            current = port_record(old)
-            original = path.read_bytes()
-            archive = path.parent / 'migration-v5' / 'review.json'
-            if archive.exists() and archive.read_bytes() != original:
-                raise ValueError('The original record changed after an interrupted migration; its archive is retained.')
-            pending.append((path, archive, original, current))
-        for path, archive, original, current in pending:
-            atomic_bytes(archive, original)
-            atomic_json(path, current)
-        return len(pending)
+    return upgrade_records(home, port_record)

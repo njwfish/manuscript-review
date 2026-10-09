@@ -9,7 +9,7 @@ The current package is a preview.
 ## Install
 
 Build the current preview using the [commands below](#build), then install
-`dist/manuscript-review-0.1.5.vsix` through **Extensions → Install from VSIX…** and open your
+the VSIX in `dist/` through **Extensions → Install from VSIX…** and open your
 manuscript folder. The workspace host needs macOS or Linux, Git, and Python 3.12 or
 newer. The extension finds a supported interpreter automatically, including Homebrew Python
 when an older Conda environment comes first on the path. **Manuscript Review: Python
@@ -72,8 +72,11 @@ A manuscript repository needs at least one commit and tracked source files.
 
 Select source text and run **Comment on selection** (⌘/Ctrl+Shift+M), or use the editor
 context menu. With no selection, the comment covers the current line. Responses and
-follow-ups stay together in VS Code's Comments view. **Previous comment** and **Next
-comment** (⌘/Ctrl+Alt+[ / ]) move through them across files. Comment shortcuts apply
+follow-ups stay together in VS Code's Comments view. **Resolve comment** closes a thread;
+**Reopen comment** returns it to the queue. Resolved threads collapse and retain their
+messages across revisions. **Previous comment** and **Next comment** (⌘/Ctrl+Alt+[ / ])
+visit unresolved threads across files; **Manuscript Review: Comment navigation → All** in the Command Palette includes resolved
+threads. The Comments view also provides its native resolved/unresolved filter. Comment shortcuts apply
 while a review is open and the source editor has focus; remap them in Keyboard Shortcuts.
 
 Clicking proposed text in the focused review opens the source file at the change.
@@ -115,6 +118,11 @@ Save or discard unsaved manuscript buffers first. Apply preserves Git HEAD and s
 and refuses intervening source changes. Review tools also contain patch and feedback
 exports, response imports, version comparison, the library, drafts, and setup.
 
+Accept/reject selects wording. Resolve/reopen settles a discussion. These actions are
+independent: accepting an edit or receiving a response leaves its thread status intact.
+The focused review’s **Unresolved / All** filter and **Resolve / Reopen** controls use
+the same thread state as native comments.
+
 ## Work with an agent
 
 Press **Enter** in a comment to save it and open your selected agent’s task tab;
@@ -140,6 +148,12 @@ Codex opens a fresh tab with the request copied for you to paste and send.
 Each task receives one saved comment,
 its review, and the bundled command launcher. It appends only its final response to
 the discussion; its working conversation stays in the agent tab.
+
+Revision passes follow the manuscript repository’s branch and commit conventions,
+run its build checks, and publish a diff against the version reviewed before the pass.
+Responses identify that revision. The author reviews the wording and resolves settled
+threads. Ordinary Git commits and PRs can supply the comparison versions; the app
+retains its annotations and decisions without changing Git HEAD or staging.
 
 With pending review decisions or unsaved source, the task thinks through the comment
 and replies without editing files. Once decisions are complete, it can make surgical

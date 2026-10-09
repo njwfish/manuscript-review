@@ -8,7 +8,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA = 6
+SCHEMA = 7
 
 
 class StaleReview(ValueError):
@@ -87,12 +87,12 @@ def new_record(snapshot, metadata, decisions=None, comments=None, history=None, 
     return {'schema': SCHEMA, 'snapshot': snapshot, 'metadata': metadata,
             'baseline': baseline or snapshot['base'], 'result': snapshot['proposed'],
             'revision': 0, 'decisions': decisions or {}, 'comments': comments or {},
-            'history': history or [], 'drafts': {}, 'applied': {}, 'ui': {}}
+            'history': history or [], 'resolved': [], 'drafts': {}, 'applied': {}, 'ui': {}}
 
 
 def validate_record(record):
     if not isinstance(record, dict) or record.get('schema') != SCHEMA:
-        raise ValueError('Unsupported review format. Import a current review export.')
+        raise ValueError('Unsupported review format. Close review interfaces and run the agent’s migrate command.')
     from .comparison import validate_decisions
     from .feedback import validate_comments
     validate_decisions(record['snapshot'], record['decisions'])
@@ -103,6 +103,9 @@ def validate_record(record):
         raise ValueError('Invalid review record.')
     if any(not isinstance(entry, dict) or entry.get('author') not in ('user', 'agent') for entry in record['history']):
         raise ValueError('Each discussion needs a user or agent author.')
+    resolved = record['resolved']
+    if not isinstance(resolved, list) or any(not isinstance(identifier, str) or not identifier or len(identifier) > 200 for identifier in resolved) or len(set(resolved)) != len(resolved):
+        raise ValueError('Resolved threads must contain distinct discussion origins.')
     drafts = record['drafts']
     if not isinstance(drafts, dict) or any(
             not isinstance(key, str) or not isinstance(draft, dict)

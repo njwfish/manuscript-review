@@ -18,7 +18,7 @@ Use the command launcher named in a copied agent request, or `scripts/review-age
 "/path/to/skill/scripts/review-agent" feedback --review REVIEW_ID
 ```
 
-Use the review ID named by the user or identify it from its repository and baseline/proposal labels. If several rounds fit, ask which round they mean. The output contains the saved revision number, Git source versions, edits with their source context and decisions, current comments with source context, and earlier discussion with replies. Read both current notes and earlier exchanges before editing; a decision to reject an edit also matters when no comment explains it.
+Use the review ID named by the user or identify it from its repository and baseline/proposal labels. If several rounds fit, ask which round they mean. The output contains the saved revision number, Git source versions, edits and decisions, and discussion with replies. Each comment has a `thread_id` and `resolved` status. Address unresolved threads within the requested scope; resolved threads remain context unless the author selects one explicitly. Read the original feedback and earlier responses before editing, and respect rejected wording even when no comment explains it.
 
 ## Address feedback
 
@@ -42,14 +42,14 @@ Keep the returned `revision` and `starting_version`. Begin checks that reviewed 
 
 Reread feedback after applying and run begin with the current review. Otherwise, use **Compare saved changes** in VS Code, or **New round** in the standalone app, to compare the saved selection against the working files, then read that round’s feedback and begin with its review ID. Never bypass the check or overwrite outside edits. A copied request from an unfinished review asks for responses while the author continues deciding; defer source revisions until they finish.
 
-Edit the working files within the requested scope and run the manuscript’s relevant build checks. Stage any newly created source files before finishing; snapshots include tracked files and staged new files. Save the pass as a new review round using the values from begin:
+Edit within the requested scope, run the manuscript’s build checks, and follow the repository’s branch and commit conventions. The app preserves source versions without changing Git HEAD or the index; it also works with ordinary commits on a local branch or PR. Stage new source files before finishing, since snapshots include tracked files and staged new files. Publish the revision using the values from begin:
 
 ```sh
 "/path/to/skill/scripts/review-agent" finish --review REVIEW_ID --revision STARTING_REVISION --from STARTING_VERSION
 "/path/to/skill/scripts/review-agent" feedback --review NEW_REVIEW_ID
 ```
 
-Finish returns the new review ID, record path, and edit count. Verify that the new round contains the intended changes. It compares the pinned starting draft to your revised working files, preserves the original baseline and earlier round, and attaches earlier discussion where possible. Git commits during the pass do not move these endpoints. A source-changing pass with no reviewable edits is refused; investigate the comparison rather than treating it as complete. For replies without source changes, keep the existing round. Finish queues LaTeX previews for the app to build when opened. Do not apply pending choices unless the user asks for that.
+Finish returns the new review ID, record path, edit count, and exact `starting_version` and `proposed_version`. Verify the diff between these versions contains the intended changes. The new round preserves the original baseline, earlier review, discussion, and resolution states; Git commits during the pass do not move its endpoints. A source-changing pass with no reviewable edits is refused. For replies without source changes, keep the existing round. Finish queues LaTeX previews for the interface to build when opened. Applying choices, pushing a branch, and merging a PR follow the author’s authorization and repository workflow.
 
 Write replies as a JSON array in a temporary file:
 
@@ -59,13 +59,20 @@ Write replies as a JSON array in a temporary file:
 ]
 ```
 
-For a current comment in `comments`, use its `discussion_id`; for an entry in `history`, use its `id`. Source comments may refer to unchanged text or an author draft; read their original quote and context as well as the current file. After a revision pass, reply in the new round using its feedback output and saved revision number. For replies without source changes, use the existing round and its latest revision. Keep each reply specific to the comment and distinguish completed changes from unresolved points.
+For a current comment in `comments`, use its `discussion_id`; for an entry in `history`, use its `id`. Source comments may refer to unchanged text or an author draft; read their original quote and context as well as the current file. After revising, reply in the new round using its feedback output and saved revision number. Identify the published source revision in the response and explain the change or why wording was retained. For replies without source changes, use the existing round and its latest revision. Keep working transcripts in the agent interface and append only the final response to the thread.
 
 ```sh
 "/path/to/skill/scripts/review-agent" respond --review NEW_REVIEW_ID --revision NEW_SAVED_REVISION --responses /absolute/path/to/replies.json
 ```
 
 Responding records the original note and appends the reply; a current note moves into discussion history and its comment field clears for a follow-up. Other comments and decisions stay intact, and repeated imports of the same reply do not duplicate it. A stale revision is refused: reread feedback and reconcile the intervening changes before retrying. Verify the command output contains the original comment and new reply. Do not edit `review.json`, infer IDs from file offsets, or bypass the revision check.
+
+The author owns thread resolution independently of wording decisions. Replies, accepted changes, and new revisions do not resolve a thread. Change its status only when the author explicitly requests it, using the latest saved revision and `thread_id` from feedback. Each status change advances the saved revision; reread feedback before another write:
+
+```sh
+"/path/to/skill/scripts/review-agent" resolve --review REVIEW_ID --revision SAVED_REVISION --thread THREAD_ID
+"/path/to/skill/scripts/review-agent" reopen --review REVIEW_ID --revision SAVED_REVISION --thread THREAD_ID
+```
 
 If a feedback ledger exists, update its affected rows after the pass using the status rules in its reference.
 
@@ -81,7 +88,7 @@ To read and comment without requiring changes, use **Open manuscript review** in
 "/path/to/skill/scripts/review-agent" open --repo /absolute/path/to/manuscript
 ```
 
-Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then saves and uses **Compare saved changes** before copying an agent request. **⌘/Ctrl+Alt+[ / ]** steps through native comments across files. **View change** opens the attached diff. The standalone app's **Manuscript** view opens supported text sources in its editor; its comment navigation uses **⌘/Ctrl+Shift+[ / ]**. Source comments use the same begin, finish, and respond operations above.
+Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then saves and uses **Compare saved changes** before copying an agent request. **⌘/Ctrl+Alt+[ / ]** steps through unresolved native threads; **Manuscript Review: Comment navigation → All** in the Command Palette also includes resolved threads. **Resolve comment** and **Reopen comment** use the native thread toolbar. **View change** opens the attached diff. The standalone app’s editor uses **⌘/Ctrl+Shift+[ / ]** for comment navigation, with the same **Unresolved / All** filter and **Resolve / Reopen** controls. Source comments use the same begin, finish, and respond operations above.
 
 To start a comparison in VS Code, use **Compare manuscript versions** and pick commits or saved checkpoints. **Clone manuscript from GitHub** opens the cloned folder; **Fetch manuscript history** updates remote history without merging. The standalone app provides these operations through **Library → Compare versions**.
 

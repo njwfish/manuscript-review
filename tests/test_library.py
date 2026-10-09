@@ -14,6 +14,26 @@ from manuscript_review.session import ReviewSession
 
 
 class LibraryTests(ReviewFixture):
+    def test_http_thread_status_uses_the_shared_session_operation(self):
+        library = Library(self.root / 'library')
+        library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'one')
+        identifier = library.jobs['one']['review']
+        session = ReviewSession(library.directory(identifier))
+        record = session.store.read()
+        edit = record['snapshot']['files'][0]['edits'][0]
+        session.update('save', {'revision': record['revision'], 'decisions': {edit['id']: 'reject'},
+                               'comments': {edit['id']: 'Preserve this wording.'}})
+        before = session.store.read()
+        url = library.open(identifier)
+        request = Request(url + 'thread', json.dumps({'revision': before['revision'], 'id': edit['id'], 'resolved': True}).encode(),
+                          headers={'Content-Type': 'application/json', 'X-Review-Token': before['snapshot']['token']})
+        try:
+            result = json.load(urlopen(request, timeout=5))
+            self.assertEqual(result['resolved'], [identifier + ':' + edit['id']])
+            self.assertEqual(session.store.read(), {**before, 'revision': before['revision'] + 1, 'resolved': [identifier + ':' + edit['id']]})
+        finally:
+            library.servers[identifier].shutdown();library.servers[identifier].server_close()
+
     def test_comparison_from_an_inspected_draft_keeps_choices_feedback_and_baseline(self):
         library = Library(self.root / 'library')
         library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'one')

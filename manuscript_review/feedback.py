@@ -11,7 +11,7 @@ def validate_comments(snapshot, comments):
         raise ValueError('Comments must be text of at most 20,000 characters.')
 
 
-def feedback_report(snapshot, decisions, comments, history):
+def feedback_report(snapshot, decisions, comments, history, review_id, resolved=()):
     notes, edits = [], []
     for file in snapshot['files']:
         for number, passage in enumerate(file['hunks'], 1):
@@ -24,10 +24,14 @@ def feedback_report(snapshot, decisions, comments, history):
                 if not text.strip():
                     continue
                 statuses = {decisions.get(g['id'], 'pending') for g in passage['edits']} if kind == 'passage' else {decisions.get(item['id'], 'pending')}
-                notes.append({'id': item['id'], 'discussion_id': discussion_id(snapshot, item['id'], text, 'user'), 'kind': kind, 'file': file['path'], 'line': passage['line'],
+                notes.append({'id': item['id'], 'origin_id': f'{review_id}:{item["id"]}', 'discussion_id': discussion_id(snapshot, item['id'], text, 'user'), 'kind': kind, 'file': file['path'], 'line': passage['line'],
                               'passage': number, 'decision': next(iter(statuses)) if len(statuses) == 1 else 'mixed',
                               'before': item['before'] if kind == 'passage' else item['old'],
                               'proposed': item['after'] if kind == 'passage' else item['new'],
                               'context_before': passage['before'], 'context_proposed': passage['after'], 'comment': text})
+    def thread_state(entry):
+        origin = entry.get('origin_id') or entry['id']
+        return {**entry, 'thread_id': origin, 'resolved': origin in resolved}
     return {'repo': snapshot['repo'], 'base': snapshot['base'], 'proposed': snapshot['proposed'],
-            'decisions': decisions, 'edits': edits, 'comments': notes, 'history': history}
+            'decisions': decisions, 'edits': edits, 'comments': [thread_state(note) for note in notes],
+            'history': [thread_state(entry) for entry in history]}

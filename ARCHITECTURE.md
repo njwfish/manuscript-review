@@ -4,11 +4,11 @@ VS Code is the primary interface. Its extension bundles and starts the Python re
 
 ## The review record
 
-Each library entry owns one `review.json` with schema version 6. It contains the original baseline, round comparison, selected result version, conceptual decisions, current notes, discussion history, expected working-file hashes, metadata, source drafts, and navigation preferences. Files under `renders/`, `baseline-renders/`, and `comparisons/` are disposable caches; `versions/` holds records preceding source changes. Patch and feedback exports are generated from the current record.
+Each library entry owns one `review.json` with schema version 7. It contains the original baseline, round comparison, selected result version, conceptual decisions, current notes, discussion history, resolved thread origins, expected working-file hashes, metadata, source drafts, and navigation preferences. Files under `renders/`, `baseline-renders/`, and `comparisons/` are disposable caches; `versions/` holds records preceding source changes. Patch and feedback exports are generated from the current record.
 
 | Primitive | Meaning |
 | --- | --- |
-| Source version | A reachable Git commit created without changing HEAD or the index |
+| Source version | A pinned Git commit from repository history or a checkpoint captured without changing HEAD or the index |
 | Round | A starting draft, proposed draft, and selected result, linked to the preceding review |
 | Baseline | The fixed source version from the first round of a comparison |
 | Edit | A continuous replacement, with spans in the starting draft and proposal |
@@ -23,6 +23,31 @@ Diff opcodes describe exact source reconstruction; they are internal to a compar
 Current notes remain editable. Replying to a current note records it in discussion history and clears its input for a follow-up. When a new round or a passage revision supersedes their edit, they become discussion records. Their text, context, and replies remain intact even when there is no corresponding new edit. Responses address exact discussion IDs and append replies; importing the same reply again does not duplicate it. Attachments are derived from source spans and can change without changing the message.
 
 Comments on arbitrary source selections use the same discussion records, with `kind: source`. Their anchors pin the exact captured editor text, including an unsaved draft, without writing manuscript files. The original anchor and context remain immutable; attachment to later edits is derived separately. A user-written root comment is editable until a response arrives; imported feedback retains its original wording. A follow-up is another ordinary discussion entry with the same origin ID, preserving the preceding exchange.
+
+Resolution belongs to the discussion origin. A current note’s origin combines its review ID and target ID, so a new round’s comment cannot inherit status from an earlier comment on the same passage. Sealed messages and explicit follow-ups retain their origin. The record stores its resolved origins once;
+view and feedback operations derive status for every message in the thread. Replies,
+wording decisions, source edits, and new rounds preserve that status. Resolve/reopen
+uses the same revision-checked transaction as other content changes and does not write
+source or create a source version. Earlier rounds retain their status at that point.
+
+## Component ownership
+
+| Component | Owns |
+| --- | --- |
+| Git and repository workflow | Source history, branches, commits, PR publication and merging |
+| `ReviewSession` and `ReviewStore` | Author decisions, discussion status, validated writes and record transactions |
+| `history.py` and `feedback.py` | Anchored messages, responses and exports of thread identity and status |
+| `review_model.js` | Shared thread grouping and source selection rules |
+| Native comments and focused review | Rendering, navigation, filters and author actions through the session API |
+| Agent dispatch | One comment’s scope, provider handoff and return focus |
+| Agent skill and commands | Reading feedback, making authorized revisions, publishing their diff and appending final responses |
+
+The author selects wording and resolves issues. Agent providers retain working
+transcripts; the review stores comments and final responses. The UI can navigate
+unresolved threads independently of undecided source edits. Native comments use
+VS Code’s resolved/unresolved state and display filters; source navigation has an
+Unresolved/All picker. The focused interface keeps the same filter beside its
+comment arrows. Resolved discussions collapse and remain available to reopen.
 
 Agents can also create a discussion entry directly against a passage or edit. Existing diff explanations use this operation. Initial external feedback imports exact source quotes through the same source-comment operation as the editor; revision passes append replies to those comments. The same record fields hold both, with explicit `author` attribution. Explanation imports preserve editable user notes and decisions, use the same revision check, and deduplicate by author, round, target, and text. The UI displays relevant agent notes from the current proposal beside the diff, and keeps earlier notes in discussion. External feedback inventories belong in agent-maintained project files, not the app record.
 
@@ -127,7 +152,7 @@ Record replacement uses a unique temporary file, `fsync`, atomic rename, and dir
 
 Library cards group records by manuscript repository and show rounds in chronological history. Applied status is derived from the saved source hashes and selected wording; notes and replies do not reset it.
 
-The app reads only schema 6. The explicit migrations in `migrations/` port retired records and preserve byte-exact originals. The v2 upgrade retains selected manuscript content and leaves the checkout and Git index unchanged. The v3 upgrade adds user attribution to existing discussion; the v4 upgrade moves source drafts out of navigation preferences. These preserve discussion IDs, notes, replies, decisions, and review revisions, and validate the library before replacing canonical files. The v5 migration combines located passage drafts into full-file drafts against the same selected version and retains detached source drafts. The explicit agent `migrate` command validates the whole library before replacing records and archives their original bytes. Migrations are never imported by the service.
+The app reads only schema 7. The explicit migrations in `migrations/` port retired records and preserve byte-exact originals. The v2 upgrade retains selected manuscript content and leaves the checkout and Git index unchanged. The v3 upgrade adds user attribution to existing discussion; the v4 upgrade moves source drafts out of navigation preferences. These preserve discussion IDs, notes, replies, decisions, and review revisions, and validate the library before replacing canonical files. The v5 migration combines located passage drafts into full-file drafts against the same selected version and retains detached source drafts. The v6 migration starts existing threads unresolved and qualifies legacy origins with saved current follow-ups to keep their exchanges together. Message IDs, source context, replies, choices, and drafts remain intact. The explicit agent `migrate` command validates the whole library before replacing records and archives their original bytes. Migrations are never imported by the service.
 
 ## Verification
 

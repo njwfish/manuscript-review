@@ -139,7 +139,8 @@ class Library:
             record = store.read()
         return {'status': 'ready', 'review': identifier, 'reused': reused,
                 'edits': sum(len(f['edits']) for f in record['snapshot']['files']),
-                'starting_version': record['snapshot']['base'], 'baseline': record['baseline']}
+                'starting_version': record['snapshot']['base'], 'proposed_version': record['snapshot']['proposed'],
+                'baseline': record['baseline']}
 
     def prepare(self, request, job):
         try:
@@ -217,7 +218,7 @@ class Library:
                 raise ValueError('No reviewable source changes in this pass. Add a reply in the existing round instead.')
             choices, comments, history = {}, {}, []
             if saved:
-                report = feedback_report(saved['snapshot'], saved['decisions'], saved['comments'], saved['history'])
+                report = feedback_report(saved['snapshot'], saved['decisions'], saved['comments'], saved['history'], saved['metadata']['id'])
                 history = build_history(saved['snapshot'], snapshot, saved, report, saved['history'], previous_dir)
             with self.lock, FileLock(self.home / '.prepare.lock'):
                 if (directory / 'review.json').exists():
@@ -242,6 +243,8 @@ class Library:
                         if previous_store.read()['revision'] != saved['revision']:
                             raise ValueError('The earlier review changed while preparing this round. Try again.')
                 record = new_record(snapshot, metadata, choices, comments, history, baseline=baseline)
+                if saved:
+                    record['resolved'] = saved['resolved'].copy()
                 if request.get('manuscript'):
                     record['ui']['scope'] = 'manuscript'
                 atomic_json(directory / 'review.json', record)
@@ -286,6 +289,12 @@ class Library:
         identifier = secrets.token_hex(12)
         destination = self.reviews / identifier
         destination.mkdir()
+        prefix = record['metadata']['id'] + ':'
+        def imported_origin(origin):
+            return identifier + ':' + origin[len(prefix):] if origin.startswith(prefix) else origin
+        record['resolved'] = [imported_origin(origin) for origin in record['resolved']]
+        for entry in record['history']:
+            entry['origin_id'] = imported_origin(entry['origin_id'])
         record['snapshot']['token'] = secrets.token_urlsafe(32)
         record['metadata'].update(id=identifier, imported_from=str(source))
         snapshot = record['snapshot']

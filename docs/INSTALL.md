@@ -117,13 +117,13 @@ and any standalone review windows, paste that command into a terminal, and appen
 instead. Reopen the extension after migration. The command preserves original records
 and leaves manuscript files unchanged.
 
-Version 0.11 uses full-file source drafts. Before opening an existing version 0.10 library in the updated app, quit the old app, replace it, and run:
+Version 0.14.2 adds independent thread resolution. Before opening an earlier library, close its review interfaces, replace the standalone app if installed, and run:
 
 ```sh
 "/Applications/Manuscript Review.app/Contents/MacOS/manuscript-review-agent" migrate
 ```
 
-For a source installation, use `.venv/bin/manuscript-review-agent migrate`. Add `--home /path/to/library` before `migrate` for a separate library. The command preserves review choices, comments, replies, and source versions, combines saved passage drafts into file drafts, and archives each original record under `migration-v5/review.json`. It leaves manuscript files unchanged and is safe to repeat. Then open the updated app.
+For a source installation, use `.venv/bin/manuscript-review-agent migrate`. Add `--home /path/to/library` before `migrate` for a separate library. The command preserves review choices, comments, replies, and source versions, starts existing threads unresolved, and archives each original record under `migration-vN/review.json`, where N is its previous schema version. Older passage drafts become file drafts. It leaves manuscript files unchanged and is safe to repeat. Then open the updated app.
 
 ## Prepare a manuscript folder
 

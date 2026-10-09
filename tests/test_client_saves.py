@@ -6,6 +6,49 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_resolution_flushes_and_locks_before_writing_and_preserves_failed_input(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('async function setThreadResolved'),app.indexOf('async function sendAgentComment'));
+for(const fail of [false,'save','stale','superseded']){
+ const events=[];let release;const gate=new Promise(resolve=>release=resolve);
+ const context={crypto:{randomUUID:()=> 'test'},editing:false,reviewLock:null,staleReview:fail==='stale',data:{resolved:[]},noteTarget:{comment:'Unsaved text'},
+  window:{flushReview:async({lock})=>{context.reviewLock=lock;context.editing=true;events.push('flush');await gate;if(fail==='save')throw new Error('Disk error');context.noteTarget.id='new-note';}},
+  post:async(route,_decisions,_comments,body)=>{events.push({route,body});return {resolved:['new-note']};},
+  renderDiscussion:()=>events.push('render'),renderFeedback(){},$:()=>({open:false}),remember(){},resultStatus(){},
+  status:message=>events.push(message),setBusy:value=>context.editing=value};
+ vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('setThreadResolved(undefined,true)',context);
+ assert.equal(context.editing,true);assert.deepEqual(events,['flush']);
+ await vm.runInContext('setThreadResolved(undefined,true)',context);assert.deepEqual(events,['flush']);
+ if(fail==='superseded')context.reviewLock='other-action';release();await pending;
+ assert.equal(context.noteTarget.comment,'Unsaved text');
+ if(fail==='save'||fail==='stale'){assert.deepEqual(context.data.resolved,[]);assert.equal(events.some(event=>event.route==='/thread'),false);}
+ else assert.deepEqual(JSON.parse(JSON.stringify(events[1])),{route:'/thread',body:{id:'new-note',resolved:true}});
+ assert.equal(context.editing,fail==='superseded');assert.equal(context.reviewLock,fail==='superseded'?'other-action':null);
+}
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_comment_navigation_stays_near_a_resolved_thread_and_all_can_revisit_it(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+import {commentThreads,currentFeedback} from './manuscript_review/review_model.js';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('function commentOrigin'),app.indexOf('function moveComment'));
+const context={commentThreads,currentFeedback,comments:{},commentFilter:'unresolved',data:{files:[],resolved:['middle'],history:[
+ {id:'first',origin_id:'first',file:'main.tex',line:1,comment:'First'},{id:'followup',origin_id:'middle',file:'main.tex',line:2,comment:'Middle'},
+ {id:'last',origin_id:'last',file:'main.tex',line:3,comment:'Last'}]}};
+vm.createContext(context);vm.runInContext(source,context);
+assert.equal(vm.runInContext("adjacentComment('followup',1)",context),'last');
+assert.equal(vm.runInContext("adjacentComment('followup',-1)",context),'first');
+assert.equal(vm.runInContext("adjacentComment('first',1)",context),'last');
+assert.equal(vm.runInContext("adjacentComment('last',1)",context),undefined);
+context.commentFilter='all';assert.equal(vm.runInContext("adjacentComment('first',1)",context),'followup');
+context.data.id='review';context.data.history[1].origin_id='review:edit';
+assert.equal(vm.runInContext("adjacentComment('edit',1)",context),'last');
+assert.equal(vm.runInContext("adjacentComment('edit',-1)",context),'first');
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
     def test_comment_enter_flushes_once_and_keeps_newlines_and_composition_in_the_editor(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8');

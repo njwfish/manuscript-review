@@ -72,7 +72,7 @@ def port_record(old, parent, directory):
             current = build_snapshot(previous['repo'], parent['result'], old_result, text_only=True)
             current.update({key: previous[key] for key in ('created', 'token', 'source_head', 'entry')})
             record.update(snapshot=current, decisions={g['id']: 'accept' for f in current['files'] for g in f['edits']})
-        report = feedback_report(previous, old['decisions'], old['comments'], old['history'])
+        report = feedback_report(previous, old['decisions'], old['comments'], old['history'], old['metadata']['id'])
         record['history'] = build_history(previous, current, old, report, old['history'], directory)
         record['comments'] = {}
         record['metadata']['base'] = current['base']

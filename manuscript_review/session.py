@@ -38,7 +38,7 @@ class ReviewSession:
     def report(self):
         with self.store.transaction():
             r = self.store.read()
-            return {**feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history']),
+            return {**feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'], r['resolved']),
                     'baseline': r['baseline'], 'result': r['result'],
                     'previous': r['metadata'].get('previous'), 'drafts': r['drafts'], 'comparison': 'round'}
 
@@ -78,7 +78,7 @@ class ReviewSession:
             with self.comparison_lock:
                 key = (r['revision'], r['result'])
                 if self.cumulative_history is None or self.cumulative_history[0] != key:
-                    report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'])
+                    report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'])
                     entries = build_history(r['snapshot'], snapshot, r, report, r['history'], self.directory)
                     self.cumulative_history = (key, entries)
                 history = copy.deepcopy(self.cumulative_history[1])
@@ -98,7 +98,7 @@ class ReviewSession:
         context = self.review_context() if self.review_context else {}
         return {**snapshot, **r['metadata'], **context, 'base': snapshot['base'], 'proposed': snapshot['proposed'],
                 'revision': r['revision'], 'decisions': decisions, 'comments': comments,
-                'history': history, 'drafts': r['drafts'], 'ui': r['ui'], 'round_id': round_id(snapshot),
+                'history': history, 'resolved': r['resolved'], 'drafts': r['drafts'], 'ui': r['ui'], 'round_id': round_id(snapshot),
                 'scope': scope, 'baseline': r['baseline'], 'result': r['result'],
                 'documents': manifest.get('documents', {}) if valid else {},
                 'preview_status': preview_status, 'preview_error': r['metadata'].get(error_key),
@@ -294,6 +294,35 @@ class ReviewSession:
                 self.store.commit(record)
             return {'revision': record['revision'], 'message': 'Draft saved.' if draft is not None else 'Draft discarded.'}
 
+    def resolve_thread(self, request):
+        """Resolve one discussion origin without changing wording or its messages."""
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision(request, record)
+            if type(request.get('resolved')) is not bool:
+                raise ValueError('Choose resolved or unresolved for this thread.')
+            if not isinstance(request.get('id'), str) or not request['id']:
+                raise ValueError('Choose a saved discussion thread.')
+            report = feedback_report(record['snapshot'], record['decisions'], record['comments'], record['history'], record['metadata']['id'])
+            entries = [*report['comments'], *report['history']]
+            entry = next((entry for entry in entries if entry['thread_id'] == request['id']), None)
+            if entry is None:
+                entry = next((entry for entry in entries if request['id'] in (entry['id'], entry.get('discussion_id'))), None)
+            if entry is None:
+                raise ValueError('Choose a saved discussion thread.')
+            origin = entry['thread_id']
+            resolved = set(record['resolved'])
+            if (origin in resolved) != request['resolved']:
+                if request['resolved']:
+                    resolved.add(origin)
+                else:
+                    resolved.discard(origin)
+                record['resolved'] = sorted(resolved)
+                record['revision'] += 1
+                self.store.commit(record)
+            return {'revision': record['revision'], 'resolved': record['resolved'],
+                    'message': 'Comment resolved.' if request['resolved'] else 'Comment reopened.'}
+
     def import_responses(self, records, revision):
         with self.store.transaction():
             r = self.store.read()
@@ -301,10 +330,10 @@ class ReviewSession:
             if not isinstance(records, list):
                 raise ValueError('Responses must be a list of {id, text} records.')
             identifiers = {row.get('id') for row in records if isinstance(row, dict) and isinstance(row.get('id'), str)}
-            report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'])
+            report = feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'])
             notes = {n['id']: n['comment'] for n in report['comments'] if n['discussion_id'] in identifiers}
             state = {**r, 'comments': notes}
-            selected = feedback_report(r['snapshot'], r['decisions'], notes, r['history'])
+            selected = feedback_report(r['snapshot'], r['decisions'], notes, r['history'], r['metadata']['id'])
             entries = build_history(r['snapshot'], r['snapshot'], state, selected, r['history'], self.directory)
             r['history'] = add_responses(entries, records)
             r['comments'] = {key: text for key, text in r['comments'].items() if key not in notes}
@@ -316,7 +345,7 @@ class ReviewSession:
         with self.store.transaction():
             r = self.store.read()
             self.check_revision({'revision': revision, 'explanations': records}, r)
-            entries = add_explanations(r['snapshot'], r['decisions'], r['history'], records, self.directory)
+            entries = add_explanations(r['snapshot'], r['decisions'], r['history'], records, self.directory, r['metadata']['id'])
             if entries != r['history']:
                 r['history'] = entries
                 r['revision'] += 1
@@ -397,7 +426,7 @@ class ReviewSession:
             raise ValueError('The revision changes another decision’s alignment. Your draft is retained; revise a smaller region.')
         archived = {key: value for key, value in record['comments'].items() if key in affected or key not in valid_notes}
         state = {**record, 'comments': archived}
-        report = feedback_report(old, record['decisions'], archived, record['history'])
+        report = feedback_report(old, record['decisions'], archived, record['history'], record['metadata']['id'])
         record['history'] = build_history(old, current, state, report, record['history'], self.directory)
         old_edits = {g['id'] for g in file['edits']} - affected
         record['decisions'] = {key: value for key, value in record['decisions'].items() if key in valid and key not in affected}

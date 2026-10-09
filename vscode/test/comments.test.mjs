@@ -34,17 +34,17 @@ function fixture(history=[source('root')]) {
   const controller={dispose(){this.disposed=true;},createCommentThread(uri,range,comments){
     const thread={uri,range,comments,dispose(){this.disposed=true;}};created.push(thread);return thread;}};
   const vscode={Uri:{file:uri},Range,Selection,CommentMode:{Preview:0,Editing:1},
-    CommentThreadCollapsibleState:{Collapsed:0,Expanded:1},TextEditorRevealType:{InCenterIfOutsideViewport:2},
+    CommentThreadCollapsibleState:{Collapsed:0,Expanded:1},CommentThreadState:{Unresolved:0,Resolved:1},TextEditorRevealType:{InCenterIfOutsideViewport:2},
     comments:{createCommentController:()=>controller},commands:{registerCommand(name,handler){
       handlers.set(name,handler);return {dispose(){handlers.delete(name);}};}},
     workspace:{textDocuments:documents,async openTextDocument(uri){
       const result=documents.find(document=>document.uri.toString()===uri.toString());
       if(!result)throw Object.assign(new Error('Missing file'),{code:'ENOENT'});return result;}},
-    window:{visibleTextEditors:[],async showErrorMessage(message){errors.push(message);},async showTextDocument(document){
+    window:{visibleTextEditors:[],async showErrorMessage(message){errors.push(message);},async showQuickPick(choices){return choices.find(choice=>choice.label==='All');},async showTextDocument(document){
       opened.push(document.uri.fsPath);
       const editor={document,selection:new Selection(new Position(0,0),new Position(0,0)),revealRange(range){this.revealed=range;}};
       this.activeTextEditor=editor;return editor;}}};
-  const data={revision:1,base:'base',proposed:'proposal',history,comments:{},decisions:{},files:[]};
+  const data={id:'review',revision:1,base:'base',proposed:'proposal',history,resolved:[],comments:{},decisions:{},files:[]};
   let beforeProjection,failNote=false,noteNumber=0,changes=0;
   const runtime={review:{id:'review',repo:'/manuscript',revision:1},async data(){return structuredClone(data);},
     async request(route,body){
@@ -74,6 +74,11 @@ function fixture(history=[source('root')]) {
         data.revision++;return {revision:data.revision,entry};
       }
       if(route==='/save') {data.comments=body.comments;data.revision++;return {revision:data.revision};}
+      if(route==='/thread') {
+        const entry=data.history.find(entry=>entry.id===body.id),origin=entry?.origin_id||body.id;
+        data.resolved=body.resolved?[...new Set([...data.resolved,origin])]:data.resolved.filter(id=>id!==origin);
+        data.revision++;return {revision:data.revision,resolved:data.resolved};
+      }
       throw new Error('Unexpected write: '+route);
     }};
   const comments=createComments(vscode,runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
@@ -203,11 +208,25 @@ test('a pinned current note retains its native thread when a response arrives',a
   f.data.files=[{path:'main.tex',hunks:[{id:'passage',line:1,before:'Old',after:'New',edits:[{id:'edit',old:'Old',new:'New'}]}]}];
   f.data.comments={edit:'Current edit note'};await f.comments.refresh();
   const thread=f.created[0],root=thread.comments[0];thread.input='Still typing';
-  f.data.history=[source('saved','main.tex','Current edit note',{kind:'edit',origin_id:'edit',replies:[{id:'answer',text:'Fixed.'}]})];
+  f.data.history=[source('saved','main.tex','Current edit note',{kind:'edit',origin_id:'review:edit',replies:[{id:'answer',text:'Fixed.'}]})];
   f.data.comments={};f.data.revision++;await f.comments.refresh();
   assert.equal(f.created.length,1);assert.equal(thread.comments[0],root);
   assert.equal(thread.input,'Still typing');assert.equal(thread.canReply,true);
   assert.equal(thread.comments[1].body,'Fixed.');
+  f.comments.dispose();
+});
+
+test('an agent explanation with identical text cannot take over the author’s current editor',async()=>{
+  const f=fixture([]);
+  f.data.files=[{path:'main.tex',hunks:[{id:'passage',line:1,before:'Old',after:'New',edits:[{id:'edit',old:'Old',new:'New'}]}]}];
+  f.data.comments={edit:'Same text'};await f.comments.refresh();
+  const thread=f.created[0],author=thread.comments[0];
+  await f.command('editComment',author);author.body='Unsaved user change';
+  f.data.history=[source('explanation','main.tex','Same text',{kind:'edit',author:'agent',origin_id:'review:edit'})];
+  f.data.revision++;await f.comments.refresh();
+  assert.equal(thread.comments[1],author);assert.equal(author.body,'Unsaved user change');
+  assert.equal(author.editable,true);assert.equal(author.conflict,false);assert.equal(author.author.name,'You');
+  assert.equal(thread.comments[0].author.name,'Agent');assert.notEqual(thread.comments[0],author);
   f.comments.dispose();
 });
 
@@ -227,8 +246,39 @@ test('navigation crosses files and expands the corresponding native discussion',
   assert.equal(await f.comments.move(1),true);assert.equal(await f.comments.move(1),true);
   assert.deepEqual(f.opened,['/manuscript/main.tex','/manuscript/other.tex']);
   assert.equal(f.created[1].collapsibleState,f.vscode.CommentThreadCollapsibleState.Expanded);
-  assert.deepEqual(await f.command('viewCommentChange',f.created[1]),f.data.history[0]);
+  assert.deepEqual(await f.command('viewCommentChange',f.created[1]),{...f.data.history[0],resolved:false});
   f.comments.dispose();assert.equal(f.controller.disposed,true);assert.equal(f.created.every(thread=>thread.disposed),true);
+});
+
+test('resolve and reopen preserve native input, messages, decisions, and source buffers',async()=>{
+  const f=fixture([source('root','main.tex','Original',{replies:[{id:'response',text:'Addressed.'}]}),
+    source('follow','main.tex','Follow-up',{origin_id:'root'})]);
+  f.data.decisions={edit:'reject'};f.documents[0].change('Dirty selected words.');
+  await f.comments.refresh();const thread=f.created[0],messages=thread.comments;
+  thread.input='Unsaved reply';thread.collapsibleState=f.vscode.CommentThreadCollapsibleState.Expanded;
+  assert.equal(await f.command('resolveComment',thread),true);
+  assert.deepEqual(f.data.resolved,['root']);assert.equal(thread.state,f.vscode.CommentThreadState.Resolved);
+  assert.equal(thread.contextValue,'manuscriptReview.resolved');
+  assert.equal(thread.collapsibleState,f.vscode.CommentThreadCollapsibleState.Collapsed);
+  assert.equal(thread.input,'Unsaved reply');assert.deepEqual(thread.comments,messages);
+  thread.collapsibleState=f.vscode.CommentThreadCollapsibleState.Expanded;
+  await f.comments.refresh();assert.equal(thread.collapsibleState,f.vscode.CommentThreadCollapsibleState.Expanded);
+  assert.equal(await f.command('reopenComment',thread),true);
+  assert.deepEqual(f.data.resolved,[]);assert.equal(thread.state,f.vscode.CommentThreadState.Unresolved);
+  assert.equal(thread.input,'Unsaved reply');assert.deepEqual(f.data.decisions,{edit:'reject'});
+  assert.equal(f.documents[0].getText(),'Dirty selected words.');assert.equal(f.documents[0].isDirty,true);
+  assert.ok(f.requests.every(request=>['/editor','/thread'].includes(request.route)));
+  f.comments.dispose();
+});
+
+test('comment navigation skips resolved threads by default and All includes them',async()=>{
+  const f=fixture([source('first','main.tex'),source('second','other.tex')]);
+  f.data.resolved=['first'];await f.comments.refresh();
+  assert.equal(await f.comments.move(1),true);assert.equal(f.opened.at(-1),'/manuscript/other.tex');
+  assert.equal(await f.command('commentFilter'),true);
+  f.vscode.window.activeTextEditor=undefined;
+  assert.equal(await f.comments.move(-1),true);assert.equal(f.opened.at(-1),'/manuscript/main.tex');
+  f.comments.dispose();
 });
 
 test('navigation follows the current cursor and dirty-buffer anchors instead of original line numbers',async()=>{

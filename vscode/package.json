@@ -5,7 +5,7 @@
     "onUri"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -159,6 +159,24 @@
         "title": "Choose comment agent",
         "category": "Manuscript Review",
         "icon": "$(chevron-down)"
+      },
+      {
+        "command": "manuscriptReview.resolveComment",
+        "title": "Resolve comment",
+        "category": "Manuscript Review",
+        "icon": "$(check)"
+      },
+      {
+        "command": "manuscriptReview.reopenComment",
+        "title": "Reopen comment",
+        "category": "Manuscript Review",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "manuscriptReview.commentFilter",
+        "title": "Comment navigation",
+        "category": "Manuscript Review",
+        "icon": "$(filter)"
       }
     ],
     "configuration": {
@@ -218,13 +236,23 @@
         },
         {
           "command": "manuscriptReview.viewCommentChange",
-          "when": "commentThread == manuscriptReview",
+          "when": "commentThread == manuscriptReview || commentThread == manuscriptReview.resolved",
           "group": "inline"
         },
         {
           "command": "manuscriptReview.commentAgent",
-          "when": "commentThread == manuscriptReview",
+          "when": "commentThread == manuscriptReview || commentThread == manuscriptReview.resolved",
           "group": "inline@1"
+        },
+        {
+          "command": "manuscriptReview.resolveComment",
+          "when": "commentThread == manuscriptReview",
+          "group": "inline@0"
+        },
+        {
+          "command": "manuscriptReview.reopenComment",
+          "when": "commentThread == manuscriptReview.resolved",
+          "group": "inline@0"
         }
       ],
       "editor/context": [
@@ -267,6 +295,14 @@
         {
           "command": "manuscriptReview.commentAgent",
           "when": "false"
+        },
+        {
+          "command": "manuscriptReview.resolveComment",
+          "when": "false"
+        },
+        {
+          "command": "manuscriptReview.reopenComment",
+          "when": "false"
         }
       ],
       "editor/title": [
@@ -306,6 +342,11 @@
           "command": "manuscriptReview.import",
           "when": "view == manuscriptReview.start",
           "group": "setup@3"
+        },
+        {
+          "command": "manuscriptReview.commentFilter",
+          "when": "view == manuscriptReview.start && manuscriptReview.active",
+          "group": "review@2"
         }
       ]
     },
@@ -375,7 +416,7 @@
   "scripts": {
     "build": "node src/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.8.vsix"
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.9.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.6.0",

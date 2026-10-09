@@ -1,5 +1,5 @@
 import path from 'node:path';
-import {commentThreads,currentFeedback} from '../../manuscript_review/review_model.js';
+import {commentThreads,currentFeedback,discussionGroups} from '../../manuscript_review/review_model.js';
 
 export function sourceFile(review,document){
  if(!review||document?.uri.scheme!=='file'||!['.tex','.bib','.md','.txt','.typ','.rst'].includes(path.extname(document.uri.fsPath)))return null;
@@ -11,7 +11,7 @@ export function sourceFile(review,document){
 export function createComments(vscode,runtime,{onChange,onReview,onProjection,onAgent}={}) {
   const controller=vscode.comments.createCommentController('manuscript-review','Manuscript Review');
   const subscriptions=[controller],threads=new Map(),pending=new Set();
-  let generation=0,disposed=false,activeThread;
+  let generation=0,disposed=false,activeThread,includeResolved=false;
 
   const fileFor=document=>sourceFile(runtime.review,document);
   const threadKey=(uri,origin)=>JSON.stringify([uri.toString(),origin]);
@@ -67,8 +67,12 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
     if(state.thread.label==='Other review') {
       state.thread.collapsibleState=state.restoreCollapse;delete state.restoreCollapse;
     }
-    state.thread.label=undefined;
-    state.thread.contextValue=state.entry?'manuscriptReview':'manuscriptReview.pending';
+    const resolved=Boolean(state.entry?.resolved);
+    state.thread.label=resolved?'Resolved':undefined;
+    state.thread.contextValue=state.entry?(resolved?'manuscriptReview.resolved':'manuscriptReview'):'manuscriptReview.pending';
+    const status=resolved?vscode.CommentThreadState.Resolved:vscode.CommentThreadState.Unresolved;
+    if(resolved&&state.thread.state!==status)state.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
+    state.thread.state=status;
   }
 
   function commentsFor(state,entries) {
@@ -82,8 +86,8 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
       for(const value of values) {
         let comment=old.find(comment=>comment.id===value.id);
         // A response pins a current note as history, preserving its native editor.
-        if(!comment&&value.id===entry.id&&!entry.current&&entry.origin_id)
-          comment=old.find(comment=>comment.current&&comment.id===entry.origin_id&&comment.savedBody===value.text);
+        if(!comment&&value.id===entry.id&&!entry.current&&entry.author==='user'&&entry.origin_id)
+          comment=old.find(comment=>comment.current&&comment.entry.origin_id===entry.origin_id&&comment.savedBody===value.text);
         if(!comment) {
           comment={id:value.id,body:value.text,savedBody:value.text,mode:vscode.CommentMode.Preview,
             author:{name:value.author==='user'?'You':'Agent'},parent:state.thread};
@@ -110,7 +114,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
     if(!review||disposed)return;
     const data=await runtime.data('round');
     if(ticket!==generation||disposed||runtime.review?.id!==review.id)return;
-    const records=[...data.history,...currentFeedback(data,data.comments)],latest=commentThreads(data,data.comments);
+    const groups=new Map(discussionGroups([...data.history,...currentFeedback(data,data.comments)]).map(messages=>[messages[0].origin_id||messages[0].id,messages])),latest=commentThreads(data,data.comments);
     const projections=new Map(),present=new Set(),reviewed=new Set(data.files.map(file=>file.path));
     const visible=(vscode.window.visibleTextEditors||[]).map(editor=>fileFor(editor.document)).filter(file=>reviewed.has(file));
     for(const file of new Set([...latest.map(entry=>entry.file),...visible])) {
@@ -138,7 +142,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
       resumeThread(state);
       state.thread.range=range;
       state.thread.canReply=!entry.current;
-      commentsFor(state,records.filter(record=>(record.origin_id||record.id)===origin));
+      commentsFor(state,groups.get(origin));
       present.add(key);
     }
     for(const [key,state] of threads)if(!present.has(key)) {
@@ -233,7 +237,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
 
   async function move(direction) {
     if(!await refresh())return false;
-    const states=[...threads.values()].filter(state=>state.reviewId===runtime.review?.id&&state.thread.range)
+    const states=[...threads.values()].filter(state=>state.reviewId===runtime.review?.id&&state.thread.range&&(includeResolved||!state.entry.resolved))
       .sort((a,b)=>a.entry.file.localeCompare(b.entry.file)||a.thread.range.start.compareTo(b.thread.range.start));
     if(!states.length)return false;
     const native=vscode.window.activeTextEditor,file=fileFor(native?.document),cursor=native?.selection.active;
@@ -262,6 +266,21 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   controller.commentingRangeProvider={provideCommentingRanges:document=>fileFor(document)
     ? [new vscode.Range(document.positionAt(0),document.positionAt(document.getText().length))] : []};
   command('reply',async input=>Boolean(await reply(input)));command('editComment',editComment);command('saveComment',saveComment);command('cancelComment',cancelComment);
+  async function setResolved(thread,resolved){
+    const state=thread?.reviewState;
+    if(!state?.entry)return false;
+    checkReview(state);
+    await runtime.request('/thread',{revision:state.data.revision,id:state.entry.origin_id,resolved});
+    await changed();return true;
+  }
+  command('resolveComment',thread=>setResolved(thread,true));
+  command('reopenComment',thread=>setResolved(thread,false));
+  command('commentFilter',async()=>{
+    const choices=[{label:'Unresolved',value:false},{label:'All',value:true}];
+    const selected=await vscode.window.showQuickPick(choices,{title:'Comment navigation',placeHolder:includeResolved?'All':'Unresolved'});
+    if(selected)includeResolved=selected.value;
+    return includeResolved;
+  });
   command('viewCommentChange',thread=>{
     const state=thread.reviewState;
     if(!state?.entry)return false;

@@ -79,7 +79,7 @@ class MigrationTests(ReviewFixture):
         self.session.update('save', self.request(comments={passage['id']: ' Original author note. \n'}))
         from manuscript_review.feedback import feedback_report
         record = self.session.store.read()
-        note = feedback_report(record['snapshot'], record['decisions'], record['comments'], [])['comments'][0]
+        note = feedback_report(record['snapshot'], record['decisions'], record['comments'], [], record['metadata']['id'])['comments'][0]
         self.session.import_responses([{'id': note['discussion_id'], 'text': 'Original agent reply.'}], record['revision'])
         record = self.session.store.read()
         from manuscript_review.history import round_id
@@ -104,7 +104,7 @@ class MigrationTests(ReviewFixture):
         self.assertEqual(discussion_upgrade.upgrade(home), 1)
         migrated = ReviewStore(path.parent).read()
         self.assertEqual(migrated, expected)
-        exported = feedback_report(migrated['snapshot'], migrated['decisions'], migrated['comments'], migrated['history'])
+        exported = feedback_report(migrated['snapshot'], migrated['decisions'], migrated['comments'], migrated['history'], migrated['metadata']['id'])
         self.assertEqual(exported['comments'][0]['discussion_id'], pending_id)
         self.assertEqual(record, original)
         self.assertEqual((path.parent / 'migration-v3/review.json').read_bytes(), original_bytes)

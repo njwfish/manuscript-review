@@ -42,7 +42,7 @@ export function currentFeedback(data,comments){
  const notes=[];
  for(const file of data.files)for(const passage of file.hunks)for(const [item,kind] of [[passage,'passage'],...passage.edits.map(edit=>[edit,'edit'])]){
   if(!comments[item.id]?.trim())continue;
-  notes.push({id:item.id,author:'user',current:true,kind,file:file.path,line:passage.line,
+  notes.push({id:item.id,origin_id:`${data.id}:${item.id}`,author:'user',current:true,kind,file:file.path,line:passage.line,
    base:data.base,source_proposed:data.proposed,before:kind==='passage'?item.before:item.old,
    proposed:kind==='passage'?item.after:item.new,context_before:passage.before,
    comment:comments[item.id],replies:[],target:{kind,id:item.id}});
@@ -50,15 +50,25 @@ export function currentFeedback(data,comments){
  return notes;
 }
 
-export function commentThreads(data,comments){
- const threads=new Map();
- for(const entry of [...data.history,...currentFeedback(data,comments)]){
+export function discussionGroups(entries){
+ const groups=new Map();
+ for(const entry of entries){
   if(!entry.comment.trim())continue;
-  const origin=entry.origin_id||entry.id,previous=threads.get(origin);
-  threads.set(origin,{...entry,origin_id:origin,line:previous?.line??entry.line});
+  const origin=entry.origin_id||entry.id;
+  if(!groups.has(origin))groups.set(origin,[]);
+  groups.get(origin).push(entry);
  }
- return [...threads.values()].sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line);
+ return [...groups.values()];
 }
+
+export function commentThreads(data,comments){
+ return discussionGroups([...data.history,...currentFeedback(data,comments)]).map(messages=>{
+  const first=messages[0],latest=messages.at(-1),origin=latest.origin_id||latest.id;
+  return {...latest,origin_id:origin,line:first.line,resolved:threadResolved(data,latest)};
+ }).sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line);
+}
+
+export const threadResolved=(data,entry)=>new Set(data.resolved).has(entry.origin_id||entry.id);
 
 export function commentShortcut(event){
  if(!(event.metaKey||event.ctrlKey)||!event.shiftKey||event.altKey||event.repeat)return 0;
@@ -77,7 +87,7 @@ export function agentRequest(data,complete){
  const scope=!data.files.some(file=>file.edits.length)?'Use the current manuscript as the starting draft.':complete?'Use my completed accept/reject decisions as the starting draft. If text changes are needed, apply these choices when necessary before beginning the pass; preserve outside edits.':'My decisions are still in progress. Respond to my comments now, and leave manuscript revisions until I finish reviewing.';
  const tools=data.agent_launcher?` Agent commands are bundled at ${data.agent_launcher}.`:'';
  const result=data.interface==='vscode'?'Open the resulting round in the Manuscript Review VS Code extension using vscode://njwfish.manuscript-review/review/NEW_REVIEW_ID.':'Open the result in Manuscript Review.';
- return `Use $manuscript-review for review ${data.id} in ${data.repo}, saved at ${data.feedback_path}.${tools} Read its decisions, comments, manual edits, and earlier replies. Respond to my comments and make only the requested surgical revisions. Treat existing prose as settled wording; a style guide alone does not authorize rewriting it. ${scope} For text changes, use begin before editing and finish to create a new review round, then add responses there. For replies only, add responses to this review without creating a new round. Preserve the original baseline ${data.baseline} and earlier rounds. ${result}`;
+ return `Use $manuscript-review for review ${data.id} in ${data.repo}, saved at ${data.feedback_path}.${tools} Read its decisions, unresolved threads, manual edits, and earlier replies. Respond to unresolved feedback and make only the requested surgical revisions. Treat existing prose as settled wording; a style guide alone does not authorize rewriting it. ${scope} For text changes, use begin before editing, follow the repository’s Git workflow, run its checks, and use finish to publish a reviewable revision. Add responses there identifying the revision. For replies only, use this review. Preserve thread resolution, the original baseline ${data.baseline}, and earlier rounds. The author decides when a thread is resolved. ${result}`;
 }
 
 export function decisionShortcut(event){

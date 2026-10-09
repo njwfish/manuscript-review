@@ -1,4 +1,4 @@
-Step through manuscript comments with the sidebar arrows or **⌘/Ctrl+Shift+[ / ]**, including while editing. The selector jumps across files, and **View change** returns to the attached diff. Follow-ups remain one thread; comments on removed files stay readable in All feedback. Pending comments and drafts save before navigation.
+Step through manuscript comments with the sidebar arrows or **⌘/Ctrl+Shift+[ / ]**, including while editing. The selector jumps across files, and **View change** returns to the attached diff. Follow-ups remain one thread; comments on removed files stay readable in Comments. Pending comments and drafts save before navigation.
 
 The bundled agent skill can now ingest a referee report as comments anchored to exact source quotes before editing. Agents revise the manuscript in a new round and respond to those original comments, keeping the feedback and explanation beside the resulting changes. The optional feedback CSV stays with the manuscript project.
 
@@ -8,11 +8,11 @@ The source editor now uses restrained LaTeX syntax highlighting: commands and ma
 
 Selecting text in the source editor reveals a small **Comment** button beside the selection. It opens the existing sidebar and preserves the selected quote. **⌘/Ctrl+Shift+M** still works.
 
-Version 0.11 through 0.13 libraries use the same record format and require no migration.
+Version 0.14.2 adds Resolve and Reopen for comment threads. Wording decisions and discussion status are independent; navigation visits unresolved threads by default and All includes resolved threads.
 
 Click proposed text or a proposed LaTeX preview to edit the full file at that passage. The monospace editor occupies the review surface, with change highlights, undo/redo, find, and discussion in a collapsible sidebar. Save writes only manual changes and refreshes the word diff; unrelated decisions and discussion survive. Escape retains a file draft.
 
-**Existing version 0.10 libraries need an explicit format upgrade.** Quit the app, replace it, then run:
+**Existing libraries need an explicit format upgrade.** Quit the app, replace it, then run:
 
 ```sh
 "/Applications/Manuscript Review.app/Contents/MacOS/manuscript-review-agent" migrate
