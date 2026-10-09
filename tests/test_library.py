@@ -43,6 +43,7 @@ class LibraryTests(ReviewFixture):
         edit = record['snapshot']['files'][0]['edits'][0]
         session.update('save', {'revision': record['revision'], 'decisions': {edit['id']: 'reject'},
                                'comments': {edit['id']: 'Keep my original wording.'}})
+        session.save_ui({'commentAgent': 'claude'})
         before = session.store.path.read_bytes()
         record = session.store.read()
         checkpoint = library.inspect(str(self.repo))['checkpoints'][0]
@@ -59,6 +60,7 @@ class LibraryTests(ReviewFixture):
         self.assertEqual(revised['baseline'], self.base)
         self.assertEqual(revised['metadata']['previous'], identifier)
         self.assertEqual(revised['history'][0]['comment'], 'Keep my original wording.')
+        self.assertEqual(revised['ui']['commentAgent'], 'claude')
         self.assertTrue(revised['metadata']['proposal_label'].startswith('Working files ('))
         self.assertEqual(session.store.path.read_bytes(), before)
         session.update('save', {'revision': record['revision'], 'decisions': {}, 'comments': record['comments']})

@@ -245,6 +245,8 @@ class Library:
                 record = new_record(snapshot, metadata, choices, comments, history, baseline=baseline)
                 if saved:
                     record['resolved'] = saved['resolved'].copy()
+                    if 'commentAgent' in saved['ui']:
+                        record['ui']['commentAgent'] = saved['ui']['commentAgent']
                 if request.get('manuscript'):
                     record['ui']['scope'] = 'manuscript'
                 atomic_json(directory / 'review.json', record)

@@ -42,6 +42,14 @@ class ReviewSession:
                     'baseline': r['baseline'], 'result': r['result'],
                     'previous': r['metadata'].get('previous'), 'drafts': r['drafts'], 'comparison': 'round'}
 
+    def agent_request(self, request):
+        from .dispatch import comment_task
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision(request, record)
+            return comment_task(record, self.directory, request['id'], skill=request.get('skill'),
+                                launcher=request.get('launcher'), dirty=bool(request.get('dirty')))
+
     def selected_patch(self, scope='round'):
         with self.store.transaction():
             r = self.store.read()

@@ -73,6 +73,11 @@ def create_server(directory, port=0, library_url=None, review_context=None):
                     result = session.save_note(request)
                 elif self.path == '/thread':
                     result = session.resolve_thread(request)
+                elif self.path == '/agent-request':
+                    result = session.agent_request(request)
+                elif self.path == '/agent':
+                    from .dispatch import dispatch_comment
+                    result = dispatch_comment(session.agent_request(request), request['agent'], session.directory.parent.parent)
                 elif self.path == '/retain':
                     session.store.backup_request(request)
                     result = {'message': 'Unsaved changes retained.'}

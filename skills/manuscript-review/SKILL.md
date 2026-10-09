@@ -82,6 +82,8 @@ Return a VS Code link of the form `vscode://njwfish.manuscript-review/review/REV
 
 When the author uses the standalone interface, open **Manuscript Review.app** with the available app tool, or run the source checkout's `.venv/bin/manuscript-review --review REVIEW_ID`. Its Library opens new rounds and retains the same discussion and baseline.
 
+The standalone comment field can send a scoped request through an installed Codex or Claude Code CLI; VS Code sends it through the native provider extension. Use the exact library and command launcher named in that request. Keep the working transcript in the provider session and append only the final response with `respond`. Replies stay in the current round; source revisions must return the new round from `finish`. The author's active review remains open until they reload or select the new round.
+
 To read and comment without requiring changes, use **Open manuscript review** in VS Code, **Library → Open manuscript** in the standalone app, or:
 
 ```sh

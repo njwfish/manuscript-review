@@ -12,8 +12,8 @@ const draftChanges=new Map();
 let positions={};
 let fileEditor=null,editorFile=null,editorSource=null,editorInitial='',openingEditor=null,discussionOpen=null,discussionKey=null;
 let noteTarget=null,noteTimer,pendingNoteId=null,noteSelection=0,commentId=null;
-let navigatingComment=false,dispatchingComment=false;
-let commentFilter='unresolved';
+let navigatingComment=false,dispatchingComment=false,newerReview=false;
+let commentFilter='unresolved',commentAgent='codex';
 const visibleThreads=()=>commentThreads(data,comments).filter(entry=>commentFilter==='all'||!entry.resolved);
 const noteChanges=new Map();
 const $=id=>document.getElementById(id);
@@ -33,7 +33,7 @@ function status(message,error=false){$('status')&&($('status').textContent=messa
 function resultStatus(result,fallback){status(result.message||fallback);}
 function setBusy(value){editing=value;document.body.classList.toggle('busy',value);document.querySelectorAll('header,.shell,#review-summary').forEach(element=>{element.inert=value;});}
 const savedMessage=()=>data.scope!=='manuscript'&&reviewProgress(data.files,decisions).total&&reviewProgress(data.files,decisions).complete&&!data.applied?'Ready to apply. ⌘/Ctrl+Enter applies the review.':'Saved locally';
-const currentUI=()=>{const scope=data?.scope||'round',previous=positions[scope]||{},file=editorFile||currentFile()?.path;positions[scope]={active:fileEditor?data.files.findIndex(item=>item.path===file):active,passage,edit,view,overrides,file,cursor:fileEditor?.position()??(previous.file===file?previous.cursor:0)};return {scope,positions,note:noteTarget?.id||noteTarget?.parent||commentId,commentFilter,previewZoom,wide:document.body.classList.contains('wide')};};
+const currentUI=()=>{const scope=data?.scope||'round',previous=positions[scope]||{},file=editorFile||currentFile()?.path;positions[scope]={active:fileEditor?data.files.findIndex(item=>item.path===file):active,passage,edit,view,overrides,file,cursor:fileEditor?.position()??(previous.file===file?previous.cursor:0)};return {scope,positions,note:noteTarget?.id||noteTarget?.parent||commentId,commentFilter,commentAgent,previewZoom,wide:document.body.classList.contains('wide')};};
 function remember(){
  const ui=currentUI();
  if(data){clearTimeout(uiTimer);uiTimer=setTimeout(()=>request('/ui',{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({ui})}).catch(()=>{}),400);}
@@ -42,7 +42,7 @@ function button(label,action,cls='quiet'){const b=node('button',cls,label);b.typ
 function keyButton(label,key,action,cls){const b=button(label,action,cls);b.append(node('span','key',key));b.setAttribute('aria-label',`${label} (${key})`);return b;}
 async function post(path,values,notes,extra={}){
  const r=await request(path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':data.token},body:JSON.stringify({decisions:values,comments:notes,revision:data.revision,...extra})});
- const result=await r.json();if(!r.ok){if(result.stale){staleReview=true;$('review-notice').hidden=false;updateProgress();}throw new Error(result.error);}data.revision=result.revision;if(result.result)data.result=result.result;return result;
+ const result=await r.json();if(!r.ok){if(result.stale){staleReview=true;$('review-notice').hidden=false;updateProgress();}throw new Error(result.error);}data.revision=Math.max(data.revision,result.revision);if(result.result)data.result=result.result;return result;
 }
 function retainDraft(id,text){
  draftChanges.set(id,text);clearTimeout(draftTimer);draftTimer=setTimeout(saveDrafts,350);updateProgress();
@@ -137,7 +137,6 @@ function discussionEntry(entry,withLocation=false){
  if(entry.revised!==undefined&&entry.revised!==null)source.append(node('span','word-label','Your revision'),node('pre','',entry.revised));
  const paragraph=node('pre','discussion-original',entry.context_before||'');
  context.append(source,paragraph);item.append(context);
- if(embedded)item.append(button('Send to agent',()=>sendAgentComment(entry.id),'discussion-link'));
  return item;
 }
 function discussionThread(entries,{withLocation=false,composer,editorId}={}){
@@ -147,6 +146,7 @@ function discussionThread(entries,{withLocation=false,composer,editorId}={}){
  for(const entry of entries)if(entry.id!==editorId)body.append(discussionEntry(entry,withLocation));
  if(composer)body.append(composer);
  section.append(body,button(resolved?'Reopen':'Resolve',()=>setThreadResolved(latest.origin_id||latest.id,!resolved),'discussion-link'));
+ if(!composer||(!latest.current&&latest.id!==editorId))section.append(button('Send to agent',()=>sendAgentComment(latest.id),'discussion-link'));
  return section;
 }
 async function setThreadResolved(identifier,resolved){
@@ -164,17 +164,32 @@ async function setThreadResolved(identifier,resolved){
 async function sendAgentComment(identifier){
  if(dispatchingComment)return;
  dispatchingComment=true;
- const review=data.id;
- try{await window.flushReview();await openAgentTask(identifier,review);document.activeElement?.blur();$('main').tabIndex=-1;$('main').focus();}
+ const review=data.id,target=noteTarget,agent=commentAgent,composer=document.activeElement;
+ try{
+  await window.flushReview();
+  if(staleReview)throw new Error('Reload the review before sending this comment.');
+  identifier=identifier||(target?target.id||target.parent:currentCommentId());
+  if(embedded)await openAgentTask(identifier,review);
+  else resultStatus(await post('/agent',{}, {},{id:identifier,agent}));
+  if(document.activeElement===composer){composer?.blur();if(fileEditor)fileEditor.focus();else focusSelection();}
+ }
  catch(error){status(error.message,true);}
  finally{dispatchingComment=false;}
 }
 function agentComposer(area,identifier){
  const bar=node('div','agent-composer');
- const agent=button(data.agent_label||'Codex',async()=>{
-  try{data.agent_label=await hostCommand('chooseAgent');agent.textContent=data.agent_label;area.focus();}
-  catch(error){status(error.message,true);}
- },'quiet agent-choice');agent.setAttribute('aria-label','Choose comment agent');
+ let agent;
+ if(embedded){
+  agent=button(data.agent_label||'Codex',async()=>{
+   try{data.agent_label=await hostCommand('chooseAgent');agent.textContent=data.agent_label;area.focus();}
+   catch(error){status(error.message,true);}
+  },'quiet agent-choice');
+ }else{
+  agent=node('select','agent-choice');
+  for(const [value,label] of [['codex','Codex'],['claude','Claude Code']]){const option=node('option','',label);option.value=value;option.selected=commentAgent===value;agent.append(option);}
+  agent.addEventListener('change',()=>{commentAgent=agent.value;remember();area.focus();});
+ }
+ agent.setAttribute('aria-label','Choose comment agent');
  const send=button('Send',()=>sendAgentComment(identifier),'primary');send.title='Send to agent (Enter)';
  const update=()=>{send.disabled=!area.value.trim();};update();area.addEventListener('input',update);
  area.addEventListener('keydown',event=>{
@@ -282,7 +297,7 @@ function renderDiscussion(){
   const area=node('textarea');area.id='comment-'+identifier;area.rows=5;area.maxLength=20000;area.value=comments[identifier]||'';area.setAttribute('aria-label',commentScope==='passage'?'Passage comment':'Edit comment');area.placeholder='Comment…';
   area.addEventListener('input',()=>{if(area.value)comments[identifier]=area.value;else delete comments[identifier];clearTimeout(commentTimer);commentTimer=setTimeout(save,350);updateProgress();});
   area.addEventListener('blur',save);
-  const composer=node('div');composer.append(area);if(embedded)composer.append(agentComposer(area,identifier));
+  const composer=node('div');composer.append(area);composer.append(agentComposer(area,identifier));
   const messages=history.filter(entry=>(entry.origin_id||entry.id)===origin);
   if(current||messages.length)host.append(discussionThread([...messages,...(current?[current]:[])],{composer,editorId:identifier}));
   else{const resolve=button('Resolve',()=>setThreadResolved(origin,true),'discussion-link');resolve.hidden=!area.value.trim();area.addEventListener('input',()=>{resolve.hidden=!area.value.trim();});composer.append(resolve);host.append(composer);}
@@ -320,7 +335,7 @@ function renderSourceDiscussion(){
  const area=node('textarea');area.id='source-comment';area.rows=5;area.maxLength=20000;area.setAttribute('aria-label',current?'Manuscript comment':'New manuscript comment');area.placeholder=current&&!noteTarget.id?'Follow-up…':'Comment…';
  const target=noteTarget;area.value=target.comment??'';
  area.addEventListener('input',()=>setNoteText(target,area.value));
- area.addEventListener('blur',saveNotes);composer.append(area);
+ area.addEventListener('blur',saveNotes);composer.append(area,agentComposer(area,target.id));
  if(current)host.append(discussionThread(entries.filter(entry=>entry.origin_id===current.origin_id),{composer,editorId:noteTarget.id}));
  else{const resolve=button('Resolve',()=>setThreadResolved(target.id,true),'discussion-link');resolve.hidden=!area.value.trim();area.addEventListener('input',()=>{resolve.hidden=!area.value.trim();});composer.append(resolve);host.append(composer);}
 }
@@ -785,7 +800,7 @@ async function ready(){
  try{
   const r=await request('/data');if(!r.ok)throw new Error('Could not load review snapshot.');data=await r.json();decisions=data.decisions;comments=data.comments;
   locations=editLocations(data);
-  const ui=data.ui;commentFilter=ui.commentFilter==='all'?'all':'unresolved';
+  const ui=data.ui;commentFilter=ui.commentFilter==='all'?'all':'unresolved';commentAgent=ui.commentAgent==='claude'?'claude':'codex';
   if(ui.scope&&ui.scope!==data.scope&&(!embedded||ui.scope!=='manuscript')){const response=await request('/data?scope='+ui.scope);if(!response.ok)throw new Error('Could not restore the manuscript view.');data=await response.json();decisions=data.decisions;comments=data.comments;locations=editLocations(data);}
   pendingNoteId=commentId=ui.note;positions=ui.positions||{};const position=positions[data.scope]||{};
   active=Math.max(0,Math.min(position.active||0,data.files.length-1));passage=position.passage||0;edit=position.edit||0;
@@ -802,7 +817,22 @@ async function ready(){
   render();focusSelection();status('Saved locally');
   if(embedded)reviewReady();
   if(['queued','rendering'].includes(data.preview_status))watchPreviews();
+  if(!embedded)watchReview();
  }catch(e){$('main').append(node('p','error',e.message));if(embedded)reviewReady(e.message);}
+}
+async function watchReview(){
+ const review=data.id;
+ try{
+  const response=await request('/data?scope='+data.scope);if(!response.ok)return;
+  const fresh=await response.json();await saving;if(data.id!==review)return;
+  if(fresh.revision>data.revision){staleReview=true;$('review-notice').hidden=false;updateProgress();}
+  if(fresh.latest_review&&fresh.latest_review!==data.latest_review){
+   data.latest_review=fresh.latest_review;newerReview=true;
+   $('review-notice').hidden=false;$('review-notice').querySelector('span').textContent='A new review round is available.';
+   $('reload-review').textContent='Open Library';
+  }
+ }catch{}
+ finally{if(!staleReview&&!newerReview)setTimeout(watchReview,5000);}
 }
 async function watchPreviews(){
  const scope=data.scope,proposed=data.proposed;
@@ -830,7 +860,7 @@ async function runHostCommand(name){try{await hostCommand(name);}catch(error){st
 $('compare-saved').addEventListener('click',()=>runHostCommand('reviewSavedChanges'));
 $('comparison-versions').addEventListener('click',()=>runHostCommand('compare'));
 for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
-$('reload-review').addEventListener('click',async()=>{try{await window.flushReview();window.location.reload();}catch(error){status(error.message,true);}});
+$('reload-review').addEventListener('click',async()=>{try{await window.flushReview();if(newerReview)window.location.assign(data.library_url);else window.location.reload();}catch(error){status(error.message,true);}});
 if(embedded)window.addEventListener('message',async event=>{
  if(!hostMessage(event))return;
  const message=event.data;

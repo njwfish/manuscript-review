@@ -56,10 +56,10 @@ const source=app.slice(app.indexOf('async function sendAgentComment'),app.indexO
 const events=[],handlers={},elements=[];let release;
 const gate=new Promise(resolve=>{release=resolve;});
 const make=()=>{const item={value:'Exact comment',append(...items){this.children=items;},setAttribute(){},addEventListener(name,fn){handlers[name]=fn;},focus(){events.push('focus');}};elements.push(item);return item;};
-const context={data:{id:'round',agent_label:'Claude Code'},dispatchingComment:false,
+const context={embedded:true,fileEditor:null,noteTarget:null,commentAgent:'codex',staleReview:false,data:{id:'round',agent_label:'Claude Code'},dispatchingComment:false,
  node:()=>make(),button:(label,action)=>({...make(),textContent:label,action}),
  window:{flushReview:async()=>{events.push('flush');await gate;}},openAgentTask:async(id,review)=>events.push([id,review]),
- document:{activeElement:{blur:()=>events.push('blur')}},$:()=>({focus:()=>events.push('focus')}),status:message=>events.push(message)};
+ document:{activeElement:{blur:()=>events.push('blur')}},focusSelection:()=>events.push('focus'),status:message=>events.push(message)};
 vm.createContext(context);vm.runInContext(source,context);const area=make();context.area=area;
 vm.runInContext("agentComposer(area,'discussion')",context);
 for(const extra of [{shiftKey:true},{ctrlKey:true},{metaKey:true},{altKey:true},{isComposing:true}]){
@@ -100,6 +100,74 @@ for(const fail of [false,true,'superseded']){
  vm.runInContext('editing=true',context);await receive(message({type:'review-command',action:'unlock',id:'save'}));
  assert.equal(vm.runInContext('editing',context),true,'unlock must preserve an unrelated operation');
 }
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_standalone_dispatch_uses_the_saved_note_and_keeps_failed_input(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('async function sendAgentComment'),app.indexOf('function agentComposer'));
+for(const fail of [false,'save','stale']){
+ const events=[],context={embedded:false,dispatchingComment:false,staleReview:fail==='stale',commentAgent:'claude',data:{id:'round'},
+  noteTarget:{comment:'Exact author comment'},currentCommentId:()=>context.noteTarget.id,
+  window:{flushReview:async()=>{events.push('flush');if(fail==='save')throw new Error('Disk error');context.noteTarget.id='saved-note';}},
+  post:async(route,_decisions,_comments,body)=>{events.push({route,body});return {message:'Sent'};},resultStatus:result=>events.push(result.message),
+  fileEditor:{focus:()=>events.push('editor focus')},document:{activeElement:{blur:()=>events.push('blur')}},status:message=>events.push(message)};
+ vm.createContext(context);vm.runInContext(source,context);await vm.runInContext('sendAgentComment()',context);
+ assert.equal(context.noteTarget.comment,'Exact author comment');assert.equal(context.dispatchingComment,false);
+ if(fail){assert.equal(events.some(event=>event.route==='/agent'),false);assert.equal(events.includes('blur'),false);}
+ else{assert.deepEqual(JSON.parse(JSON.stringify(events)),['flush',{route:'/agent',body:{id:'saved-note',agent:'claude'}},'Sent','blur','editor focus']);}
+}
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_dispatch_keeps_its_original_comment_and_provider_when_author_moves_on(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('async function sendAgentComment'),app.indexOf('function agentComposer'));
+let release;const gate=new Promise(resolve=>release=resolve),target={comment:'First'},events=[];
+const context={embedded:false,dispatchingComment:false,staleReview:false,data:{id:'round'},noteTarget:target,commentAgent:'claude',
+ document:{activeElement:{blur:()=>events.push('blur')}},fileEditor:{focus:()=>events.push('focus')},
+ window:{flushReview:async()=>{await gate;target.id='saved-first';}},currentCommentId:()=>context.noteTarget.id,
+ post:async(route,_decisions,_comments,body)=>{events.push(body);return {message:'Sent'};},resultStatus(){},status(){}};
+vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('sendAgentComment()',context);
+context.noteTarget={id:'second',comment:'Second'};context.commentAgent='codex';context.document.activeElement={};release();await pending;
+assert.deepEqual(JSON.parse(JSON.stringify(events)),[{id:'saved-first',agent:'claude'}]);
+assert.equal(context.noteTarget.comment,'Second');
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_external_feedback_notice_waits_for_local_saves_and_preserves_input(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('async function watchReview'),app.indexOf('async function watchPreviews'));
+for(const changed of ['response','round','local-save','none']){
+ const label={textContent:''},notice={hidden:true,querySelector:()=>label},reload={textContent:'Reload review'},events=[];
+ let release;const saving=new Promise(resolve=>release=resolve);
+ const context={data:{id:'round',scope:'round',revision:1,latest_review:'round'},saving,staleReview:false,newerReview:false,
+  comments:{draft:'Keep this input'},request:async()=>({ok:true,json:async()=>({revision:changed==='none'?1:2,latest_review:changed==='round'?'new-round':'round'})}),
+  $:id=>id==='review-notice'?notice:reload,updateProgress:()=>events.push('notice'),setTimeout:()=>events.push('poll')};
+ vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('watchReview()',context);
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(notice.hidden,true);
+ if(changed==='local-save')context.data.revision=2;release();await pending;
+ assert.equal(context.comments.draft,'Keep this input');assert.equal(context.data.id,'round');
+ assert.equal(context.staleReview,['response','round'].includes(changed));
+ assert.equal(context.newerReview,changed==='round');
+ assert.equal(events.includes('poll'),['local-save','none'].includes(changed));
+ if(changed==='round'){assert.equal(reload.textContent,'Open Library');assert.equal(context.data.latest_review,'new-round');}
+}
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_slow_dispatch_does_not_reverse_a_concurrent_autosave_revision(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('async function post('),app.indexOf('function retainDraft'));
+let release;const gate=new Promise(resolve=>release=resolve);
+const context={data:{revision:1,token:'test'},request:async route=>{if(route==='/agent')await gate;return {ok:true,json:async()=>({revision:route==='/agent'?1:2})};}};
+vm.createContext(context);vm.runInContext(source,context);const dispatch=vm.runInContext("post('/agent',{}, {},{id:'note',agent:'claude'})",context);
+await vm.runInContext("post('/save',{}, {})",context);assert.equal(context.data.revision,2);
+release();await dispatch;assert.equal(context.data.revision,2);
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
 

@@ -1,36 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {commentTask,openAgent} from '../src/dispatch.mjs';
-
-const data={id:'review',repo:'/manuscript',feedback_path:'/library/reviews/review/review.json'};
-const note={id:'edit',discussion_id:'discussion',file:'main.tex',line:12,comment:'Keep my exact wording.',before:'The \\alpha state.'};
-const tools={launcher:'/agent tools/review-agent',skill:'/agent tools/manuscript-review'};
-const report={comments:[note],history:[],edits:[{decision:'accept'}]};
-
-test('a task addresses the saved discussion and returns only the final reply through existing commands',()=>{
- const {prompt,discussion}=commentTask(data,report,'edit',tools);assert.equal(discussion,note.discussion_id);
- assert.ok(prompt.startsWith('Address only discussion '+discussion),'the native conversation’s collapsed preview identifies the saved comment');
- assert.match(prompt,/discussion discussion/);assert.match(prompt,/Keep my exact wording\./);
- assert.match(prompt,/Original quoted source/);assert.match(prompt,/The \\alpha state\./);assert.match(prompt,/agent tools\/manuscript-review\/SKILL.md/);
- assert.match(prompt,/begin before any source changes/);assert.match(prompt,/finish to publish/);
- assert.match(prompt,/Append only your final, concise explanation/);
- assert.match(prompt,/Do not apply review decisions automatically/);
- assert.match(prompt,/--home '\/library'/);
- assert.throws(()=>commentTask(data,report,'other',tools),/Save this comment/);
-});
-
-test('custom libraries and quoted paths stay pinned in the agent command prefix',()=>{
- const {prompt}=commentTask({...data,feedback_path:"/my library/author's review/reviews/id/review.json"},report,'edit',tools);
- assert.ok(prompt.includes("'/agent tools/review-agent' --home '/my library/author'\"'\"'s review'"));
-});
-
-test('unfinished decisions and unsaved source keep dispatched tasks on discussion rather than source changes',()=>{
- assert.match(commentTask(data,{...report,edits:[{decision:'pending'}]},'discussion',tools).prompt,/without changing manuscript files or decisions/);
- assert.match(commentTask(data,report,'edit',{...tools,dirty:true}).prompt,/unsaved editor text.*without changing files/);
- const history={id:'source-comment',file:'other.tex',line:2,comment:'Reconsider this.',before:'Saved draft',replies:[{text:'Earlier answer'}]};
- const task=commentTask(data,{comments:[],history:[history],edits:[]},history.id,tools);
- assert.match(task.prompt,/discussion source-comment.*including its earlier replies/);assert.equal(task.discussion,history.id);
-});
+import {openAgent} from '../src/dispatch.mjs';
 
 test('native agent tabs use public commands and keep the prepared prompt literal',async()=>{
  const commands=[],clipboard=[],information=[],activations=[];
