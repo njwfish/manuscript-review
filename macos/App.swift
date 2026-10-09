@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(self, name: "chooseFolder")
         configuration.userContentController.add(self, name: "copyText")
+        configuration.userContentController.add(self, name: "revealFolder")
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -185,6 +186,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard message.frameInfo.request.url?.host == "127.0.0.1" else { return }
         if message.name == "copyText", let text = message.body as? String, text.count <= 200_000 {
             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); return
+        }
+        if message.name == "revealFolder", let path = message.body as? String, path.count <= 4000, (path as NSString).isAbsolutePath {
+            var directory = ObjCBool(false)
+            if FileManager.default.fileExists(atPath: path, isDirectory: &directory), directory.boolValue {
+                NSWorkspace.shared.open(URL(fileURLWithPath: path, isDirectory: true))
+            }
+            return
         }
         guard message.name == "chooseFolder", let values = message.body as? [String: String], let field = values["field"], ["repo", "source", "directory"].contains(field) else { return }
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false

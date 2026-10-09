@@ -2,10 +2,11 @@
 
 ## VS Code extension
 
-VS Code is the primary interface. [Build the preview](../vscode/README.md#build) to
-obtain its `.vsix`, then install it through **Extensions →
-Install from VSIX…**. The extension includes the engine, comparison viewer, and agent
-skill. Its workspace host needs macOS or Linux, Git, and Python 3.12 or later. Set
+VS Code is the primary interface. Download the `.vsix` from the
+[latest release](https://github.com/njwfish/manuscript-review/releases/latest), then
+install it through **Extensions → Install from VSIX…**. Alternatively,
+[build it from source](../vscode/README.md#build). The extension includes the engine, comparison viewer, and agent
+skill. Use VS Code 1.114 or later. Its workspace host needs macOS or Linux, Git, and Python 3.12 or later. Set
 **Manuscript Review: Python Path** when `python3` refers to a different interpreter.
 LaTeX and Poppler enable typeset previews, as described below.
 
@@ -111,10 +112,13 @@ Then use **Copy agent request** in a review and paste the prompt into your agent
 
 ## Run from source
 
+The `main` branch contains both interfaces and their shared engine. No separate
+standalone or VS Code branch is needed.
+
 The browser interface runs on macOS and Linux with Git and Python 3.12 or later. The native macOS app is the packaged desktop interface; Windows is not currently supported.
 
 ```sh
-git clone https://github.com/njwfish/manuscript-review.git
+git clone --branch main https://github.com/njwfish/manuscript-review.git
 cd manuscript-review
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .

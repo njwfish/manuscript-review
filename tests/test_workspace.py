@@ -44,6 +44,30 @@ class WorkspaceTests(ReviewFixture):
         self.assertEqual(git(self.repo, 'ls-files', '--stage'), index)
         self.assertEqual(result['data']['id'], before['metadata']['id'])
 
+    def test_standalone_saves_accumulate_on_b_and_preserve_the_same_review_and_other_choices(self):
+        second = self.file()['edits'][1]
+        self.session.update('save', self.request(decisions={second['id']:'reject'}, comments={second['id']:'Retain my explanation.'}))
+        git(self.repo,'checkout','--detach',self.base)
+        outside = (self.repo/'main.tex').read_bytes()
+        index = git(self.repo,'ls-files','--stage')
+        workspace = self.bind()
+        initial = self.session.store.read()
+        for old,new in [('measured leaves','chosen leaves'),('chosen leaves','chosen cells')]:
+            record = self.session.store.read()
+            selected = selected_content(self.file(),record['decisions'])
+            result = self.session.update('file',self.request(file='main.tex',source=record['result'],text=selected.replace(old,new)))
+            current = self.session.store.read()
+            self.assertEqual(current['metadata']['id'],initial['metadata']['id'])
+            self.assertEqual(current['snapshot']['base'],self.base)
+            self.assertEqual(current['baseline'],self.base)
+            self.assertEqual(current['decisions'][second['id']],'reject')
+            self.assertEqual(current['comments'][second['id']],'Retain my explanation.')
+            self.assertIn(new,(workspace/'main.tex').read_text())
+            self.assertEqual(result['data']['proposal_label'].count(' + local edits'),1)
+        self.assertEqual((self.repo/'main.tex').read_bytes(),outside)
+        self.assertEqual(git(self.repo,'ls-files','--stage'),index)
+        self.assertEqual(git(self.repo,'rev-parse','HEAD').decode().strip(),self.base)
+
     def test_historical_b_gets_an_isolated_worktree_and_never_edits_current_a(self):
         proposed = self.session.snapshot['proposed']
         git(self.repo, 'checkout', '--detach', self.base)

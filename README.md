@@ -13,19 +13,25 @@ The app is designed for authors reviewing substantial edits from students, colla
 
 ## Install
 
-Build the current [VS Code preview](vscode/README.md#build) to obtain its `.vsix`, then
-install it through **Extensions → Install from VSIX…**. It runs independently
+Download the `.vsix` from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest),
+then install it in VS Code through **Extensions → Install from VSIX…**. It runs independently
 on macOS or Linux with Git and Python 3.12 or later. LaTeX and Poppler enable rendered
-previews. Run **Manuscript Review: Open manuscript review**, or **Compare manuscript
-versions** to choose a baseline and proposal from Git history. **Setup and agent skill**
-checks prerequisites and installs the bundled skill for your agent. The extension is
-currently a preview while native interface verification is completed.
+previews. Click **Review manuscript** in the source toolbar or left activity bar;
+**Compare versions** chooses a starting draft and proposal from Git history.
+**Setup and agent skill** checks prerequisites and installs the bundled skill for your
+agent. The VS Code extension is a preview; [building from source](vscode/README.md#build)
+is also supported.
 
 For the standalone interface, download the [macOS app](https://github.com/njwfish/manuscript-review/releases/latest), unzip it, and move **Manuscript Review.app** to **Applications**. It supports Apple Silicon Macs on macOS 13 or later and includes Python.
 
 See the [VS Code guide](vscode/README.md) for its review cycle and shortcuts, and
 [Installation](docs/INSTALL.md) for either interface's prerequisites. The interface
 guide below describes the standalone app.
+
+Both interfaces are maintained together on `main`: `manuscript_review/` contains the
+shared engine and standalone interface, and `vscode/` contains the extension. Each
+release includes the app ZIP and VSIX built from the same commit. They share review
+records, decisions, and discussion; either interface works on its own.
 
 ## Review in the standalone app
 
@@ -47,7 +53,9 @@ Choose **PDF pages** from the review view to see each edit in the manuscript’s
 
 Click proposed text, click a proposed LaTeX preview, or press **E** to edit the file at the current passage. The source editor replaces the passage display and shows the whole selected file in monospace, with change highlights. Selecting text reveals a small **Comment** button beside it; the existing keyboard shortcut opens the same sidebar. Scroll elsewhere to make additional changes; **⌘/Ctrl+F** finds text and standard undo/redo keys work throughout.
 
-**Save changes**, **⌘/Ctrl+S**, or **⌘/Ctrl+Enter** writes your manual changes and refreshes the diff against this round’s starting draft. Your new changes are accepted. Unrelated decisions and working-file text stay as they were; **Apply review** writes the remaining selected wording. Comments on revised edits move into discussion, and saving refreshes equation previews. **Esc** returns to review and retains the file draft across app restarts; Manuscript view stays in the editor. The draft indicator or **Shift+E** resumes it; **Discard draft** clears it. Save or discard a file draft before changing decisions in that file.
+**Save changes**, **⌘/Ctrl+S**, or **⌘/Ctrl+Enter** writes your manual changes and refreshes the diff against this round’s starting draft. Your new changes are accepted. Unrelated decisions and working-file text stay as they were; **Apply review** writes the remaining selected wording. The starting version stays fixed and the proposal includes your local edits. Comments on revised edits move into discussion, and saving refreshes equation previews. **Esc** returns to review and retains the file draft across app restarts; Manuscript view stays in the editor. The draft indicator or **Shift+E** resumes it; **Discard draft** clears it. Save or discard a file draft before changing decisions in that file.
+
+**Open editing folder** in Review tools opens the source checkout in Finder. The browser interface copies its path. Editing uses the proposed source; if the original folder contains another version or unrelated changes, the app creates a separate Git worktree and keeps the original folder intact.
 
 **Manuscript** in the comparison selector shows all supported source files, including unchanged ones. Select text and choose **Comment selection**, or press **⌘/Ctrl+Shift+M**; without a selection, it comments on the current line. The marked text opens its discussion in the right sidebar. Comments save automatically, retain their original source context, and carry into later rounds. After an agent replies, the field creates a follow-up while preserving the exchange. **⌘/Ctrl+Shift+R** copies an agent request while the editor has focus.
 
@@ -107,9 +115,8 @@ For an initial referee report, ask the agent to anchor its actionable points as 
 
 ## Development
 
-The [VS Code extension](vscode/README.md) builds as a self-contained VSIX. Keep core
-features available in the extension; the standalone app uses the same engine and
-remains available during the transition to VS Code production releases.
+The [VS Code extension](vscode/README.md) builds as a self-contained VSIX. Both interfaces
+use the same engine; core features remain available in the extension.
 
 See [Development](docs/DEVELOPMENT.md) for tests, native builds, and releases, and [Architecture](ARCHITECTURE.md) for the record model and transaction boundaries. The service uses Python's standard library, with a small JavaScript interface and a Swift macOS wrapper.
 

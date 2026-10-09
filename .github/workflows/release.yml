@@ -1,4 +1,4 @@
-name: macOS release
+name: Release
 on:
   push:
     tags: ['v*']
@@ -24,6 +24,9 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: .venv/bin/python -c 'import os; from manuscript_review import __version__; assert os.environ["RELEASE_TAG"] == "v" + __version__'
       - run: .venv/bin/python -m unittest discover -s tests -v
+      - run: npm ci --prefix vscode --no-audit --no-fund
+      - run: npm test --prefix vscode
+      - run: npm run package --prefix vscode
       - run: .venv/bin/python build_macos.py
       - run: codesign --verify --deep --strict 'dist/Manuscript Review.app'
       - run: '"dist/Manuscript Review.app/Contents/MacOS/manuscript-review-agent" --version'
@@ -31,4 +34,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" 'dist/Manuscript Review.zip' --verify-tag --draft --title "Manuscript Review ${RELEASE_TAG#v}" --notes-file docs/RELEASE.md
+        run: gh release create "$RELEASE_TAG" 'dist/Manuscript Review.zip' vscode/dist/*.vsix --verify-tag --draft --title "Manuscript Review ${RELEASE_TAG#v}" --notes-file docs/RELEASE.md

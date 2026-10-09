@@ -6,6 +6,24 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_editing_folder_flushes_notes_and_opens_the_bound_source_or_copies_its_path(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('async function openEditingFolder'),app.indexOf("$('editing-folder').addEventListener"));
+for(const mode of ['native','browser','embedded','failed']){
+ const events=[],context={embedded:mode==='embedded',data:{repo:'/original/A',workspace:'/editing/B'},
+  window:{flushReview:async()=>{events.push('flush');if(mode==='failed')throw new Error('Unsaved comment');}},
+  runHostCommand:async name=>events.push(['host',name]),copyText:async text=>events.push(['copy',text]),
+  status:text=>events.push(text),$:()=>({close(){events.push('close');}})};
+ if(mode==='native')context.window.webkit={messageHandlers:{revealFolder:{postMessage:path=>events.push(['open',path])}}};
+ vm.createContext(context);vm.runInContext(source,context);await vm.runInContext('openEditingFolder()',context);
+ if(mode==='embedded')assert.deepEqual(events,[['host','editingFolder']]);
+ else if(mode==='failed')assert.deepEqual(events,['flush','Unsaved comment']);
+ else{assert.equal(events[0],'flush');assert.deepEqual(events[1],[mode==='native'?'open':'copy','/editing/B']);assert.equal(events.at(-1),'close');}
+}
+"""
+        subprocess.run(['node','--input-type=module','-e',script],cwd=Path(__file__).parents[1],check=True)
+
     def test_resolution_flushes_and_locks_before_writing_and_preserves_failed_input(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8');

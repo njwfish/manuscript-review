@@ -816,6 +816,7 @@ async function ready(){
    $('host-tools').hidden=false;
    $('apply-shortcut').querySelector('td').textContent='Save comment; apply completed review';$('pdf-shortcut-hint').hidden=false;
   }
+  const folder=$('editing-folder');folder.textContent=embedded||window.webkit?.messageHandlers?.revealFolder?'Open editing folder':'Copy editing folder';folder.title=data.workspace||data.repo;
   render();if(!embedded||document.body.dataset.reviewFocus!=='false')focusSelection();status('Saved locally');
   if(embedded)reviewReady();
   if(['queued','rendering'].includes(data.preview_status))watchPreviews();
@@ -859,9 +860,20 @@ $('library').addEventListener('click',async event=>{event.preventDefault();try{a
 $('draft-status').addEventListener('click',resumeDraft);
 $('progress').addEventListener('click',()=>{$('review-summary').scrollIntoView({block:'start'});(data.applied?$('copy-request'):$('finish-review')).focus({preventScroll:true});});
 async function runHostCommand(name){try{await hostCommand(name);}catch(error){status(error.message,true);}}
+async function openEditingFolder(){
+ if(embedded)return runHostCommand('editingFolder');
+ try{
+  await window.flushReview();
+  const folder=data.workspace||data.repo;
+  if(window.webkit?.messageHandlers?.revealFolder)window.webkit.messageHandlers.revealFolder.postMessage(folder);
+  else{await copyText(folder);status('Editing folder copied.');}
+  $('actions').close();
+ }catch(error){status(error.message,true);}
+}
+$('editing-folder').addEventListener('click',openEditingFolder);
 $('compare-saved').addEventListener('click',()=>runHostCommand('reviewSavedChanges'));
 $('comparison-versions').addEventListener('click',()=>runHostCommand('compare'));
-for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['editing-folder','editingFolder'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
+for(const [id,name] of [['compare-versions','compare'],['review-library','library'],['saved-drafts','sourceDrafts'],['review-setup','setup']])$(id).addEventListener('click',()=>runHostCommand(name));
 $('reload-review').addEventListener('click',async()=>{try{await window.flushReview();if(newerReview)window.location.assign(data.library_url);else window.location.reload();}catch(error){status(error.message,true);}});
 if(embedded)window.addEventListener('message',async event=>{
  if(!hostMessage(event))return;

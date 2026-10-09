@@ -8,9 +8,10 @@ The current package is a preview.
 
 ## Install
 
-Build the current preview using the [commands below](#build), then install
-the VSIX in `dist/` through **Extensions → Install from VSIX…** and open your
-manuscript folder. The workspace host needs macOS or Linux, Git, and Python 3.12 or
+Download the `.vsix` from the [latest release](https://github.com/njwfish/manuscript-review/releases/latest),
+install it through **Extensions → Install from VSIX…**, and open your manuscript
+folder in VS Code 1.114 or later. You can also [build the package](#build) from the
+shared `main` branch. The workspace host needs macOS or Linux, Git, and Python 3.12 or
 newer. The extension finds a supported interpreter automatically, including Homebrew Python
 when an older Conda environment comes first on the path. **Manuscript Review: Python
 Path** selects a specific interpreter.

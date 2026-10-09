@@ -20,6 +20,11 @@ from .render_latex import RENDER_VERSION
 from .workspace import edit_checkout, working_directory, same_repository
 
 
+def local_edit_label(label, version):
+    label = re.sub(r'(?: \+ local edits)? \([a-f0-9]{7,40}\)$', '', label)
+    return f'{label} + local edits ({version[:7]})'
+
+
 class ReviewSession:
     def __init__(self, directory, library_url=None, review_context=None):
         self.store = ReviewStore(directory)
@@ -428,7 +433,7 @@ class ReviewSession:
         record['drafts'].pop(path, None)
         current = record['snapshot']
         record['metadata'].update(preview_status='queued' if current['entry'] else 'none',
-                                  proposal_label=f'Your revision ({current["proposed"][:7]})')
+                                  proposal_label=local_edit_label(previous['metadata']['proposal_label'], current['proposed']))
         self.store.archive(previous)
         write_file_edit(self.store, previous, record, file, selected_replacements, request['decisions'])
         if current['entry']:
@@ -504,8 +509,7 @@ class ReviewSession:
                     snapshot['repo'], metadata['workspace_version'], {path: text},
                     'refs/manuscript-review/' + metadata['id'] + '/workspace',
                     'Manuscript Review saved source')
-                label = re.sub(r'(?: \+ local edits)? \([a-f0-9]{7,40}\)$', '', metadata['proposal_label'])
-                record['metadata'].update(proposal_label=f'{label} + local edits ({current["proposed"][:7]})',
+                record['metadata'].update(proposal_label=local_edit_label(metadata['proposal_label'], current['proposed']),
                                           preview_status='queued' if current['entry'] else 'none')
                 current['source_head'] = head
                 record['applied'][path] = digest(text)

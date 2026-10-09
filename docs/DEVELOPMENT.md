@@ -12,6 +12,18 @@ Node.js runs the client model, editor, and save-queue checks in the test suite. 
 
 Dispatch tests use mocked subprocesses to check the exact prompt, argument boundaries, and revision checks; client checks cover save failures and concurrent editing. For a live check, create a synthetic repository and separate review library, dispatch one comment through each installed CLI, and verify its final response in the saved discussion. Confirm that manuscript bytes, decisions, and resolution remain unchanged for a reply-only task. Also verify that a source revision can write Git checkpoints, publish its diff, and return a response in the new round. Check provider session persistence separately from desktop visibility. Do not use a person's saved review as a live fixture.
 
+## Repository and releases
+
+Maintain both interfaces on `main`, with shared behavior in `manuscript_review/` and
+VS Code adapters in `vscode/`. Feature branches merge back into `main`; separate
+product branches would duplicate fixes to the same engine and records.
+
+Each release tag pins both packages to one commit. The engine version in
+`manuscript_review/__init__.py` determines the `vVERSION` tag; the extension version
+in `vscode/package.json` determines its VSIX name. The release workflow runs both
+test suites and builds the app ZIP and VSIX together, then creates a draft release.
+Check the packaged startup, source review, and actual LaTeX previews before publishing.
+
 ## Build the VS Code extension
 
 VS Code is the primary product. Build and test its adapters from `vscode/`:
@@ -48,7 +60,7 @@ Build on Apple Silicon with Xcode Command Line Tools and Python 3.12 or later:
 
 The build writes `dist/Manuscript Review.app` and `dist/Manuscript Review.zip`. The bundle includes the runtime, command interface, agent skill, and documentation. Its local code signature supports testing; distribution with Apple's verified developer identity would require Developer ID signing and notarization.
 
-The version lives in `manuscript_review/__init__.py` and supplies both package and app metadata. Before releasing, run the tests, check actual LaTeX previews, and open the built app with a separate library. Tag the verified commit as `vVERSION`; the release workflow builds and tests the app, then creates a draft GitHub release. Publish that draft after checking its artifact and release notes.
+The engine version also supplies the app metadata. Open the built app with a separate library before publishing; see [Repository and releases](#repository-and-releases) for the release process.
 
 ## Existing review libraries
 
