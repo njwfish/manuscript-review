@@ -115,13 +115,16 @@ export function activate(context){
   return Boolean(runtime?.review);
  }
  async function focusReview(){if(await ensureReview())await panel.show();}
- async function sendToAgent(identifier,saveComment){
+ async function sendToAgent(identifier,saveComment,sourceUri){
   if(sending)throw new Error('Wait for the agent tab to finish opening.');
   sending=true;
-  try{return await dispatchComment(identifier,saveComment);}finally{sending=false;}
+  try{return await dispatchComment(identifier,saveComment,sourceUri);}finally{sending=false;}
  }
- async function dispatchComment(identifier,saveComment){
-  const origin=vscode.window.tabGroups.activeTabGroup,sourceEditor=vscode.window.activeTextEditor;
+ async function dispatchComment(identifier,saveComment,sourceUri){
+  const origin=vscode.window.tabGroups.activeTabGroup;
+  const sources=sourceUri?vscode.window.visibleTextEditors.filter(editor=>editor.document.uri.toString()===sourceUri.toString()):[];
+  const sourceEditor=sourceUri?(sources.find(editor=>editor.viewColumn===origin.viewColumn)||(sources.length===1?sources[0]:undefined)):vscode.window.activeTextEditor;
+  const column=sourceEditor?.viewColumn||origin.viewColumn,selection=sourceEditor?.selection;
   const reviewId=runtime?.review?.id;
   if(!reviewId)throw new Error('Open the comment’s review before sending it to an agent.');
   if(!await ensureReview())return;
@@ -143,12 +146,12 @@ export function activate(context){
   const data=await runtime.data('round'),report=await runtime.request('/feedback.json');
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   const dirty=vscode.workspace.textDocuments.some(document=>document.isDirty&&document.uri.scheme==='file'&&document.uri.fsPath.startsWith(data.repo+path.sep));
-  const prompt=commentTask(data,report,identifier,{launcher:agentTools.launcher,skill:agentTools.skill,dirty});
+  const {prompt,discussion}=commentTask(data,report,identifier,{launcher:agentTools.launcher,skill:agentTools.skill,dirty});
   const helper=process.platform==='darwin'&&!vscode.env.remoteName?path.join(context.extensionPath,'dist','native-send'):undefined;
-  const sent=await openAgent(vscode,{agent:agent.id,prompt,helper,signal:lifetime.signal,column:Math.min(9,origin.viewColumn+1)});
+  const agentTab=await openAgent(vscode,{agent:agent.id,prompt,discussion,helper,signal:lifetime.signal,column:Math.min(9,column+1)});
   // Restore only after confirmed submission; a failed handoff remains available to inspect.
-  if(sent&&!disposed&&runtime.review?.id===reviewId&&vscode.window.tabGroups.activeTabGroup.viewColumn===Math.min(9,origin.viewColumn+1)){
-   if(sourceEditor&&sourceFile(runtime.review,sourceEditor.document))await vscode.window.showTextDocument(sourceEditor.document,{viewColumn:origin.viewColumn,selection:sourceEditor.selection,preserveFocus:false});
+  if(agentTab&&!disposed&&runtime.review?.id===reviewId&&vscode.window.tabGroups.activeTabGroup.activeTab===agentTab){
+   if(sourceEditor&&sourceFile(runtime.review,sourceEditor.document))await vscode.window.showTextDocument(sourceEditor.document,{viewColumn:column,selection,preserveFocus:false});
    else await panel.show();
   }
   return true;

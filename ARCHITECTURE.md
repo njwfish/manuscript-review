@@ -68,13 +68,19 @@ an exact round through the extension's URI handler.
 
 Enter saves a comment and opens a prepared task for the remembered Codex or Claude Code provider;
 Shift+Enter inserts a newline. The native extension tab opens beside the source or
-focused review. On local macOS, a small Accessibility helper pins the original VS Code
-window before opening the provider and excludes its existing webview URLs. It attempts
-submission by verifying the complete composer text and pressing one enabled Send button
-once. It restores author focus if submission is confirmed by a readable, cleared composer. A paste retains all clipboard
-formats. Uncertain submission is never retried automatically. Without Accessibility,
-or on other platforms and remote workspaces, the native tab retains manual submission:
-Claude receives an initial prompt; Codex receives a copied request.
+focused review. Codex opens its registered conversation editor at the home route
+with a unique URI; its New Codex Agent command currently opens the introduction
+route. Claude uses its editor-open command. On local macOS, a small Accessibility helper targets the extension
+host's VS Code process and pins its original window before opening the provider.
+It excludes existing webview IDs, verifies the complete composer text, and presses
+one enabled Send button once. Confirmation requires a changed, readable composer
+and the saved discussion ID in conversation text outside the composer. It follows
+that ID through Markdown rendering and the provider's first-message remount.
+Author focus returns only while the opened agent tab remains active. A paste retains
+all clipboard formats. Uncertain submission is never retried automatically.
+Without Accessibility, or on other platforms and remote workspaces, the native tab
+retains manual submission: Claude receives an initial prompt; Codex receives a
+copied request.
 The prompt pins the review and discussion, reads
 the current record, and returns only a final reply through existing response commands.
 The agent owns its transcript; the app stores no task or conversation records. Pending

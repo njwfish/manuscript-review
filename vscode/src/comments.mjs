@@ -271,7 +271,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
   command('sendComment',async input=>{
     if(!input.text.trim())return false;
     if(input.thread.reviewState)checkReview(input.thread.reviewState);
-    return onAgent?.(undefined,()=>reply(input));
+    return onAgent?.(undefined,()=>reply(input),input.thread.uri);
   });
   command('commentAgent',thread=>{
     const state=thread.reviewState;
@@ -279,7 +279,7 @@ export function createComments(vscode,runtime,{onChange,onReview,onProjection,on
     checkReview(state);
     if(state.thread.comments.some(comment=>comment.mode===vscode.CommentMode.Editing))
       throw new Error('Save your comment edit before sending it to an agent.');
-    return onAgent?.(state.entry.id);
+    return onAgent?.(state.entry.id,undefined,thread.uri);
   });
 
   function dispose() {

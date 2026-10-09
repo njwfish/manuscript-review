@@ -30,6 +30,6 @@ export function nativeSend(helper,request,open,{spawnProcess=spawn,timeout=25000
    }else if(value.status==='sent'&&opened)finish();
    else{const error=new Error(value.message||'The agent request was not sent.');error.code=value.status;finish(error);}
   });
-  child.stdin.write(JSON.stringify(request)+'\n');
+  child.stdin.write(JSON.stringify({...request,pid:String(process.ppid)})+'\n');
  });
 }

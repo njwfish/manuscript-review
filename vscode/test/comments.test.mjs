@@ -76,7 +76,7 @@ function fixture(history=[source('root')]) {
       if(route==='/save') {data.comments=body.comments;data.revision++;return {revision:data.revision};}
       throw new Error('Unexpected write: '+route);
     }};
-  const comments=createComments(vscode,runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save)=>{if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
+  const comments=createComments(vscode,runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
   const editor={document:documents[0],selection:new Selection(new Position(0,6),new Position(0,20))};
   return {comments,vscode,runtime,data,documents,created,requests,errors,opened,editor,controller,projections,sent,
     command:(name,...args)=>handlers.get(`manuscriptReview.${name}`)(...args),

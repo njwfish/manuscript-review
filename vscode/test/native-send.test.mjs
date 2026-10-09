@@ -14,6 +14,7 @@ test('native submission opens only after permission and waits for the new tab be
  const f=fixture();let opened=0,release;const gate=new Promise(resolve=>{release=resolve;});
  const task=nativeSend('/helper',{extension:'anthropic.claude-code',prompt:'Exact request\n\\alpha'},async()=>{opened++;await gate;},{spawnProcess:f.spawnProcess});
  assert.equal(opened,0);assert.equal(JSON.parse(f.writes[0]).prompt,'Exact request\n\\alpha');
+ assert.equal(JSON.parse(f.writes[0]).pid,String(process.ppid),'the request pins the main process that launched this extension host');
  f.emit({status:'ready'});await new Promise(resolve=>setImmediate(resolve));assert.equal(opened,1);assert.equal(f.writes.length,1);
  release();await new Promise(resolve=>setImmediate(resolve));assert.equal(f.writes[1],'submit\n');
  f.emit({status:'sent'});await task;assert.equal(f.writes.length,2);assert.equal(f.child.killed,true);

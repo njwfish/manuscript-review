@@ -112,11 +112,12 @@ If another extension captures these keys in Markdown comment editors, add the sc
 Enter and Shift+Enter bindings from this extension’s `package.json` to your user
 keyboard shortcuts. They apply only to Manuscript Review comments.
 
-Install and sign in to the agent’s VS Code extension first. The macOS preview includes
-experimental automatic sending through Accessibility: the helper attempts to verify
-the new native tab’s complete request and press its Send button once.
+Install the agent’s VS Code extension, finish its introduction, and sign in first. The macOS preview includes
+automatic sending through Accessibility: the helper verifies the new native tab’s
+complete request and presses its Send button once.
 Enable **Visual Studio Code** in **System Settings → Privacy
-& Security → Accessibility**. After confirmed submission, focus returns to your
+& Security → Accessibility** (called **Device Control and Data Access** on newer
+macOS versions). After confirmed submission, focus returns to your
 manuscript or review while the agent works beside it. Without that permission, or
 on other platforms and remote workspaces, Claude opens with the request prepared;
 Codex opens a fresh tab with the request copied for you to paste and send.

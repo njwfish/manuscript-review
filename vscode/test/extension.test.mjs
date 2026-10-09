@@ -29,7 +29,7 @@ async function fixture(t,options={}) {
   const handlers=new Map(),contexts=new Map(),calls=[],errors=[],events={},watchers=[],output=[];
   const doc={uri:uri(source),version:1,text:'A manuscript sentence.\n',isDirty:false,languageId:'latex',
     getText(){return this.text;},positionAt(offset){const lines=this.text.slice(0,offset).split('\n');return new Position(lines.length-1,lines.at(-1).length);}};
-  const editor={document:doc,selection:new Selection(new Position(0,0),new Position(0,1)),revealRange(range){this.revealed=range;}};
+  const editor={document:doc,viewColumn:1,selection:new Selection(new Position(0,0),new Position(0,1)),revealRange(range){this.revealed=range;}};
   const disposable=()=>({dispose(){}});
   function event(name){return callback=>{events[name]=callback;return disposable();};}
   const vscode={Uri:{file:uri},Selection,ViewColumn:{One:1},ProgressLocation:{Notification:15},TextEditorRevealType:{InCenterIfOutsideViewport:2},env:{clipboard:{async writeText(text){calls.push({kind:'clipboard',text});}}},
@@ -71,7 +71,7 @@ async function fixture(t,options={}) {
     async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
   const {sourceFile}=await import('../src/comments.mjs');
   const adapters={
-    'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],commentTask:(data,report,id,tools)=>{calls.push({kind:'comment-task',data,report,id,tools});return 'Scoped comment request';},openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
+    'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],commentTask:(data,report,id,tools)=>{calls.push({kind:'comment-task',data,report,id,tools});return {prompt:'Scoped comment request',discussion:id};},openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
     'test-python':{async resolvePython(configured){calls.push({kind:'resolve-python',configured});await options.onResolvePython?.(configured);return configured||'/automatic/python';}},
     'test-agent':{createAgentTools(configuration){calls.push({kind:'create-agent-tools',configuration});return {launcher:'/stored/skills/manuscript-review/scripts/review-agent',command:"'/stored/skills/manuscript-review/scripts/review-agent'",skill:'/stored/skills/manuscript-review',async setup(){await options.onToolsSetup?.(configuration);calls.push({kind:'prepare-tools',python:'/python'});return {python:'/python',git:true,preview_tools:{},agents:[{id:'codex',name:'Codex'}]};},async install(agent){calls.push({kind:'install-skill',agent});return {message:'Skill installed.'};}};}},
@@ -469,6 +469,7 @@ test('comment dispatch saves focused input, scopes unsaved source, and opens the
  const request=f.calls.find(call=>call.kind==='comment-task'),launch=f.calls.find(call=>call.kind==='open-agent');
  assert.equal(request.id,'saved-comment');assert.equal(request.data.id,reviewId);assert.equal(request.tools.dirty,true);
  assert.equal(launch.options.agent,'claude');assert.equal(launch.options.column,2);
+ assert.equal(launch.options.discussion,'saved-comment');assert.equal(launch.options.prompt,'Scoped comment request');
  assert.equal(f.calls.filter(call=>call.kind==='pick').length,0);
  assert.ok(f.calls.findIndex(call=>call.kind==='flush')<f.calls.findIndex(call=>call.kind==='open-agent'));
 });
@@ -479,12 +480,33 @@ test('cancelling provider choice preserves the preferred agent without creating 
  await f.panelCallbacks.onAgent('saved-comment');assert.equal(f.calls.find(call=>call.kind==='open-agent').options.agent,'claude');
 });
 
-test('confirmed Send returns to the author’s source while manual or redirected handoffs retain their focus',async t=>{
- for(const [sent,column] of [[true,2],[false,2],[true,3]]){
-  const f=await fixture(t,{agentSent:sent,onOpenAgent:vscode=>{vscode.window.tabGroups.activeTabGroup={viewColumn:column};}});
+test('confirmed Send returns to the source only while the opened agent tab is still active',async t=>{
+ for(const mode of ['confirmed','manual','different-group','different-tab']){
+  const agentTab={label:'Agent'};
+  const f=await fixture(t,{agentSent:mode==='manual'?false:agentTab,onOpenAgent:vscode=>{
+   vscode.window.tabGroups.activeTabGroup={viewColumn:mode==='different-group'?3:2,activeTab:['different-group','different-tab'].includes(mode)?{label:'Other'}:agentTab};
+  }});
   await f.command('open');await f.commentsCallbacks.onAgent('saved-comment');
-  assert.equal(f.calls.some(call=>call.kind==='show-source'),sent&&column===2);
+  assert.equal(f.calls.some(call=>call.kind==='show-source'),mode==='confirmed');
  }
+});
+
+test('a native comment editor keeps its visible manuscript as the return destination',async t=>{
+ const agentTab={label:'Claude'};
+ const f=await fixture(t,{agentSent:agentTab,onOpenAgent:vscode=>{vscode.window.tabGroups.activeTabGroup={viewColumn:2,activeTab:agentTab};}});
+ await f.command('open');f.vscode.window.activeTextEditor=undefined;f.vscode.window.tabGroups.activeTabGroup={viewColumn:2};
+ await f.commentsCallbacks.onAgent('saved-comment',undefined,f.doc.uri);
+ const source=f.calls.find(call=>call.kind==='show-source');assert.equal(source.document,f.doc);assert.equal(source.configuration.viewColumn,1);
+});
+
+test('a source shown twice returns to the comment’s active source group',async t=>{
+ const agentTab={label:'Claude'};
+ const f=await fixture(t,{agentSent:agentTab,onOpenAgent:vscode=>{vscode.window.tabGroups.activeTabGroup={viewColumn:3,activeTab:agentTab};}});
+ await f.command('open');f.vscode.window.activeTextEditor=undefined;
+ f.vscode.window.visibleTextEditors.push({...f.editor,viewColumn:2});f.vscode.window.tabGroups.activeTabGroup={viewColumn:2};
+ await f.commentsCallbacks.onAgent('saved-comment',undefined,f.doc.uri);
+ const opened=f.calls.find(call=>call.kind==='open-agent'),source=f.calls.find(call=>call.kind==='show-source');
+ assert.equal(opened.options.column,3);assert.equal(source.configuration.viewColumn,2);
 });
 
 test('extension deactivation cancels the owned native handoff',async t=>{
