@@ -9,7 +9,7 @@ import {createDecorations} from './decorations.mjs';
 import {createAgentTools} from './agent.mjs';
 import {resolvePython} from './python.mjs';
 import {createViewer} from './viewer-server.mjs';
-import {agents,commentTask,openAgent} from './dispatch.mjs';
+import {agents,openAgent} from './dispatch.mjs';
 import {chooseComparison,comparisonRequest} from './comparison.mjs';
 import {manuscriptReviews} from '../../manuscript_review/review_model.js';
 
@@ -148,10 +148,11 @@ export function activate(context){
   const agent=selectedAgent();
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   await prepareTools();
-  const data=await runtime.data('round'),report=await runtime.request('/feedback.json');
+  const data=await runtime.data('round');
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   const dirty=vscode.workspace.textDocuments.some(document=>document.isDirty&&document.uri.scheme==='file'&&document.uri.fsPath.startsWith((data.workspace||data.repo)+path.sep));
-  const {prompt,discussion}=commentTask(data,report,identifier,{launcher:agentTools.launcher,skill:agentTools.skill,dirty});
+  const task=await runtime.request('/agent-request',{revision:data.revision,id:identifier,launcher:agentTools.launcher,skill:agentTools.skill,dirty});
+  const prompt=task.prompt+' Return the resulting review link: vscode://njwfish.manuscript-review/review/REVIEW_ID.',discussion=task.discussion;
   const helper=process.platform==='darwin'&&!vscode.env.remoteName?path.join(context.extensionPath,'dist','native-send'):undefined;
   const agentTab=await openAgent(vscode,{agent:agent.id,prompt,discussion,helper,signal:lifetime.signal,column:Math.min(9,column+1)});
   // Restore only after confirmed submission; a failed handoff remains available to inspect.

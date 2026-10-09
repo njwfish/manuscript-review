@@ -39,7 +39,8 @@ source or create a source version. Earlier rounds retain their status at that po
 | `history.py` and `feedback.py` | Anchored messages, responses and exports of thread identity and status |
 | `review_model.js` | Shared thread grouping and source selection rules |
 | Native comments and focused review | Rendering, navigation, filters and author actions through the session API |
-| Agent dispatch | One comment’s scope, provider handoff and return focus |
+| `dispatch.py` | One comment's canonical task and standalone CLI handoff |
+| VS Code dispatch adapter | Native provider extension handoff and return focus |
 | Agent skill and commands | Reading feedback, making authorized revisions, publishing their diff and appending final responses |
 
 The author selects wording and resolves issues. Agent providers retain working
@@ -120,6 +121,8 @@ The agent owns its transcript; the app stores no task or conversation records. P
 decisions and unsaved source limit the request to a reply. Source changes use the same
 begin/finish round operations. Focused comparisons dim surrounding context; clicking
 the passage expands it, and entering the native source editor clears its dimming.
+
+Both interfaces obtain the comment task through `ReviewSession.agent_request`, which checks the saved revision and reads the current discussion without changing the record. Standalone dispatch uses `codex exec` with file-backed prompt stdin or Claude's native `--bg` command. The processes run independently of the app, and the providers retain their sessions. The macOS wrapper includes the usual native CLI installation directories on PATH. Agent replies and revisions use the existing respond and begin/finish commands; a polling notice detects returned responses and newer rounds without replacing active input. The remembered provider is a navigation preference, preserved in follow-up rounds.
 
 The extension discovers Python 3.12 or newer before importing the engine, skipping older
 environments on the path. An explicit interpreter setting is validated and respected.

@@ -36,7 +36,6 @@ body.vscode-review{
 .vscode-review .focus-reading{line-height:1.85}
 .vscode-review .focus-reading .ellipsis{opacity:.3}
 .vscode-review .focus-return{margin-top:16px}
-.vscode-review .agent-composer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
 .vscode-review .agent-choice{color:var(--muted);padding-inline:0}
 .vscode-review .agent-choice::after{content:'';display:inline-block;width:5px;height:5px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg);vertical-align:3px;margin-left:8px}
 .vscode-review .contextbar{flex-wrap:wrap;row-gap:8px}

@@ -53,6 +53,8 @@ Click proposed text, click a proposed LaTeX preview, or press **E** to edit the 
 
 Discussion appears in a collapsible right sidebar. Press **C** to comment on an edit, or **Shift+C** for a passage note; the selector changes the scope. Selecting a highlighted change in the editor brings its discussion alongside the source. Earlier feedback and replies appear above the comment field. Use the sidebar arrows or **⌘/Ctrl+Shift+[ / ]** to step through comments across files; the selector jumps directly to a comment. **View change** opens its attached diff. **Q** searches comments and responses. Navigation visits unresolved threads by default; choose **All** to revisit resolved threads. **Resolve** and **Reopen** change thread status independently of wording decisions. Replies append, so each revision pass retains the exchange.
 
+Choose **Codex** or **Claude Code** beneath the comment field, then press **Enter** or **Send** to dispatch that comment through its installed CLI. **Shift+Enter** inserts a newline. The app remembers your provider and keeps focus in the manuscript; it opens no agent tabs or windows. [Install and sign in to the CLI](docs/INSTALL.md#agent-clis) first. The provider retains the working session, while the review receives only the final response. Pending decisions or unsaved source drafts limit the task to a reply; a completed review allows surgical revisions. A notice offers **Reload review** when a response arrives, or **Open Library** when the agent publishes a new round. Your active input stays in place until you continue.
+
 ![Whole-manuscript source editing with comments and responses](docs/images/manuscript.png)
 
 When every edit has a decision, the completion area shows **Apply review** and **Copy agent request**. The header’s **Review complete** button returns to these actions after scrolling. **⌘/Ctrl+Enter** applies the review from the review view; **Applied** confirms the selected wording is written. Save or discard file drafts before applying. **Review tools → Apply review** can also apply a partial review, retaining proposed wording for undecided edits.
@@ -85,20 +87,21 @@ The macOS library lives in `~/Library/Application Support/Manuscript Review/`, s
 | V | Switch word changes / rendered view |
 | PageUp / PageDown | Scroll both PDF panes |
 | G | Next undecided edit |
+| Enter / Shift+Enter | Send a comment / insert a newline in its field |
 | ? | All shortcuts |
 | ⌘Shift+L / ⌘N | Library / compare versions in the native app |
 
-Holding a key does not repeat decisions. Shortcuts pause while typing; Tab and Enter work on controls.
+Holding a key does not repeat decisions. Review shortcuts pause while typing; Tab and Enter work on controls.
 
 ## Work with an agent
 
 Use **Library → Setup** to check dependencies and install the [manuscript-review skill](skills/manuscript-review/SKILL.md) for Codex or Claude Code. The [installation guide](docs/INSTALL.md#install-the-agent-skill) also covers manual setup. The skill uses the same review operations as the app; an agent needs local filesystem and shell access to your manuscript and saved library.
 
-The cycle is **review → apply → ask the agent → review the next round**. When you finish deciding, use **Apply review** to write the selected wording, then **Copy agent request** or **R** and paste the prompt into your agent's chat. The prompt identifies the exact review and tells the agent to read your decisions, comments, and earlier responses. You can also request responses while decisions are still in progress.
+The cycle is **review → apply → ask the agent → review the next round**. When you finish deciding, use **Apply review** to write the selected wording. **Send** or **Enter** in a comment field asks the agent to address that thread. To address the whole round, use **Copy agent request** or **R** and paste the prompt into your agent's chat. Both requests identify the exact review and ask the agent to read your decisions and earlier responses. You can also request responses while decisions are still in progress.
 
-For a manuscript without a diff, read, comment, and save any manual edits, then copy the agent request. The same skill reads these source comments and prepares a reviewable revision. Existing prose is settled wording: a style guide alone does not authorize rewriting it.
+For a manuscript without a diff, read, comment, and save any manual edits, then send a comment or copy the whole-review request. The same skill reads these source comments and prepares a reviewable revision. Existing prose is settled wording: a style guide alone does not authorize rewriting it.
 
-Replies without source changes stay in the current round. Text revisions create a new round against the previously selected draft, preserving earlier choices and the original baseline. Open the new round from the Library; **Since baseline** shows the accumulated selected changes. Agent conversation takes place in your existing chat, while the app keeps comments and responses beside their source context.
+Replies without source changes stay in the current round. Text revisions create a new round against the previously selected draft, preserving earlier choices and the original baseline. Open the new round from the Library; **Since baseline** shows the accumulated selected changes. The provider session retains the agent's working conversation, while the app keeps comments and responses beside their source context.
 
 For an initial referee report, ask the agent to anchor its actionable points as comments before editing. You can work through these comments yourself or ask the agent to prepare surgical revisions and respond on each comment. The next round shows the changes with the original feedback and responses. For a long report, the skill can maintain an optional feedback CSV beside the manuscript.
 

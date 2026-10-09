@@ -3,7 +3,7 @@
 ## VS Code extension
 
 VS Code is the primary interface. [Build the preview](../vscode/README.md#build) to
-obtain `vscode/dist/manuscript-review-0.1.3.vsix`, then install it through **Extensions →
+obtain its `.vsix`, then install it through **Extensions →
 Install from VSIX…**. The extension includes the engine, comparison viewer, and agent
 skill. Its workspace host needs macOS or Linux, Git, and Python 3.12 or later. Set
 **Manuscript Review: Python Path** when `python3` refers to a different interpreter.
@@ -37,9 +37,40 @@ For typeset equation and algorithm previews, install a TeX distribution such as 
 brew install poppler
 ```
 
-The app finds tools on your PATH and in `/Library/TeX/texbin`, `/opt/homebrew/bin`, and `/usr/local/bin`. Word-level review works without these optional preview tools. Manuscripts with custom styles or packages need their usual TeX dependencies installed.
+The app finds tools on your PATH and in `~/.local/bin`, `/Library/TeX/texbin`, `/opt/homebrew/bin`, and `/usr/local/bin`. Word-level review works without these optional preview tools. Manuscripts with custom styles or packages need their usual TeX dependencies installed.
 
 To update, quit the app and replace it with the new release. Your review library stays in `~/Library/Application Support/Manuscript Review`, outside the app bundle.
+
+## Agent CLIs
+
+Standalone comment dispatch needs the CLI for the provider you choose. Install a current [Codex CLI](https://learn.chatgpt.com/docs/cli) or [Claude Code](https://code.claude.com/docs/en/setup), sign in, and keep its executable on PATH. You can install either or both; ordinary review and manual agent requests work without them. The VS Code interface uses the providers' native extensions instead.
+
+On macOS, install Codex with Homebrew and sign in:
+
+```sh
+brew install --cask codex
+codex login
+codex --version
+```
+
+Install Claude Code with its native installer, then start it in your manuscript directory to sign in and confirm that you trust the folder:
+
+```sh
+curl -fsSL https://claude.ai/install.sh | bash
+cd /path/to/manuscript
+claude
+```
+
+Update existing installations with:
+
+```sh
+codex update
+claude update
+```
+
+Standalone dispatch is tested with Codex CLI **0.162.0** and Claude Code **2.1.295**. It uses `codex login status`, `codex exec --add-dir … -`, and `claude --bg --add-dir … -- PROMPT`. Codex receives the prompt through stdin; the `--` keeps Claude's directory flag from consuming it. Both providers use your configured model and permissions. Replies need write access to the review library; source revisions also need access to the manuscript and its Git objects and review refs. Configure that access through the provider. The app does not change your global settings.
+
+Codex retains its execution sessions for `codex resume`. Claude retains background sessions in `claude agents`; use `claude attach SESSION_ID` to inspect one and handle any pending approvals. The app launches no provider UI. Desktop session visibility depends on the provider; CLI persistence does not guarantee automatic appearance in a desktop app. Claude's `claude --desktop --resume SESSION_ID` provides an explicit desktop handoff when wanted. See the providers' [Codex execution guide](https://learn.chatgpt.com/docs/non-interactive-mode) and [Claude CLI reference](https://code.claude.com/docs/en/cli-reference) for session controls.
 
 ## Install the agent skill
 

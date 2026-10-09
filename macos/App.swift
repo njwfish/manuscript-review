@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             process.arguments! += ["--review", CommandLine.arguments[index + 1]]
         }
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/Library/TeX/texbin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
+        environment["PATH"] = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path + ":/opt/homebrew/bin:/usr/local/bin:/Library/TeX/texbin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
         process.environment = environment
         let pipe = Pipe()
         process.standardOutput = pipe
