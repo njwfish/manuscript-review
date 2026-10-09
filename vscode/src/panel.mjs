@@ -130,7 +130,7 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAg
   }catch(error){result={type:'review-response',id:message.id,ok:false,error:error.message};}
   if(origin===panel)origin.webview.postMessage(result);
  }
- async function load(origin){
+ async function load(origin,focus=true){
   loaded=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('The focused review did not load.')),30000);resolveLoaded=()=>{clearTimeout(timer);resolve();};rejectLoaded=error=>{clearTimeout(timer);reject(error);};});loaded.catch(()=>{});
   revision=undefined;ready=false;
   const address=await vscode.env.asExternalUri(vscode.Uri.parse(await viewer.start()));
@@ -139,7 +139,7 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAg
   const viewerOrigin=new URL(viewerURL).origin;
   // VS Code ignores identical HTML, so a refresh needs a new document identity.
   origin.webview.html=webviewHTML(await readFile(path.join(assets,'index.html'),'utf8'),origin.webview,assets,vscode,viewerOrigin)
-   .replace('<body class="vscode-review wide">','<body class="vscode-review wide" data-review-instance="'+crypto.randomUUID()+'">');
+   .replace('<body class="vscode-review wide">','<body class="vscode-review wide" data-review-instance="'+crypto.randomUUID()+'" data-review-focus="'+focus+'">');
  }
  async function show(entry){
   if(entry?.target)selection=entry;
@@ -157,7 +157,7 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAg
  return {show,flush,unlock:id=>{if(id)panel?.webview.postMessage({type:'review-command',action:'unlock',id});},
   setAgent:label=>panel?.webview.postMessage({type:'review-agent',label}),
   changed,
-  refresh:async({flushed=false}={})=>{if(!panel)return;if(!flushed)await flush();await load(panel);},
+  refresh:async({flushed=false}={})=>{if(!panel)return;if(!flushed)await flush();await load(panel,false);},
   dispose:()=>{panel?.dispose();}
  };
 }

@@ -816,7 +816,7 @@ async function ready(){
    $('host-tools').hidden=false;
    $('apply-shortcut').querySelector('td').textContent='Save comment; apply completed review';$('pdf-shortcut-hint').hidden=false;
   }
-  render();focusSelection();status('Saved locally');
+  render();if(!embedded||document.body.dataset.reviewFocus!=='false')focusSelection();status('Saved locally');
   if(embedded)reviewReady();
   if(['queued','rendering'].includes(data.preview_status))watchPreviews();
   if(!embedded)watchReview();

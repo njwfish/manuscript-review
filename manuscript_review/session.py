@@ -520,7 +520,10 @@ class ReviewSession:
         path, old = file['path'], previous['snapshot']
         current = record['snapshot']
         revised = enrich_snapshot({'files': [compare(path, file['before'], after)]})['files'][0]
-        current['files'] = [f for f in current['files'] if f['path'] != path] + [revised]
+        if any(f['path'] == path for f in current['files']):
+            current['files'] = [revised if f['path'] == path else f for f in current['files']]
+        else:
+            current['files'].append(revised)
         current['files'] = [f for f in current['files'] if f['before'] != f['after']]
         current['proposed'] = source_version(old['repo'], old['proposed'], {path: after},
                                             'refs/manuscript-review/' + record['metadata']['id'] + '/versions',

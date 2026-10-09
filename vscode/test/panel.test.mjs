@@ -280,11 +280,12 @@ test('focus and comment handoffs use native callbacks and reject an earlier disp
 
 test('refresh after a preflushed native save loads the new record without writing stale webview state',async t=>{
  const f=await fixture(t),p=await f.open();await f.establish(p);
+ assert.match(p.webview.html,/data-review-focus="true"/);
  const flushing=f.panel.flush({lock:true});await new Promise(resolve=>setImmediate(resolve));
  const request=p.messages.at(-1);assert.equal(request.type,'review-command');assert.equal(request.lock,true);
  await p.receive({type:'review-flushed',id:request.id,ok:true});const lock=await flushing;assert.equal(lock,request.id);
  p.messages.length=0;f.runtime.review.revision=2;
  await f.panel.refresh({flushed:true});
- assert.equal(p.replacements,2);assert.deepEqual(p.messages,[]);
+ assert.equal(p.replacements,2);assert.deepEqual(p.messages,[]);assert.match(p.webview.html,/data-review-focus="false"/);assert.equal(p.revealed,undefined);
  await p.receive({type:'review-ready'});f.panel.unlock(lock);assert.equal(p.messages.at(-1).action,'unlock');assert.equal(p.messages.at(-1).id,request.id);
 });

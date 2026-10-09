@@ -93,6 +93,12 @@ class WorkspaceTests(ReviewFixture):
         self.assertEqual((workspace / 'main.tex').read_text(), text)
         self.assertTrue(is_applied(record))
 
+    def test_native_capture_keeps_the_existing_review_file_order(self):
+        workspace = self.bind()
+        before = [file['path'] for file in self.session.snapshot['files']]
+        self.capture(workspace, 'Restored contents', 'deleted.txt')
+        self.assertEqual([file['path'] for file in self.session.snapshot['files']], before)
+
     def test_new_file_save_is_captured_without_staging_it(self):
         workspace = self.bind()
         index = git(workspace, 'ls-files', '--stage')

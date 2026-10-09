@@ -5,7 +5,7 @@
     "onUri"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -422,7 +422,7 @@
   "scripts": {
     "build": "node src/build.mjs",
     "test": "node --test test/*.test.mjs",
-    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.11.vsix"
+    "package": "npm run build && vsce package --no-dependencies --pre-release --out dist/manuscript-review-0.1.12.vsix"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.6.0",
