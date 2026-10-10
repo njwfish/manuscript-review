@@ -5,6 +5,22 @@ from manuscript_review.comparison import build_snapshot
 
 
 class DiscussionTests(ReviewFixture):
+    def test_reimport_keeps_a_saved_explanation_identity_without_duplicating_it(self):
+        from manuscript_review.comparison import stable_id
+        target = self.file()['hunks'][0]['id']
+        row = {'id':target,'text':'Reviewer 1 asked which observations enter the loss.'}
+        self.session.import_explanations([row], 0)
+        record = self.session.store.read()
+        snapshot = record['snapshot']
+        original_round = stable_id('round',[snapshot['repo'],snapshot['base'],snapshot['proposed'],snapshot['created']])
+        original_id = stable_id('agent-discussion',[original_round,target,row['text']])
+        record['history'][0].update(id=original_id,round_id=original_round)
+        self.session.store.commit(record)
+        repeated = self.session.import_explanations([row],record['revision'])
+        self.assertEqual(repeated['revision'],record['revision'])
+        self.assertEqual(len(repeated['history']),1)
+        self.assertEqual(repeated['history'][0]['id'],original_id)
+
     def test_explanations_validate_the_whole_import_before_saving(self):
         target = self.file()['hunks'][0]['id']
         before = self.session.store.path.read_bytes()

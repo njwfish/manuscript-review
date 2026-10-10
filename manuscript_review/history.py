@@ -91,7 +91,10 @@ def add_explanations(snapshot, decisions, entries, records, review, review_id):
     targets = {item['id']: item for file in snapshot['files'] for passage in file['hunks']
                for item in [passage, *passage['edits']]}
     for note in feedback_report(snapshot, decisions, comments, [], review_id)['comments']:
-        identifier = discussion_id(snapshot, note['id'], note['comment'], 'agent')
+        existing = next((entry for entry in result if entry['author'] == 'agent'
+                         and entry['origin_id'] == note['origin_id'] and entry['base'] == snapshot['base']
+                         and entry['created'] == snapshot['created'] and entry['comment'] == note['comment']), None)
+        identifier = existing['id'] if existing else discussion_id(snapshot, note['id'], note['comment'], 'agent')
         if identifier not in known:
             target = targets[note['id']]
             start, end = target['base_span']

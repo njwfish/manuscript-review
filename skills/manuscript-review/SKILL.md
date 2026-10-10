@@ -43,7 +43,7 @@ Edit only in that returned workspace. Keep the canonical repository path for lib
 "/path/to/skill/scripts/review-agent" feedback --review REVIEW_ID
 ```
 
-Clean changes accumulate as undecided edits in the current review against its fixed base. Finish preserves existing decisions, comments, drafts, earlier source versions, and other agent results; overlapping changes are refused for reconciliation in a fresh proposal checkout. The author's working files and buffers remain untouched until Apply. Replies without source changes use the same review. For an explicitly requested separate revision round after a settled review, read [Revision rounds](references/revision-rounds.md). Applying choices, pushing a branch, and merging a PR follow the author's authorization and repository workflow.
+Clean changes accumulate as undecided edits in the current review against its fixed base. Finish preserves unaffected decisions, comments, drafts, earlier source versions, and other agent results; overlapping changes are refused for reconciliation in a fresh proposal checkout. The author's working files and buffers remain untouched until Apply. Replies without source changes use the same review. For an explicitly requested separate revision round after a settled review, read [Revision rounds](references/revision-rounds.md). Applying choices, pushing a branch, and merging a PR follow the author's authorization and repository workflow.
 
 Write replies as a JSON array in a temporary file:
 
