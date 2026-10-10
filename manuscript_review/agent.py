@@ -34,6 +34,7 @@ def main():
     listing.add_argument('--repo', type=Path)
     feedback = commands.add_parser('feedback', help='Read choices, notes, and earlier replies.')
     feedback.add_argument('--review', required=True)
+    feedback.add_argument('--thread', help='Read one discussion and its source edits without unrelated file diffs.')
     source = commands.add_parser('source', help='Read selected file text and retained drafts for exact annotation.')
     source.add_argument('--review', required=True)
     source.add_argument('--file', required=True)
@@ -59,10 +60,12 @@ def main():
     explain.add_argument('--explanations', required=True, type=Path)
     begin = commands.add_parser('begin', help='Pin the working draft before an agent changes it.')
     begin.add_argument('--review', required=True)
+    begin.add_argument('--parallel', action='store_true', help='Use an isolated checkout while the author continues editing.')
     finish = commands.add_parser('finish', help='Publish this pass as a reviewable round.')
     finish.add_argument('--review', required=True)
     finish.add_argument('--revision', required=True, type=int)
     finish.add_argument('--from', dest='starting_version', required=True)
+    finish.add_argument('--workspace', type=Path, help='Accumulate changes from a parallel proposal checkout in the current review.')
     args = parser.parse_args()
     try:
         if args.command in ('setup', 'install-skill'):
@@ -93,8 +96,12 @@ def main():
                 reviews = [r for r in reviews if repo in (r['repo'], r.get('workspace'))]
             result = reviews
         elif args.command == 'begin':
-            result = library.begin(args.review)
+            result = library.begin(args.review, parallel=args.parallel)
         elif args.command == 'finish':
+            if args.workspace:
+                result = library.finish_parallel(args.review, args.starting_version, args.workspace)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return
             metadata = library.metadata(args.review)
             library.prepare({**metadata, 'proposed': 'working', 'previous': args.review,
                              'starting_version': args.starting_version, 'expected_revision': args.revision,
@@ -122,10 +129,8 @@ def main():
                 with session.store.transaction():
                     record = session.store.read()
                     session.update('apply', {'revision': args.revision, 'decisions': record['decisions'], 'comments': record['comments']})
-            with session.store.transaction():
-                record = session.store.read()
-                result = {'review': args.review, 'revision': record['revision'],
-                          'path': str(session.store.path), **session.report()}
+            result = {'review': args.review, 'path': str(session.store.path),
+                      **session.report(args.thread if args.command == 'feedback' else records[0]['id'] if args.command == 'respond' and len(records) == 1 else None)}
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except (ValueError, OSError, KeyError) as error:
         parser.exit(1, str(error) + '\n')

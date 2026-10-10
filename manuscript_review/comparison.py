@@ -171,21 +171,44 @@ def build_snapshot(repo, base, proposed, text_only=False):
     repo = Path(repo).resolve()
     base = git(repo, 'rev-parse', '--verify', f'{base}^{{commit}}').decode().strip()
     proposed = git(repo, 'rev-parse', '--verify', f'{proposed}^{{commit}}').decode().strip()
-    paths = git(repo, 'diff', '--no-renames', '--name-only', '-z', base, proposed).decode().split('\0')
-    files, skipped = [], []
-    for path in filter(None, paths):
+    paths = list(filter(None, git(repo, 'diff', '--no-renames', '--name-only', '-z', base, proposed).decode().split('\0')))
+    from .file_scope import project_paths
+    paths, excluded = project_paths(repo, paths)
+    trees = []
+    for revision in (base, proposed):
+        tree = {}
+        for entry in filter(None, git(repo, 'ls-tree', '-rz', revision).split(b'\0')):
+            header, path = entry.split(b'\t', 1)
+            mode, _, object_id = header.decode().split()
+            tree[path.decode()] = (mode, object_id)
+        trees.append(tree)
+    objects = list(dict.fromkeys(tree[path][1] for tree in trees for path in paths if path in tree and tree[path][0] == '100644'))
+    blobs = {}
+    if objects:
+        output = subprocess.check_output(['git', '-C', str(repo), 'cat-file', '--batch'], input=('\n'.join(objects)+'\n').encode())
+        cursor = 0
+        for object_id in objects:
+            end = output.index(b'\n', cursor)
+            identifier, kind, size = output[cursor:end].decode().split()
+            if identifier != object_id or kind != 'blob':
+                raise ValueError('Git returned an invalid source blob.')
+            cursor = end + 1
+            blobs[object_id] = output[cursor:cursor+int(size)]
+            cursor += int(size) + 1
+    files, skipped = [], excluded
+    for path in paths:
         unsupported = False
-        for ref in (base, proposed):
-            entry = git(repo, 'ls-tree', ref, '--', path).decode()
-            if entry and not entry.startswith('100644 '):
+        for tree in trees:
+            entry = tree.get(path)
+            if entry and entry[0] != '100644':
                 if not text_only:
-                    raise ValueError(f'Unsupported file mode for {path}: {entry.split()[0]}')
+                    raise ValueError(f'Unsupported file mode for {path}: {entry[0]}')
                 unsupported = True
         if unsupported:
             skipped.append(path)
             continue
         try:
-            before, after = read_blob(repo, base, path), read_blob(repo, proposed, path)
+            before, after = (blobs[tree[path][1]].decode('utf-8') if path in tree else None for tree in trees)
         except UnicodeError:
             if not text_only:
                 raise

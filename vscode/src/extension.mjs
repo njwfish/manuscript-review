@@ -9,20 +9,21 @@ import {createDecorations} from './decorations.mjs';
 import {createAgentTools} from './agent.mjs';
 import {resolvePython} from './python.mjs';
 import {createViewer} from './viewer-server.mjs';
-import {agents,openAgent} from './dispatch.mjs';
+import {agents} from './dispatch.mjs';
 import {comparisonState,reviewComparison,refreshComparison,comparisonMatches,changeComparison,comparisonRequest} from './comparison.mjs';
 import {createSidebar,sidebarState} from './sidebar.mjs';
 import {manuscriptReviews} from '../../manuscript_review/review_model.js';
 
 let disposeExtension;
 export function activate(context){
- const lifetime=new AbortController();
  const output=vscode.window.createOutputChannel('Manuscript Review');
  const decorations=createDecorations(vscode);
  let runtime,panel,sourceEdits,watcher,timer,opening,navigation,agentTools,viewer,starting,disposing,comparison,disposed=false,sending=false;
  let comparisonEpoch=0,inspection;
  function setComparison(value){comparison=value;comparisonEpoch++;}
  const commentsEnabled=()=>context.globalState.get('commentsEnabled',true);
+ const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',true);
+ decorations.setEnabled(highlightsEnabled());
  const canComment=document=>commentsEnabled()&&vscode.workspace.isTrusted&&sourceDocument(document);
  const selectedAgent=()=>agents.find(agent=>agent.id===context.globalState.get('commentAgent'))||agents[0];
  async function chooseAgent(){
@@ -155,15 +156,11 @@ export function activate(context){
  }
  async function focusReview(){if(await ensureReview())await panel.show();}
  async function sendToAgent(identifier,saveComment,sourceUri){
-  if(sending)throw new Error('Wait for the agent tab to finish opening.');
+  if(sending)throw new Error('The previous comment is still being sent.');
   sending=true;
   try{return await dispatchComment(identifier,saveComment,sourceUri);}finally{sending=false;}
  }
  async function dispatchComment(identifier,saveComment,sourceUri){
-  const origin=vscode.window.tabGroups.activeTabGroup;
-  const sources=sourceUri?vscode.window.visibleTextEditors.filter(editor=>editor.document.uri.toString()===sourceUri.toString()):[];
-  const sourceEditor=sourceUri?(sources.find(editor=>editor.viewColumn===origin.viewColumn)||(sources.length===1?sources[0]:undefined)):vscode.window.activeTextEditor;
-  const column=sourceEditor?.viewColumn||origin.viewColumn,selection=sourceEditor?.selection;
   const reviewId=runtime?.review?.id;
   if(!reviewId)throw new Error('Open the comment’s review before sending it to an agent.');
   if(!await ensureReview())return;
@@ -185,16 +182,9 @@ export function activate(context){
   await prepareTools();
   const data=await runtime.data('round');
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
-  const dirty=vscode.workspace.textDocuments.some(document=>document.isDirty&&document.uri.scheme==='file'&&document.uri.fsPath.startsWith((data.workspace||data.repo)+path.sep));
-  const task=await runtime.request('/agent-request',{revision:data.revision,id:identifier,launcher:agentTools.launcher,skill:agentTools.skill,dirty});
-  const prompt=task.prompt+' Return the resulting review link: vscode://njwfish.manuscript-review/review/REVIEW_ID.',discussion=task.discussion;
-  const helper=process.platform==='darwin'&&!vscode.env.remoteName?path.join(context.extensionPath,'dist','native-send'):undefined;
-  const agentTab=await openAgent(vscode,{agent:agent.id,prompt,discussion,helper,signal:lifetime.signal,column:Math.min(9,column+1)});
-  // Restore only after confirmed submission; a failed handoff remains available to inspect.
-  if(agentTab&&!disposed&&runtime.review?.id===reviewId&&vscode.window.tabGroups.activeTabGroup.activeTab===agentTab){
-   if(sourceEditor&&sourceFile(runtime.review,sourceEditor.document))await vscode.window.showTextDocument(sourceEditor.document,{viewColumn:column,selection,preserveFocus:false});
-   else await panel.show();
-  }
+  const result=await runtime.request('/agent',{revision:data.revision,id:identifier,launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id});
+  output.appendLine(result.message+' Output: '+result.log);
+  vscode.window.setStatusBarMessage(result.message,4000);
   return true;
  }
  async function reviewManuscript(resource){
@@ -274,13 +264,13 @@ export function activate(context){
   comparison??=next;return comparison;
  }
  async function loadSidebar(){
-  if(!vscode.workspace.isTrusted)return sidebarState(undefined,undefined,commentsEnabled(),selectedAgent().label);
+  if(!vscode.workspace.isTrusted)return sidebarState(undefined,undefined,commentsEnabled(),selectedAgent().label,highlightsEnabled());
   try{
    await currentComparison();const epoch=comparisonEpoch;
    const data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.data('round'):undefined;
    if(epoch!==comparisonEpoch)return loadSidebar();
    if(data&&!comparison.pending)comparison=reviewComparison(comparison,data);
-   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label);
+   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled());
   }catch(error){if(!opening)await discardUnopenedRuntime();throw error;}
  }
  function checkSidebar(expected){
@@ -292,8 +282,9 @@ export function activate(context){
    if(expected?.review&&expected.review!==runtime?.review?.id)throw new Error('The review changed. Use the current sidebar controls.');
  }
  async function sidebarAction(action,expected){
-  if(!['comments','agent','repository'].includes(action))checkSidebar(expected);
+  if(!['comments','agent','repository','highlights'].includes(action))checkSidebar(expected);
   const actions={
+   highlights:async()=>{const enabled=!highlightsEnabled();await context.workspaceState.update('highlightsEnabled',enabled);decorations.setEnabled(enabled);if(enabled)await comments.refresh();},
    comments:async()=>{const enabled=!commentsEnabled();await context.globalState.update('commentsEnabled',enabled);comments.setEnabled(enabled);updateSourceContext();if(enabled)await restoreSourceReview(vscode.window.activeTextEditor?.document);},
    agent:chooseAgent,previous:()=>comments.move(-1),next:()=>comments.move(1),
    repository:async()=>{await start();const info=await chooseComparisonRepository();if(info)setComparison({...comparisonState(vscode,info),pending:true});},
@@ -394,6 +385,7 @@ export function activate(context){
  command('import',importReview);
  command('comment',()=>comments.annotate(vscode.window.activeTextEditor));
  command('toggleComments',()=>sidebarAction('comments'));
+ command('toggleHighlights',async()=>{await sidebarAction('highlights');await sidebar.refresh();});
  command('previousComment',()=>comments.move(-1));
  command('nextComment',()=>comments.move(1));
  subscriptions.push(vscode.window.registerUriHandler({handleUri:uri=>{const id=uri.path.match(/^\/review\/([a-f0-9]{24})$/)?.[1];if(!id)return;return navigateReview(async()=>{await start();await prepareTools();await panel.flush();await selectRound(id);await panel.show();}).catch(fail);}}));
@@ -404,7 +396,7 @@ export function activate(context){
  subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor=>{if(!comparison&&!runtime?.review)comparisonEpoch++;updateSourceContext();if(sourceFile(runtime?.review,editor?.document))decorations.reveal();void restoreSourceReview(editor?.document).catch(error=>output.appendLine(error.message));}));
  subscriptions.push(vscode.window.onDidChangeTextEditorSelection(event=>{if(sourceFile(runtime?.review,event.textEditor.document))decorations.reveal();}));
  disposeExtension=()=>disposing??=(async()=>{
-  disposed=true;lifetime.abort();
+  disposed=true;
   await starting?.catch(()=>{});
   try{await sourceEdits?.flush();}catch(error){output.appendLine('Saved source remains on disk; compare saved changes to recover its diff: '+error.message);}
   clearTimeout(timer);watcher?.dispose();sourceEdits?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();

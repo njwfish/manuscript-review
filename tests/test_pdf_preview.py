@@ -113,7 +113,31 @@ class CompiledPDFTests(unittest.TestCase):
         for side in ('before', 'after'):
             self.assertEqual(len(manifest['documents'][side]['pages']), 1)
             self.assertIn('excerpt_error', manifest['documents'][side])
-        self.assertFalse(any(manifest['passages'].values()))
+        self.assertFalse(any(side.get('asset') for passage in manifest['passages'].values() for side in passage.values()))
+
+    def test_one_bad_excerpt_leaves_other_passages_available(self):
+        gap = 'Unchanged context. ' * 50 + '\n\n'
+        source = '\\documentclass{article}\n\\begin{document}\n\\def\\myterm{cells}\n\nWe count leaves.\n\n' + gap + 'We keep \\myterm.\n\n' + gap + 'We score nodes.\n\\end{document}\n'
+        _, manifest = self.compile(source, source, source.replace('count', 'inspect').replace('keep', 'measure').replace('score', 'sample'))
+        for side in ('before', 'after'):
+            previews = [passage[side] for passage in manifest['passages'].values()]
+            self.assertEqual(sum(bool(preview.get('asset')) for preview in previews), 2)
+            self.assertEqual(sum(bool(preview.get('error')) for preview in previews), 1)
+            self.assertTrue(manifest['documents'][side]['pages'])
+
+    def test_highlighted_derivative_compiles_on_both_sides(self):
+        source = '\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\n\\[e_t=m_t.\\]\n\\end{document}\n'
+        _, manifest = self.compile(source, source, source.replace('m_t', '\\dot m_t'))
+        for side in ('before', 'after'):
+            self.assertFalse(manifest['documents'][side].get('excerpt_error'))
+            self.assertTrue(all(passage[side].get('asset') for passage in manifest['passages'].values()))
+
+    def test_bibliography_item_commands_remain_outside_highlight_groups(self):
+        source = '\\documentclass{article}\n\\begin{document}\n\\begin{thebibliography}{9}\n\\bibitem{old}Author.\n\\end{thebibliography}\n\\end{document}\n'
+        _, manifest = self.compile(source, source, source.replace('{old}Author', '{new}Another author'))
+        for side in ('before', 'after'):
+            self.assertFalse(manifest['documents'][side].get('excerpt_error'))
+            self.assertTrue(all(passage[side].get('asset') for passage in manifest['passages'].values()))
 
     def test_empty_side_uses_a_source_region_rather_than_a_false_point(self):
         source = '\\documentclass{article}\n\\begin{document}\nWe estimate cells.\n\\end{document}\n'

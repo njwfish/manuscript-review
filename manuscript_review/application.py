@@ -5,6 +5,7 @@ from .comparison import git, read_blob
 from .editing import selected_content, projection_blocks, mapped_range
 from .file_editing import replace_ranges
 from .storage import FileLock
+from .anchors import SourceMap, SourceSpan
 from .workspace import working_directory
 from .versions import source_version
 
@@ -72,19 +73,24 @@ def write_file_edit(store, previous, record, file, replacements, decisions):
     with repository_lock(repo):
         check_checkout(store, previous, repo)
         current = checked_content(previous, repo, file['path'], file['after'])
-        selected = projection_blocks(file, selected_content(file, decisions) or '')
-        working = projection_blocks(file, current or '')
-        # Compose through ordered source segments, preserving intervals that
-        # disappear entirely in the proposal (for example a rejected deletion).
-        blocks = [(a, b, c, d, identifier) for (_, _, a, b, identifier), (_, _, c, d, _) in zip(selected, working)]
-        changes = [(*mapped_range(blocks, (start, end), {identifier for a, b, _, _, identifier in blocks if a == b and start <= a <= end}), text)
-                   for start, end, text in replacements]
+        # Source buffers may predate a newly accumulated agent proposal.
+        selected_text = selected_content(file, decisions) or ''
+        try:
+            selected = projection_blocks(file, selected_text)
+            working = projection_blocks(file, current or '')
+        except ValueError:
+            mapping = SourceMap(selected_text, current or '')
+            changes = []
+            for start, end, text in replacements:
+                span = mapping.project(SourceSpan(start, end))
+                if selected_text[start:end] != (current or '')[span.start:span.end]:
+                    raise ValueError('The working source differs in this region. Your draft is retained; apply or reconcile its proposal before saving this change.')
+                changes.append((span.start, span.end, text))
+        else:
+            blocks = [(a, b, c, d, identifier) for (_, _, a, b, identifier), (_, _, c, d, _) in zip(selected, working)]
+            changes = [(*mapped_range(blocks, (start, end), {identifier for a, b, _, _, identifier in blocks if a == b and start <= a <= end}), text)
+                       for start, end, text in replacements]
         content = replace_ranges(current or '', changes)
-        revised = next((f for f in record['snapshot']['files'] if f['path'] == file['path']), None)
-        if revised:
-            projection_blocks(revised, content)
-        elif content != file['before']:
-            raise ValueError('The manual changes could not preserve the working source. Your draft is retained.')
         return commit_sources(store, previous, record, [(file['path'], current, content)])
 
 

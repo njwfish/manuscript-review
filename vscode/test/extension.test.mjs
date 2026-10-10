@@ -42,7 +42,7 @@ async function fixture(t,options={}) {
       async openTextDocument(requested){calls.push({kind:'document',file:requested.fsPath,content:requested.content,language:requested.language});if(requested.content!==undefined)return {uri:{scheme:'untitled'},getText:()=>requested.content};assert.equal(requested.fsPath,source);return doc;},
       createFileSystemWatcher(pattern){const watcher={pattern,onDidChange:event('record-change'),onDidCreate:event('record-create'),dispose(){this.disposed=true;}};watchers.push(watcher);return watcher;},
       onDidChangeTextDocument:event('document-change'),onDidSaveTextDocument:event('document-save')},
-    window:{activeTextEditor:options.active===false?undefined:editor,visibleTextEditors:[editor],tabGroups:{activeTabGroup:{viewColumn:1}},
+    window:{setStatusBarMessage(message){calls.push({kind:'status',message});},activeTextEditor:options.active===false?undefined:editor,visibleTextEditors:[editor],tabGroups:{activeTabGroup:{viewColumn:1}},
       registerTreeDataProvider(id,provider){calls.push({kind:'view',id,provider});return disposable();},
       createOutputChannel:()=>({appendLine:text=>output.push(text),dispose(){}}),
       async showErrorMessage(message){errors.push(message);},
@@ -68,7 +68,7 @@ async function fixture(t,options={}) {
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id){calls.push({kind:'open',id});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:{},comments:{},history:[],resolved:[],drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/agent-request')return {prompt:'Scoped comment request',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const panel={setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
@@ -86,10 +86,11 @@ async function fixture(t,options={}) {
     'test-runtime':{createRuntime(configuration){calls.push({kind:'create-runtime',configuration});return runtime;}},
     'test-panel':{createPanel(_vscode,_context,_runtime,callbacks){panelCallbacks=callbacks;return panel;}},
     'test-comments':{sourceFile,sourceDocument,createComments(_vscode,_runtime,callbacks){commentsCallbacks=callbacks;return comments;}},
-    'test-decorations':{createDecorations(){return {update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
+    'test-decorations':{createDecorations(){return {setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
   };
   const preferences=new Map([['commentAgent',options.agent],...(options.commentsEnabled===undefined?[]:[['commentsEnabled',options.commentsEnabled]])]);
   const module={exports:{}},context={globalState:{get:(key,fallback)=>preferences.has(key)?preferences.get(key):fallback,async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
+  context.workspaceState=context.globalState;
   vm.runInNewContext(await bundle,{exports:module.exports,module,require:name=>name==='vscode'?vscode:adapters[name]||nativeRequire(name),process,AbortController,setTimeout,clearTimeout,console},{filename:'extension.cjs'});
   module.exports.activate(context);await new Promise(resolve=>setImmediate(resolve));t.after(()=>module.exports.deactivate());
   return {vscode,runtime,doc,editor,source,repo,calls,errors,contexts,events,watchers,deactivate:()=>module.exports.deactivate(),
@@ -502,56 +503,29 @@ test('concurrent startup shares one interpreter discovery and the same executabl
 });
 
 
-test('comment dispatch saves focused input, scopes unsaved source, and opens the preferred agent beside it',async t=>{
- const f=await fixture(t,{agent:'claude',pick:items=>items[0]});await f.command('open');f.doc.isDirty=true;f.editor.viewColumn=1;
+test('comment dispatch saves the note and starts the selected CLI without touching tabs or editor focus',async t=>{
+ const f=await fixture(t,{agent:'claude'});await f.command('open');f.doc.isDirty=true;
+ const before=f.vscode.window.activeTextEditor;
  assert.equal(await f.commentsCallbacks.onAgent('saved-comment'),true);
- const request=f.calls.find(call=>call.kind==='request'&&call.route==='/agent-request'),launch=f.calls.find(call=>call.kind==='open-agent');
- assert.equal(request.body.id,'saved-comment');assert.equal(request.body.revision,f.runtime.review.revision);assert.equal(request.body.dirty,true);
- assert.equal(launch.options.agent,'claude');assert.equal(launch.options.column,2);
- assert.equal(launch.options.discussion,'saved-comment');assert.ok(launch.options.prompt.startsWith('Scoped comment request'));assert.ok(launch.options.prompt.includes('vscode://njwfish.manuscript-review/review/'));
- assert.equal(f.calls.filter(call=>call.kind==='pick').length,0);
- assert.ok(f.calls.findIndex(call=>call.kind==='flush')<f.calls.findIndex(call=>call.kind==='open-agent'));
+ const request=f.calls.find(call=>call.kind==='request'&&call.route==='/agent');
+ assert.equal(request.body.id,'saved-comment');assert.equal(request.body.revision,f.runtime.review.revision);
+ assert.equal(request.body.agent,'claude');assert.equal(f.doc.isDirty,true);
+ assert.ok(f.calls.findIndex(call=>call.kind==='flush')<f.calls.indexOf(request));
+ assert.equal(f.vscode.window.activeTextEditor,before);assert.equal(f.calls.some(call=>call.kind==='open-agent'||call.kind==='show-source'),false);
 });
 
-test('cancelling provider choice preserves the preferred agent without creating a task',async t=>{
- const f=await fixture(t,{agent:'claude'});await f.command('open');await f.command('chooseAgent');
- assert.equal(f.calls.some(call=>call.kind==='open-agent'),false);
- await f.panelCallbacks.onAgent('saved-comment');assert.equal(f.calls.find(call=>call.kind==='open-agent').options.agent,'claude');
+test('repeated sends may run independently after each background handoff',async t=>{
+ const f=await fixture(t);await f.command('open');
+ await f.commentsCallbacks.onAgent('first');await f.commentsCallbacks.onAgent('second');
+ assert.deepEqual(f.calls.filter(call=>call.kind==='request'&&call.route==='/agent').map(call=>call.body.id),['first','second']);
 });
 
-test('confirmed Send returns to the source only while the opened agent tab is still active',async t=>{
- for(const mode of ['confirmed','manual','different-group','different-tab']){
-  const agentTab={label:'Agent'};
-  const f=await fixture(t,{agentSent:mode==='manual'?false:agentTab,onOpenAgent:vscode=>{
-   vscode.window.tabGroups.activeTabGroup={viewColumn:mode==='different-group'?3:2,activeTab:['different-group','different-tab'].includes(mode)?{label:'Other'}:agentTab};
-  }});
-  await f.command('open');await f.commentsCallbacks.onAgent('saved-comment');
-  assert.equal(f.calls.some(call=>call.kind==='show-source'),mode==='confirmed');
- }
-});
-
-test('a native comment editor keeps its visible manuscript as the return destination',async t=>{
- const agentTab={label:'Claude'};
- const f=await fixture(t,{agentSent:agentTab,onOpenAgent:vscode=>{vscode.window.tabGroups.activeTabGroup={viewColumn:2,activeTab:agentTab};}});
- await f.command('open');f.vscode.window.activeTextEditor=undefined;f.vscode.window.tabGroups.activeTabGroup={viewColumn:2};
- await f.commentsCallbacks.onAgent('saved-comment',undefined,f.doc.uri);
- const source=f.calls.find(call=>call.kind==='show-source');assert.equal(source.document,f.doc);assert.equal(source.configuration.viewColumn,1);
-});
-
-test('a source shown twice returns to the comment’s active source group',async t=>{
- const agentTab={label:'Claude'};
- const f=await fixture(t,{agentSent:agentTab,onOpenAgent:vscode=>{vscode.window.tabGroups.activeTabGroup={viewColumn:3,activeTab:agentTab};}});
- await f.command('open');f.vscode.window.activeTextEditor=undefined;
- f.vscode.window.visibleTextEditors.push({...f.editor,viewColumn:2});f.vscode.window.tabGroups.activeTabGroup={viewColumn:2};
- await f.commentsCallbacks.onAgent('saved-comment',undefined,f.doc.uri);
- const opened=f.calls.find(call=>call.kind==='open-agent'),source=f.calls.find(call=>call.kind==='show-source');
- assert.equal(opened.options.column,3);assert.equal(source.configuration.viewColumn,2);
-});
-
-test('extension deactivation cancels the owned native handoff',async t=>{
- const f=await fixture(t);await f.command('open');await f.commentsCallbacks.onAgent('saved-comment');
- const signal=f.calls.find(call=>call.kind==='open-agent').options.signal;assert.equal(signal.aborted,false);
- await f.deactivate();assert.equal(signal.aborted,true);
+test('review highlights switch off independently of comments and remain off across source refreshes',async t=>{
+ const f=await fixture(t);await f.command('open');await f.command('toggleHighlights');
+ assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,false);
+ assert.equal(f.calls.filter(call=>call.kind==='comments-enabled').at(-1).enabled,true);
+ await f.command('refresh');assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,false);
+ await f.command('toggleHighlights');assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,true);
 });
 
 test('a comment sent while navigation waits cannot move silently into another round',async t=>{
@@ -575,8 +549,8 @@ test('native save-and-send flushes focused drafts before saving the comment and 
  const f=await fixture(t,{pick:items=>items[0]});await f.command('open');
  await f.commentsCallbacks.onAgent(undefined,async()=>{f.calls.push({kind:'save-comment'});return 'new-comment';});
  const flush=f.calls.findLastIndex(call=>call.kind==='flush'),save=f.calls.findIndex(call=>call.kind==='save-comment'),refresh=f.calls.findIndex(call=>call.kind==='panel-refresh');
- assert.ok(flush<save&&save<refresh&&refresh<f.calls.findIndex(call=>call.kind==='open-agent'));
- assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent-request').body.id,'new-comment');
+ assert.ok(flush<save&&save<refresh&&refresh<f.calls.findIndex(call=>call.kind==='request'&&call.route==='/agent'));
+ assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent').body.id,'new-comment');
  assert.equal(f.calls[refresh].options.flushed,true);
  assert.equal(f.calls[flush].options.lock,true);assert.ok(f.calls.findIndex(call=>call.kind==='unlock')>refresh);
 });
@@ -591,10 +565,10 @@ test('an overlapping native send cannot unlock the first comment save',async t=>
  const f=await fixture(t,{pick:items=>items[0]});await f.command('open');
  let release,entered;const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
  const first=f.commentsCallbacks.onAgent(undefined,async()=>{entered();await gate;return 'first-comment';});await began;
- await assert.rejects(f.commentsCallbacks.onAgent(undefined,async()=> 'second-comment'),/agent tab.*opening/);
+ await assert.rejects(f.commentsCallbacks.onAgent(undefined,async()=> 'second-comment'),/comment is still being sent/);
  assert.equal(f.calls.some(call=>call.kind==='unlock'),false);
  release();await first;assert.equal(f.calls.filter(call=>call.kind==='unlock').length,1);
- assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent-request').body.id,'first-comment');
+ assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent').body.id,'first-comment');
 });
 
 test('saved threads restore with new-comment controls disabled without opening focused review',async t=>{

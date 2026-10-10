@@ -128,7 +128,7 @@ class VersionTests(ReviewFixture):
         r['snapshot']['entry'] = 'main.tex'
         self.session.store.commit(r)
         calls = []
-        def render(directory, data_override):
+        def render(directory, data_override, source_cache):
             calls.append((data_override['base'], data_override['proposed']))
             atomic_json(directory / 'renders/manifest.json', {})
         with patch('manuscript_review.render_latex.render', side_effect=render):

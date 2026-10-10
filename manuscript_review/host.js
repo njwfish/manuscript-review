@@ -30,9 +30,19 @@ export function openSource(values){return call('source',values);}
 export function hostCommand(name){return call('command',{name});}
 export function openAgentTask(comment,review){return call('agent',{comment,review});}
 export function focusSource(file,edit){return call('focus',{file,edit});}
-export async function imageSource(image,path){
+const assets=new Map();
+async function assetSource(path,version){
+ const key=version+':'+path;
+ if(!assets.has(key)){
+  const pending=call('asset',{path}).catch(error=>{assets.delete(key);throw error;});
+  assets.set(key,pending);
+  if(assets.size>32)assets.delete(assets.keys().next().value);
+ }
+ return assets.get(key);
+}
+export async function imageSource(image,path,version){
  if(!call){image.src=path;return;}
- try{const source=await call('asset',{path});if(image.isConnected)image.src=source;}
+ try{const source=await assetSource(path,version);if(image.isConnected)image.src=source;}
  catch(error){image.alt=error.message;}
 }
 export function copyText(text){return call?call('copy',{text}):navigator.clipboard.writeText(text);}
@@ -45,16 +55,16 @@ async function loadPDF(frame,values){
  if(values.loading)return values.loading;
  values.loading=(async()=>{
   try{
-   const source=await call('asset',{path:values.path}),bytes=Uint8Array.from(atob(source.split(',')[1]),character=>character.charCodeAt(0));
+   const source=await assetSource(values.path,values.version),bytes=Uint8Array.from(atob(source.split(',')[1]),character=>character.charCodeAt(0));
    if(frame.isConnected&&frames.get(frame)===values){sendPDF(frame,values,bytes);values.loaded=true;}
   }catch(error){if(frame.isConnected&&frames.get(frame)===values){frame.replaceWith(Object.assign(document.createElement('p'),{className:'render-note',textContent:error.message}));frames.delete(frame);}}
  })();return values.loading;
 }
-export async function pdfFrame(frame,{path,marks,color}){
+export async function pdfFrame(frame,{path,marks,color,version}){
  for(const [old,values] of frames)if(values.initialized&&!old.isConnected)frames.delete(old);
  const previous=frames.get(frame);
- if(previous?.path===path){Object.assign(previous,{marks,color});if(previous.loaded)sendPDF(frame,previous);return;}
- const values={path,marks,color,initialized:previous?.initialized,ready:previous?.ready};frames.set(frame,values);
+ if(previous?.path===path&&previous.version===version){Object.assign(previous,{marks,color});if(previous.loaded)sendPDF(frame,previous);return;}
+ const values={path,marks,color,version,initialized:previous?.initialized,ready:previous?.ready};frames.set(frame,values);
  if(values.ready){await loadPDF(frame,values);return;}
  if(previous)return;
  let uri;try{uri=await call('viewer');}catch(error){frames.delete(frame);throw error;}

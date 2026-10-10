@@ -62,6 +62,9 @@ def working_snapshot(repo, parent=None):
     parent_paths = set(filter(None, git(repo, 'ls-tree', '-r', '--name-only', '-z', parent).split(b'\0')))
     tracked = git(repo, 'ls-files', '-z') + git(repo, 'ls-tree', '-r', '--name-only', '-z', head)
     paths = parent_paths | set(filter(None, tracked.split(b'\0')))
+    from .file_scope import project_paths
+    eligible, _ = project_paths(repo, [os.fsdecode(path) for path in paths])
+    paths = {os.fsencode(path) for path in eligible}
     paths = b'\0'.join(sorted(path for path in paths if path in parent_paths or os.path.lexists(repo / os.fsdecode(path))))
     if paths:
         paths += b'\0'

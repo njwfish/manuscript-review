@@ -12,14 +12,14 @@ export function createDecorations(vscode) {
     far:vscode.window.createTextEditorDecorationType({...fixed,opacity:'.2'})
   };
   const editors=new Map();
-  let disposed=false,focused;
+  let disposed=false,focused,enabled=true;
 
   function paint(editor,groups) {
     for(const [kind,type] of Object.entries(types))editor.setDecorations(type,groups[kind]||[]);
   }
 
   function update(projection,data) {
-    if(disposed)return false;
+    if(disposed||!enabled)return false;
     const visible=vscode.window.visibleTextEditors.filter(editor=>editor.document===projection.document);
     if(!visible.length)return false;
     if(projection.revision!==data.revision||projection.document.getText()!==projection.text) {
@@ -69,7 +69,7 @@ export function createDecorations(vscode) {
     clear();disposed=true;
     for(const type of Object.values(types))type.dispose();
   }
-  return {update,focus,reveal,clear,dispose};
+  return {update,focus,reveal,clear,dispose,setEnabled(value){enabled=value;if(!enabled)clear();}};
 }
 
 /** Keep the selected lines clear; fade nearby lines before the rest of the file. */

@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import copy
 import os
 import re
 import secrets
@@ -41,6 +42,8 @@ class Library:
         self.lock = threading.RLock()
         self.servers = {}
         self.jobs = {}
+        self.summaries = {}
+        self.stores = {}
         self.preview_lock = threading.Lock()
         self.url = None
         self.token = secrets.token_urlsafe(32)
@@ -54,9 +57,16 @@ class Library:
         return directory
 
     def metadata(self, identifier):
-        store = ReviewStore(self.directory(identifier))
+        store = self.store(identifier)
         with store.transaction():
             return store.read()['metadata']
+
+    def store(self, identifier):
+        directory = self.directory(identifier)
+        with self.lock:
+            if identifier not in self.stores:
+                self.stores[identifier] = ReviewStore(directory)
+            return self.stores[identifier]
 
     def inspect(self, path):
         repositories = find_repositories(path)
@@ -91,10 +101,19 @@ class Library:
         info['trees'] = dict(zip(revisions, trees))
         return info
 
-    def begin(self, identifier):
+    def begin(self, identifier, parallel=False):
         session = ReviewSession(self.directory(identifier))
         with session.store.transaction():
             record = session.store.read()
+            if parallel:
+                starting = record['result']
+                repo = record['snapshot']['repo']
+                workspace = session.directory / 'proposals' / secrets.token_hex(12) / Path(repo).name
+                workspace.parent.mkdir(parents=True)
+                git(repo, 'update-ref', f'refs/manuscript-review/{identifier}/inputs/{starting}', starting)
+                git(repo, 'worktree', 'add', '--detach', str(workspace), starting)
+                return {'review': identifier, 'revision': record['revision'], 'starting_version': starting,
+                        'baseline': record['baseline'], 'source_head': starting, 'workspace': str(workspace)}
             if record['drafts']:
                 raise ValueError('Save or discard the active source drafts before beginning another round.')
         session.edit_workspace({'revision': record['revision']})
@@ -112,6 +131,22 @@ class Library:
             git(repo, 'update-ref', f'refs/manuscript-review/{identifier}/inputs/{starting}', starting)
             return {'review': identifier, 'revision': record['revision'], 'starting_version': starting,
                     'baseline': record['baseline'], 'source_head': head, 'workspace': str(repo)}
+
+    def finish_parallel(self, identifier, starting, workspace):
+        session = ReviewSession(self.directory(identifier))
+        workspace = Path(workspace).resolve()
+        if not workspace.is_relative_to(session.directory / 'proposals'):
+            raise ValueError('Use the proposal checkout returned by begin --parallel.')
+        record = session.store.read()
+        repo = record['snapshot']['repo']
+        if not re.fullmatch(r'[a-f0-9]{40}', starting) or not same_repository(repo, workspace):
+            raise ValueError('Use the starting version and checkout returned by begin --parallel.')
+        pinned = git(repo, 'rev-parse', f'refs/manuscript-review/{identifier}/inputs/{starting}').decode().strip()
+        if pinned != starting:
+            raise ValueError('The starting version belongs to a different review.')
+        proposed, _ = working_snapshot(workspace, parent=starting)
+        result = session.merge_proposal(starting, proposed)
+        return {'status': 'ready', 'review': identifier, 'path': str(session.store.path), **result}
 
     def repository_job(self, operation, *arguments):
         job = secrets.token_hex(12)
@@ -132,18 +167,29 @@ class Library:
                 path = folder / 'review.json'
                 if not path.is_file():
                     continue
-                store = ReviewStore(folder)
+                store = self.store(folder.name)
                 with store.transaction():
+                    stat = path.stat()
+                    version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+                    cached = self.summaries.get(folder.name)
+                    if cached and cached[0] == version:
+                        results.append(copy.deepcopy(cached[1]))
+                        continue
                     record = store.read()
                 metadata, snapshot, choices = record['metadata'], record['snapshot'], record['decisions']
                 edits = [g for f in snapshot['files'] for g in f['edits']]
                 done = sum(choices.get(g['id'], 'pending') != 'pending' for g in edits)
-                results.append({**metadata, 'total': len(edits), 'done': done, 'applied': is_applied(record),
+                summary = {**metadata, 'total': len(edits), 'done': done, 'applied': is_applied(record),
                                 'comments': sum(bool(text.strip()) for text in record['comments'].values()) + sum(
                                     entry['kind'] == 'source' and not entry['replies']
                                     and bool(entry['comment'].strip()) for entry in record['history']),
                                 'drafts': len(record['drafts']),
-                                'files': len(snapshot['files']), 'skipped': snapshot.get('skipped', [])})
+                                'files': len(snapshot['files']), 'skipped': snapshot.get('skipped', [])}
+                self.summaries[folder.name] = (version, summary)
+                results.append(copy.deepcopy(summary))
+            active = {result['id'] for result in results}
+            self.summaries = {key: value for key, value in self.summaries.items() if key in active}
+            self.stores = {key: value for key, value in self.stores.items() if key in active}
         return sorted(results, key=lambda r: r['created'], reverse=True)
 
     def prepared_result(self, identifier, reused=False):
@@ -345,15 +391,16 @@ class Library:
                     store.commit(record)
             if identifier not in self.servers:
                 server = create_server(self.directory(identifier), library_url=self.url,
-                                       review_context=lambda: self.review_context(identifier))
+                                       review_context=lambda: self.review_context(identifier), store=self.store(identifier))
                 self.servers[identifier] = server
                 threading.Thread(target=server.serve_forever, daemon=True).start()
             atomic_json(self.home / 'library.json', {'last_opened': identifier})
             return f'http://127.0.0.1:{self.servers[identifier].server_address[1]}/'
 
     def review_context(self, identifier):
-        current = self.metadata(identifier)
-        rounds = [r for r in self.listing() if r['repo'] == current['repo']]
+        reviews = self.listing()
+        current = next(review for review in reviews if review['id'] == identifier)
+        rounds = [r for r in reviews if r['repo'] == current['repo']]
         index = next(i for i, r in enumerate(rounds) if r['id'] == identifier)
         return {'manuscript': Path(current['repo']).name, 'round_number': len(rounds)-index,
                 'latest_review': rounds[0]['id']}

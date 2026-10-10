@@ -20,6 +20,14 @@ export function selectedSource(file,decisions){
 }
 
 export const editLocations=snapshot=>snapshot.files.flatMap((file,fi)=>file.hunks.flatMap((hunk,hi)=>hunk.edits.map((group,ei)=>[fi,hi,ei])));
+export function reviewPosition(file,hunk,group){
+ const hunks=file?.hunks||[];
+ for(let hi=0;hi<hunks.length;hi++){const ei=hunks[hi].edits.findIndex(item=>item.id===group?.id);if(ei>=0)return [hi,ei];}
+ const nearest=(items,anchor)=>items.reduce((best,item,index)=>Math.abs((item.base_span?.[0]||0)-anchor)<Math.abs((items[best]?.base_span?.[0]||0)-anchor)?index:best,0);
+ let hi=hunks.findIndex(item=>item.id===hunk?.id);
+ if(hi<0)hi=nearest(hunks,group?.base_span?.[0]??hunk?.base_span?.[0]??0);
+ return [hi,nearest(hunks[hi]?.edits||[],group?.base_span?.[0]??0)];
+}
 export function reviewProgress(files,decisions){
  const edits=files.flatMap(file=>file.edits),done=edits.filter(edit=>choiceFor(edit.id,decisions)!=='pending').length;
  return {total:edits.length,done,complete:done===edits.length};
@@ -83,11 +91,9 @@ export function sourceRange(file,edit,view,decisions){
  return [offset,offset+(choiceFor(edit.id,decisions)==='reject'?edit.old:edit.new).length];
 }
 
-export function agentRequest(data,complete){
- const scope=!data.files.some(file=>file.edits.length)?'Use the current manuscript as the starting draft.':complete?'Use my completed accept/reject decisions as the starting draft. If text changes are needed, apply these choices when necessary before beginning the pass; preserve outside edits.':'My decisions are still in progress. Respond to my comments now, and leave manuscript revisions until I finish reviewing.';
+export function agentRequest(data){
  const tools=data.agent_launcher?` Agent commands are bundled at ${data.agent_launcher}.`:'';
- const result=data.interface==='vscode'?'Open the resulting round in the Manuscript Review VS Code extension using vscode://njwfish.manuscript-review/review/NEW_REVIEW_ID.':'Open the result in Manuscript Review.';
- return `Use $manuscript-review for review ${data.id} in ${data.workspace||data.repo}, saved at ${data.feedback_path}.${tools} Read its decisions, unresolved threads, manual edits, and earlier replies. Respond to unresolved feedback and make only the requested surgical revisions. Treat existing prose as settled wording; a style guide alone does not authorize rewriting it. ${scope} For text changes, use begin before editing, follow the repository’s Git workflow, run its checks, and use finish to publish a reviewable revision. Add responses there identifying the revision. For replies only, use this review. Preserve thread resolution, the original baseline ${data.baseline}, and earlier rounds. The author decides when a thread is resolved. ${result}`;
+ return `Use $manuscript-review for review ${data.id} in ${data.workspace||data.repo}, saved at ${data.feedback_path}.${tools} Read its decisions, unresolved threads, manual edits, and earlier replies. Respond to unresolved feedback and make only the requested surgical revisions. Treat existing prose as settled wording; a style guide alone does not authorize rewriting it. I may keep reviewing and editing while you work. For text changes, use begin --parallel before editing and work in its returned workspace. Follow the repository’s Git workflow, run its checks, and use finish --workspace with the returned starting_version to accumulate your changes into this review. New changes remain undecided; leave my source files and buffers untouched. For replies only, use this review. Reread feedback before appending your final responses, identifying the published revision. Preserve thread resolution, the original baseline ${data.baseline}, and earlier rounds. The author decides when a thread is resolved and when to apply the review.`;
 }
 
 export function decisionShortcut(event){

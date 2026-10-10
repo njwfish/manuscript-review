@@ -6,9 +6,11 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 from xml.etree.ElementTree import ParseError
 from pathlib import Path
 from .storage import atomic_json
@@ -16,7 +18,7 @@ from .comparison import git
 from .latex_highlight import highlight_changes
 from .pdf_preview import document_preview
 
-RENDER_VERSION = 2
+RENDER_VERSION = 3
 
 SCAN = re.compile(r'%[^\n]*|\\(?:begin|end)\{[^}]+\}|\\[\[\]{}%$]|'
                   r'\\(?:begingroup|endgroup|bgroup|egroup)\b|\\[A-Za-z@]+|[{}]|\$\$?|\n[ \t]*\n')
@@ -83,21 +85,30 @@ def run(command, cwd, log, timeout=180):
         raise RuntimeError(f'{command[0]} failed: ' + '\n'.join(lines[-18:]))
 
 
-def prepare_sources(data, directory, side):
-    root = directory / ('sources-' + side)
+def prepare_sources(data, directory, side, source_cache):
     revision = data['base'] if side == 'before' else data['proposed']
-    if not root.exists():
-        root.mkdir()
-        archive = git(data['repo'], 'archive', revision)
-        with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
-            bundle.extractall(root, filter='data')
+    key = hashlib.sha256((revision + data['entry'] + str(RENDER_VERSION)).encode()).hexdigest()[:24]
+    root = source_cache / (side + '-' + key)
+    extracted = root.parent / (root.name + '.extracted')
+    if not (root.exists() and extracted.exists()):
+        source_cache.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=source_cache) as temporary:
+            archive = git(data['repo'], 'archive', revision)
+            with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+                bundle.extractall(temporary, filter='data')
+            if root.exists():
+                shutil.rmtree(root)
+            Path(temporary).rename(root)
+            extracted.touch()
     # Each side has its own real manuscript references, citation numbers, and labels.
     entry = root / data.get('entry', 'main.tex')
     if not entry.is_file():
         raise ValueError(f'LaTeX entry file not present in this version: {entry.relative_to(root)}')
-    if not entry.with_suffix('.synctex.gz').exists():
+    ready = root.parent / (root.name + '.ready')
+    if not (ready.exists() and entry.with_suffix('.pdf').exists() and entry.with_suffix('.synctex.gz').exists()):
         run(['latexmk', '-g', '-pdf', '-synctex=1', '-interaction=nonstopmode', '-halt-on-error', entry.name],
             entry.parent, directory / (side + '-reference-build.log'))
+        ready.touch()
     return root
 
 
@@ -107,9 +118,9 @@ def extra_macros(root, preamble):
         if file.name == 'review-previews.tex':
             continue
         source = re.sub(r'(?<!\\)%[^\n]*', '', file.read_text(errors='replace'))
-        for match in re.finditer(r'(?m)^\s*(\\newcommand\*?\s*\{?\\[A-Za-z@]+)', source):
+        for match in re.finditer(r'(?m)^\s*(\\(?:newcommand|DeclareMathOperator)\*?\s*\{?\\[A-Za-z@]+)', source):
             name = re.search(r'\\([A-Za-z@]+)$', match[1])[1]
-            if re.search(r'\\(?:newcommand|renewcommand|providecommand)\*?\s*\{?\\' + re.escape(name) + r'\b', preamble):
+            if re.search(r'\\(?:newcommand|renewcommand|providecommand|DeclareMathOperator)\*?\s*\{?\\' + re.escape(name) + r'\b', preamble):
                 continue
             cursor, depth, seen = match.start(), 0, False
             while cursor < len(source):
@@ -124,13 +135,15 @@ def extra_macros(root, preamble):
                 cursor += 1
             if cursor < len(source):
                 declaration = source[match.start():cursor + 1].strip().replace('\\newcommand', '\\providecommand', 1)
+                if declaration.startswith('\\DeclareMathOperator'):
+                    declaration = '\\ifcsname ' + name + '\\endcsname\\else\n' + declaration + '\n\\fi'
                 declarations.append(declaration)
     return '\n'.join(dict.fromkeys(declarations))
 
 
-def typeset_side(data, directory, side):
+def typeset_side(data, directory, side, source_cache):
     try:
-        root = prepare_sources(data, directory, side)
+        root = prepare_sources(data, directory, side, source_cache)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         data['documents'][side] = {'pages': [], 'edits': {}, 'error': str(error)}
         return data
@@ -155,7 +168,7 @@ def typeset_excerpts(data, directory, side, root):
     method_macros = extra_macros(root, preamble)
     labels = []
     reference_numbers = {}
-    for line in '\n'.join(file.read_text(errors='replace') for file in root.rglob('*.aux')).splitlines():
+    for line in '\n'.join(file.read_text(errors='replace') for file in root.rglob('*.aux') if file.name != 'review-previews.aux').splitlines():
         match = re.match(r'\\(newlabel|bibcite)\{([^}]+)\}(.*)', line)
         if match:
             prefix = 'r@' if match[1] == 'newlabel' else 'b@'
@@ -208,6 +221,7 @@ def typeset_excerpts(data, directory, side, root):
 \@ifundefined{conttablecaption}{}{\renewcommand{\conttablecaption}[2][H]{\begin{table}[H]\captionsetup{skip=0pt}\caption*{#2}\end{table}}}
 \makeatother
 ''' + method_macros + '\n\\begin{document}\n\\makeatletter\n' + labels + '\n\\makeatother\n'
+    blocks = []
     for key, content, supplemental in snippets:
         prefix = r'\renewcommand{\thefigure}{S\arabic{figure}}\renewcommand{\thetable}{S\arabic{table}}\makeatletter\@ifundefined{theproposition}{}{\renewcommand{\theproposition}{S\arabic{proposition}}}\makeatother' if supplemental else ''
         # Excerpts can repeat an enclosing float. Reset its displayed counter to
@@ -216,31 +230,55 @@ def typeset_excerpts(data, directory, side, root):
             match = re.search(r'\\begin\{' + env + r'\}.*?\\label\{([^}]+)\}', content, re.S)
             if match and match[1] in reference_numbers:
                 prefix += '\\makeatletter\\@ifundefined{c@' + env + '}{}{\\setcounter{' + env + '}{' + str(reference_numbers[match[1]] - 1) + '}}\\makeatother'
-        document += '\n\\begin{preview}\n\\begin{minipage}{\\textwidth}\n\\begingroup\n'
-        document += '\\pagestyle{empty}\n' + prefix + '\n\\strut\n' + content
-        document += '\n\\endgroup\n\\end{minipage}\n\\end{preview}\n'
-    document += '\\end{document}\n'
-    (entry.parent / 'review-previews.tex').write_text(document)
-    run(['pdflatex', '-interaction=nonstopmode', '-halt-on-error', 'review-previews.tex'],
-        entry.parent, directory / (side + '-previews-build.log'))
-    # Conversion retains vector outlines, including the algorithmic package's output.
-    for page, (key, _, _) in enumerate(snippets, 1):
-        destination = directory / (side + '-' + key + '.svg')
-        run(['pdftocairo', '-svg', '-f', str(page), '-l', str(page),
-             'review-previews.pdf', str(destination)], entry.parent, directory / (side + '-convert.log'))
-    print(f'{side}: {len(snippets)} actual LaTeX previews rendered', flush=True, file=sys.stderr)
+        block = '\n\\typeout{MANUSCRIPT-REVIEW-EXCERPT:' + key + '}\n\\begin{preview}\n\\begin{minipage}{\\textwidth}\n\\begingroup\n'
+        block += '\\pagestyle{empty}\n' + prefix + '\n\\strut\n' + content
+        block += '\n\\endgroup\n\\end{minipage}\n\\end{preview}\n'
+        blocks.append((key, block))
+    failures = {}
+    def compile_batch(batch):
+        (entry.parent / 'review-previews.tex').write_text(document + ''.join(block for _, block in batch) + '\\end{document}\n')
+        try:
+            run(['pdflatex', '-interaction=nonstopmode', '-halt-on-error', 'review-previews.tex'],
+                entry.parent, directory / (side + '-previews-build.log'))
+        except (RuntimeError, subprocess.SubprocessError) as error:
+            log = directory / (side + '-previews-build.log')
+            reached_excerpt = log.exists() and 'MANUSCRIPT-REVIEW-EXCERPT:' in log.read_text(errors='replace')
+            if len(batch) == 1 or not reached_excerpt:
+                failures.update({key: str(error) for key, _ in batch})
+            else:
+                middle = len(batch) // 2
+                compile_batch(batch[:middle])
+                compile_batch(batch[middle:])
+            return
+        for page, (key, _) in enumerate(batch, 1):
+            destination = directory / (side + '-' + key + '.svg')
+            run(['pdftocairo', '-svg', '-f', str(page), '-l', str(page),
+                 'review-previews.pdf', str(destination)], entry.parent, directory / (side + '-convert.log'))
+    compile_batch(blocks)
+    if failures:
+        data['documents'][side]['excerpt_error'] = '\n'.join(dict.fromkeys(failures.values()))
+        for file in data['files']:
+            for passage in file['hunks']:
+                rendered = passage.get('rendered', {}).get(side)
+                if rendered:
+                    key = rendered['asset'][len(side)+1:-4]
+                    if key in failures:
+                        rendered.pop('asset')
+                        rendered['error'] = failures[key]
+    print(f'{side}: {len(snippets)-len(failures)} actual LaTeX previews rendered', flush=True, file=sys.stderr)
     return data
 
 
-def render(directory, data_override=None):
+def render(directory, data_override=None, source_cache=None):
     directory = Path(directory).resolve()
     output = directory / 'renders'
     output.mkdir(exist_ok=True)
+    source_cache = Path(source_cache) if source_cache else output / 'sources'
     data = data_override if data_override is not None else json.loads((directory / 'review.json').read_text())['snapshot']
     data['documents'] = {}
     # Each worker writes only its own source directory and side of each manifest entry.
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(typeset_side, data, output, side) for side in ('before', 'after')]
+        futures = [executor.submit(typeset_side, data, output, side, source_cache) for side in ('before', 'after')]
         for future in futures:
             future.result()
     manifest = {'passages': {h['id']: h.get('rendered', {}) for f in data['files'] for h in f['hunks']},

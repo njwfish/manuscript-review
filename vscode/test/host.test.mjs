@@ -225,6 +225,19 @@ test('navigation reuses loaded PDF bytes and only sends new highlight locations'
     assert.deepEqual(packets.at(-1),{type:'review-pdf',document:'/assets/source.pdf',marks,color:'removed',active:true});
 });
 
+test('a new source version reloads PDF bytes even when its asset path stays the same',async t=>{
+    const h=await host(t,true),packets=[],frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)}};
+    const setup=h.module.pdfFrame(frame,{path:'/assets/source.pdf',version:'first',marks:[],color:'added'});
+    h.reply(h.messages.at(-1),'http://127.0.0.1:23456/viewer.html');await setup;
+    const loading=h.emit('message',{data:{type:'review-pdf-ready'},source:frame.contentWindow,origin:'http://127.0.0.1:23456'});
+    h.reply(h.messages.at(-1),'data:application/pdf;base64,T0xE');await loading;
+    const count=h.messages.length;
+    const fresh=h.module.pdfFrame(frame,{path:'/assets/source.pdf',version:'second',marks:[],color:'added'});
+    assert.equal(h.messages.length,count+1);
+    h.reply(h.messages.at(-1),'data:application/pdf;base64,TkVX');await fresh;
+    assert.equal(packets.length,2);assert.deepEqual([...packets.at(-1).data],[78,69,87]);
+});
+
 test('a pending PDF load uses the latest marks and an obsolete document failure cannot remove its replacement',async t=>{
     const h=await host(t,true),packets=[],frame={isConnected:true,src:'',contentWindow:{postMessage:message=>packets.push(message)},replaceWith(){throw new Error('Do not remove the newer PDF.');}};
     const setup=h.module.pdfFrame(frame,{path:'/assets/old.pdf',marks:[],color:'added'});

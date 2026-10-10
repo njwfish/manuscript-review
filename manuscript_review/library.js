@@ -73,7 +73,7 @@ function reviewCard(rounds){
  if(rendering)meta.append(node('span','','Typesetting…'));
  meta.title=`${review.repo}\n${review.files} ${review.files===1?'file':'files'}`;content.append(meta);
  if(review.preview_status==='error'){const detail=node('details'),summary=node('summary','','Typeset preview unavailable');detail.append(summary,node('pre','',review.preview_error||'Word changes are available.'));content.append(detail);}
- if(review.skipped?.length){const detail=node('details');detail.append(node('summary','',`${review.skipped.length} non-text or unsupported files omitted`),node('pre','',review.skipped.join('\n')));content.append(detail);}
+ if(review.skipped?.length){const detail=node('details');detail.append(node('summary','',`${review.skipped.length} ignored or unsupported files omitted`),node('pre','',review.skipped.join('\n')));content.append(detail);}
  const controls=node('div','review-actions'),update=action('New round',()=>updateReview(review.id,update));update.title='Review working files against the latest selected draft';const open=action('Open',()=>openReview(review.id),'primary');open.title='Open the latest round';controls.append(action('Compare…',()=>create(review.repo)),update,open);
  const top=node('div','review-current');top.append(content,controls);card.append(top);
  if(rounds.length>1){

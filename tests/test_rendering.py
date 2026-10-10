@@ -71,6 +71,14 @@ class RenderingTests(unittest.TestCase):
         self.assertNotIn(r'\reviewAdd{\For', colored)
         self.assertNotIn(r'\reviewAdd{new', colored)
 
+    def test_math_accents_keep_their_argument_and_scripts_in_one_color_group(self):
+        for accent in ('dot', 'ddot', 'dddot', 'ddddot', 'acute', 'grave', 'breve', 'check', 'mathring'):
+            old = r'\[r=m_t\]'
+            new = '\\[r=\\' + accent + ' m_t\\]'
+            colored = highlight_changes(old, new, 'after')
+            self.assertIn('\\reviewAdd{\\' + accent + ' m_t}', colored)
+            self.assertNotIn('\\reviewAdd{\\' + accent + '}', colored)
+
     def test_typeset_highlight_preserves_original_source_on_both_sides(self):
         import re
         cases = [

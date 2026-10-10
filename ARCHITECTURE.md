@@ -39,8 +39,9 @@ source or create a source version. Earlier rounds retain their status at that po
 | `history.py` and `feedback.py` | Anchored messages, responses and exports of thread identity and status |
 | `review_model.js` | Shared thread grouping and source selection rules |
 | Native comments and focused review | Rendering, navigation, filters and author actions through the session API |
-| `dispatch.py` | One comment's canonical task and standalone CLI handoff |
-| VS Code dispatch adapter | Native provider extension handoff and return focus |
+| `dispatch.py` | One comment's canonical task and detached CLI handoff for both interfaces |
+| VS Code dispatch adapter | Flush saved input, choose provider, dispatch through the shared service |
+| `merging.py` and proposal operations | Merge disjoint source changes into one current proposal against its fixed base |
 | Agent skill and commands | Reading feedback, making authorized revisions, publishing their diff and appending final responses |
 
 The author selects wording and resolves issues. Agent providers retain working
@@ -96,7 +97,7 @@ its current comparison scope. Source drafts from the shared library can open as
 untitled editor copies or be explicitly discarded; opening a copy leaves its saved
 record and the working file intact. New editor drafts use VS Code's own buffer and
 recovery behavior. Native author saves update the current proposal; external revision
-passes use the shared begin/finish operations to create a new round.
+passes use the shared proposal operations to accumulate changes; separate rounds remain explicit.
 
 The agent skill, command engine, and referenced guides ship in the VSIX. Setup reports
 prerequisites without opening a review library, so its commands remain available for
@@ -108,29 +109,49 @@ earlier engine copies remain available through extension upgrades. Review data l
 in the review library, independently of extension storage. Agent result links select
 an exact round through the extension's URI handler.
 
-Enter saves a comment and opens a prepared task for the remembered Codex or Claude Code provider;
-Shift+Enter inserts a newline. The native extension tab opens beside the source or
-focused review. Codex opens its registered conversation editor at the home route
-with a unique URI; its New Codex Agent command currently opens the introduction
-route. Claude uses its editor-open command. On local macOS, a small Accessibility helper targets the extension
-host's VS Code process and pins its original window before opening the provider.
-It excludes existing webview IDs, verifies the complete composer text, and presses
-one enabled Send button once. Confirmation requires a changed, readable composer
-and the saved discussion ID in conversation text outside the composer. It follows
-that ID through Markdown rendering and the provider's first-message remount.
-Author focus returns only while the opened agent tab remains active. A paste retains
-all clipboard formats. Uncertain submission is never retried automatically.
-Without Accessibility, or on other platforms and remote workspaces, the native tab
-retains manual submission: Claude receives an initial prompt; Codex receives a
-copied request.
-The prompt pins the review and discussion, reads
-the current record, and returns only a final reply through existing response commands.
-The agent owns its transcript; the app stores no task or conversation records. Pending
-decisions and unsaved source limit the request to a reply. Source changes use the same
-begin/finish round operations. Focused comparisons dim surrounding context; clicking
-the passage expands it, and entering the native source editor clears its dimming.
+Enter saves a comment and dispatches a task for the remembered Codex or Claude Code
+provider; Shift+Enter inserts a newline. Both interfaces call the same revision-checked
+`ReviewSession.agent_request` and `dispatch.py`. The process is detached immediately:
+Codex uses `exec` with file-backed prompt stdin; Claude uses its native `--bg` command.
+The library and common Git directory are supplied as writable directories. Provider
+startup, login, and execution do not block the editor. Launch output is retained in
+`agent-output/`; working transcripts belong to the provider. The app stores no task
+or conversation records.
 
-Both interfaces obtain the comment task through `ReviewSession.agent_request`, which checks the saved revision and reads the current discussion without changing the record. Standalone dispatch uses `codex exec` with file-backed prompt stdin or Claude's native `--bg` command. The processes run independently of the app, and the providers retain their sessions. The macOS wrapper includes the usual native CLI installation directories on PATH. Agent replies and revisions use the existing respond and begin/finish commands; a polling notice detects returned responses and newer rounds without replacing active input. The remembered provider is a navigation preference, preserved in follow-up rounds.
+`Library.begin(parallel=True)` pins the selected result and creates a unique detached
+proposal checkout. Pending decisions and retained author drafts do not block it.
+`finish_parallel` captures that checkout and calls `ReviewSession.merge_proposal`.
+Under the review and repository locks, `merging.py` merges incoming word changes
+against the current selected result, then projects that delta into the raw proposal.
+This preserves rejected changes elsewhere. New groups remain undecided, the fixed
+base and review ID stay the same, and earlier source versions are archived. Overlaps
+and unsupported binary changes are refused before committing the record; the proposal
+checkout remains available for reconciliation. The author's files, index, and buffers
+are untouched until Apply. The existing explicit begin/finish workflow creates a
+separate round when requested.
+
+Native source saves and retained file drafts can continue from a source version that
+predates an agent result. The same word merge preserves disjoint changes. Physical
+source writes use exact review segments where available and verify mapped text for
+older buffers, refusing ambiguous writes while retaining the draft. Source comments,
+final responses, and thread resolution use the existing discussion operations.
+
+The shared interface polls small status and preview endpoints. An idle view refreshes
+an external result in place; dirty input, open dialogs, source editing, or intervening
+navigation retain their state and offer a reload notice. Only the selected file and
+files with current comments carry full source in interactive data; other files retain
+edit identities and counts and load on demand. Record and library caches invalidate
+on file metadata changes, and PDF/SVG transport caches include the source version.
+These caches and response projections never replace the canonical record.
+
+Comparison construction reads Git trees and blobs in bulk. Source enumeration
+respects ignore rules, hidden and temporary directories, and nested Git boundaries
+without filtering by file extension. Existing snapshots remain intact. Preview source
+extraction and successful reference compilation are cached by exact source and renderer
+versions. A malformed excerpt is isolated from other excerpts; a preamble failure
+stops the batch without repeated compiler attempts. Focused comparisons dim surrounding
+context; clicking the passage expands it. The sidebar can independently disable review
+highlights while retaining comments.
 
 The extension discovers Python 3.12 or newer before importing the engine, skipping older
 environments on the path. An explicit interpreter setting is validated and respected.
@@ -162,11 +183,11 @@ physical delta back into the proposal through the same manual-edit projection as
 standalone editor. Managed checkouts remain available for ordinary Git work; the app
 does not delete an author’s files or commits.
 
-`repositories.py` owns repository discovery, readable Git history, cloning, fetching, and working-copy capture. Agent **begin** pins the actual working input, validating reviewed files against the saved selection. **Finish** requires that input checkpoint and the unchanged review revision, then rejects an empty source-changing pass. Commits made between these operations do not change their comparison endpoints.
+`repositories.py` owns repository discovery, readable Git history, cloning, fetching, and working-copy capture. For a separate round, agent **begin** pins the actual working input and validates reviewed files against the saved selection; **finish** requires that checkpoint and the unchanged review revision. Parallel proposals instead pin the selected result and merge it against the locked current state, allowing intervening author and agent changes. Both refuse empty source passes. Commits made between begin and finish do not move the pinned input.
 
 Derived cumulative comparisons cache immutable version pairs and mapped discussion separately from the canonical record. Their computations release the record lock so reviewing can continue. Word diffs, source mapping, and LaTeX highlights share exact token alignment. It preserves identical prefixes and suffixes and anchors long changed interiors with unique shared tokens before aligning the gaps.
 
-Every mutation of review content requires the expected revision while holding a process and thread lock. File draft saves patch one draft; navigation saves cannot replace drafts. Decisions in a drafted file cannot change its selected wording until the draft is saved or discarded. Drafts in other files remain independent. A stale request is retained under `conflicting-drafts/` and refused. Reloading or quitting a stale window retains its latest local input there before continuing. UI preferences save independently from the content revision. The client serializes content writes and blocks navigation or source application while any draft patch remains unsaved.
+Author content writes require the expected revision while holding a process and thread lock. Parallel proposal accumulation uses its immutable starting version and the locked current record. File draft saves patch one draft; navigation saves cannot replace drafts. Decisions in a drafted file cannot change its selected wording until the draft is saved or discarded. Drafts in other files remain independent. A stale author request is retained under `conflicting-drafts/` and refused. Reloading or quitting a stale window retains its latest local input there before continuing. UI preferences save independently from the content revision. The client serializes content writes and blocks navigation or source application while any draft patch remains unsaved.
 
 Record replacement uses a unique temporary file, `fsync`, atomic rename, and directory synchronization. A manuscript write also holds a repository lock and checks HEAD, staging, safe paths, and expected contents before writing anything. The previous record and source contents are retained. A durable transaction journal records all intended file writes and the resulting review record before the first manuscript write. Startup and subsequent operations finish an interrupted transaction only when each file still matches its old or intended new contents. Intervening external changes leave the journal and draft available for recovery.
 
