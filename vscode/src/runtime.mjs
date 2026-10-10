@@ -1,12 +1,13 @@
 import {spawn} from 'node:child_process';
-import {join} from 'node:path';
+import {join,delimiter} from 'node:path';
+import {homedir} from 'node:os';
 import {createInterface} from 'node:readline';
 import {setTimeout as delay} from 'node:timers/promises';
 
 const identifier = /^[a-f0-9]{24}$/;
 const scopes = new Set(['round', 'baseline', 'manuscript']);
 const libraryWrites = new Set(['/inspect', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
-const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain', '/agent-request']);
+const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain', '/agent-request', '/agent']);
 
 function localURL(value) {
     if (typeof value !== 'string' || !/^http:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*\/$/.test(value)) {
@@ -19,7 +20,9 @@ function localURL(value) {
 
 function reviewRoute(path, writing) {
     if (writing) return reviewWrites.has(path);
-    if (path === '/feedback.json') return true;
+    if (path === '/feedback.json' || path === '/status') return true;
+    if (/^\/data\?scope=(?:round|baseline|manuscript)&file=[^#]*$/.test(path)) return true;
+    if (/^\/previews\?scope=(?:round|baseline|manuscript)$/.test(path)) return true;
     if (/^\/(?:data|selected\.patch)(?:\?scope=(?:round|baseline|manuscript))?$/.test(path)) return true;
     return /^\/editor\?file=[^#]*$/.test(path);
 }
@@ -101,7 +104,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         const args = ['-m', 'manuscript_review', '--no-browser'];
         if (home) args.push('--home', home);
         child = spawn(python, args, {
-            cwd: extensionPath, env: {...process.env, PYTHONPATH: join(extensionPath, 'runtime')},
+            cwd: extensionPath, env: {...process.env, PATH: [process.env.PATH,join(homedir(),'.local/bin'),'/opt/homebrew/bin','/usr/local/bin'].filter(Boolean).join(delimiter), PYTHONPATH: join(extensionPath, 'runtime')},
             stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32'
         });
         exited = new Promise(resolve => {
@@ -218,9 +221,9 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         });
     }
 
-    function data(scope = 'round') {
+    function data(scope = 'round', file) {
         if (!scopes.has(scope)) throw new Error('Choose a manuscript comparison.');
-        return request(`/data?scope=${scope}`);
+        return request(`/data?scope=${scope}${file ? '&file='+encodeURIComponent(file) : ''}`);
     }
 
     async function prepare(path, body) {

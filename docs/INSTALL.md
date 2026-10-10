@@ -44,7 +44,7 @@ To update, quit the app and replace it with the new release. Your review library
 
 ## Agent CLIs
 
-Standalone comment dispatch needs the CLI for the provider you choose. Install a current [Codex CLI](https://learn.chatgpt.com/docs/cli) or [Claude Code](https://code.claude.com/docs/en/setup), sign in, and keep its executable on PATH. You can install either or both; ordinary review and manual agent requests work without them. The VS Code interface uses the providers' native extensions instead.
+Comment dispatch in both interfaces needs the CLI for the provider you choose. Install a current [Codex CLI](https://learn.chatgpt.com/docs/cli) or [Claude Code](https://code.claude.com/docs/en/setup), sign in, and keep its executable on PATH. You can install either or both; ordinary review and copied agent requests work without them. Provider extensions and Accessibility permissions are not required.
 
 On macOS, install Codex with Homebrew and sign in:
 
@@ -69,7 +69,7 @@ codex update
 claude update
 ```
 
-Standalone dispatch is tested with Codex CLI **0.162.0** and Claude Code **2.1.295**. It uses `codex login status`, `codex exec --add-dir … -`, and `claude --bg --add-dir … -- PROMPT`. Codex receives the prompt through stdin; the `--` keeps Claude's directory flag from consuming it. Both providers use your configured model and permissions. Replies need write access to the review library; source revisions also need access to the manuscript and its Git objects and review refs. Configure that access through the provider. The app does not change your global settings.
+Dispatch is tested with Codex CLI **0.162.0** and Claude Code **2.1.295**. It starts `codex exec --sandbox workspace-write --add-dir … -` or `claude --bg --add-dir … -- PROMPT` without waiting for provider startup. Codex receives the prompt through stdin; the `--` keeps Claude's directory flag from consuming it. Both use your configured model. The command grants access to the review library and the manuscript's shared Git directory so agents can create proposal checkouts and publish source versions. Claude uses its configured permissions; the app does not change global settings. Launch output is retained under the library's `agent-output/` directory.
 
 Codex retains its execution sessions for `codex resume`. Claude retains background sessions in `claude agents`; use `claude attach SESSION_ID` to inspect one and handle any pending approvals. The app launches no provider UI. Desktop session visibility depends on the provider; CLI persistence does not guarantee automatic appearance in a desktop app. Claude's `claude --desktop --resume SESSION_ID` provides an explicit desktop handoff when wanted. See the providers' [Codex execution guide](https://learn.chatgpt.com/docs/non-interactive-mode) and [Claude CLI reference](https://code.claude.com/docs/en/cli-reference) for session controls.
 

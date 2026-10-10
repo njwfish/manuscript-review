@@ -11,7 +11,7 @@ from .alignment import TOKEN, token_opcodes
 COMMAND = re.compile(r'\\[A-Za-z@]+\*?|\\.')
 MATH_ENVS = {'equation', 'equation*', 'align', 'align*', 'aligned', 'gather',
              'gather*', 'multline', 'multline*', 'displaymath', 'math', 'array'}
-METADATA = {'label', 'includegraphics', 'input', 'include', 'bibliography',
+METADATA = {'label', 'bibitem', 'includegraphics', 'input', 'include', 'bibliography',
             'bibliographystyle', 'setcounter', 'addtocounter', 'newcommand',
             'renewcommand', 'providecommand', 'captionsetup', 'vspace', 'hspace'}
 TEXT_ARGS = {'text', 'textrm', 'textsf', 'textnormal', 'textbf', 'textit',
@@ -24,6 +24,8 @@ BARE_ARGS = {'frac': 2, 'dfrac': 2, 'tfrac': 2, 'binom': 2,
              'mathit': 1, 'mathnormal': 1, 'boldsymbol': 1, 'bm': 1,
              'widehat': 1, 'hat': 1, 'bar': 1, 'overline': 1, 'tilde': 1,
              'widetilde': 1, 'vec': 1, 'sqrt': 1, 'operatorname': 1,
+             'dot': 1, 'ddot': 1, 'dddot': 1, 'ddddot': 1,
+             'acute': 1, 'grave': 1, 'breve': 1, 'check': 1, 'mathring': 1,
              'underbrace': 1, 'overbrace': 1}
 MATH_STRUCTURE = {'begin', 'end', 'label', 'tag', 'nonumber', 'notag',
                   'limits', 'nolimits', 'displaystyle', 'textstyle',
@@ -231,7 +233,9 @@ class Units:
                     continue
                 if not math and command not in {'State', 'Statex', 'Require', 'Ensure',
                         'Return', 'EndFor', 'EndIf', 'Else', 'EndWhile', 'EndFunction',
-                        'EndProcedure', 'small', 'footnotesize', 'normalsize', 'item',
+                        'EndProcedure', 'tiny', 'scriptsize', 'small', 'footnotesize', 'normalsize',
+                        'large', 'Large', 'LARGE', 'huge', 'Huge', 'bfseries', 'mdseries',
+                        'itshape', 'upshape', 'rmfamily', 'sffamily', 'ttfamily', 'item',
                         'noindent', 'par', 'begingroup', 'endgroup'}:
                     k = j
                     a = self.whitespace(k)

@@ -52,8 +52,8 @@ def add_responses(entries, responses):
 
 
 def round_id(snapshot):
-    """Imports retain creation/source identity, even when their auth token changes."""
-    return stable_id('round', [snapshot['repo'], snapshot['base'], snapshot['proposed'], snapshot['created']])
+    """The fixed base and creation time identify a round across proposal edits."""
+    return stable_id('round', [snapshot['repo'], snapshot['base'], snapshot['created']])
 
 
 def discussion_id(snapshot, target, text, author):

@@ -96,8 +96,8 @@ the exact current editor buffer.
 Saving a native source edit refreshes the current comparison automatically. **From**
 stays at A; **To** becomes B plus your local edits. New manual edits are accepted,
 unaffected choices remain, and comments on revised edits move into discussion.
-The original baseline stays fixed. A new agent revision uses a separate round through
-the bundled skill; **Compare saved changes** captures edits made outside this editor.
+The original baseline stays fixed. Parallel agent revisions join the current proposal
+through the bundled skill; **Compare saved changes** captures edits made outside this editor.
 
 Source editing uses B’s checkout. If the open folder contains another version or
 unrelated changes, the review creates a separate Git worktree containing its selected
@@ -137,56 +137,37 @@ the same thread state as native comments.
 
 ## Work with an agent
 
-Press **Enter** in a comment to save it and open your selected agent’s task tab;
-**Shift+Enter** adds a newline. Choose Codex or Claude Code from the chooser beside
-Send, or the arrow in a native comment’s toolbar. The choice is remembered.
-**Add comment** saves a native comment without dispatching it. **Send to agent**
-also works on a saved comment.
+Press **Enter** in a comment to save it and dispatch it through the selected agent's
+CLI; **Shift+Enter** adds a newline. Choose Codex or Claude Code beside Send, or from
+the arrow in a native comment's toolbar. The choice is remembered. **Add comment**
+saves without dispatching; **Send to agent** also works on a saved comment.
 
-If another extension captures these keys in Markdown comment editors, add the scoped
-Enter and Shift+Enter bindings from this extension’s `package.json` to your user
-keyboard shortcuts. They apply only to Manuscript Review comments.
+[Install and sign in to the CLI](../docs/INSTALL.md#agent-clis) first. No provider tab
+opens and focus stays in your manuscript. Several agents can work while you continue
+editing or reviewing. Each receives one saved discussion, earlier replies, and the
+bundled command launcher. Working transcripts stay with the provider; only the final
+response is appended to the discussion. Launch details are in the Manuscript Review
+Output channel and the library's `agent-output/` directory.
 
-Install the agent’s VS Code extension, finish its introduction, and sign in first. The macOS preview includes
-automatic sending through Accessibility: the helper verifies the new native tab’s
-complete request and presses its Send button once.
-Enable **Visual Studio Code** in **System Settings → Privacy
-& Security → Accessibility** (called **Device Control and Data Access** on newer
-macOS versions). After confirmed submission, focus returns to your
-manuscript or review while the agent works beside it. Without that permission, or
-on other platforms and remote workspaces, Claude opens with the request prepared;
-Codex opens a fresh tab with the request copied for you to paste and send.
+For source changes, the agent starts a separate proposal checkout with
+`begin --parallel`, follows the manuscript's Git workflow and build checks, then
+publishes with `finish --workspace`. Clean changes join the current comparison as
+undecided edits against its fixed base, preserving your choices, drafts, discussion,
+and other agent results. Different words in the same paragraph can merge;
+overlapping changes require reconciliation in a fresh proposal. Your source files
+and buffers remain untouched until **Apply**. Pending decisions and unsaved source
+do not block agent revisions. The author reviews wording and resolves settled threads.
 
-Each task receives one saved comment,
-its review, and the bundled command launcher. It appends only its final response to
-the discussion; its working conversation stays in the agent tab.
+**Copy agent request** prepares the same workflow for your external chat. An idle
+focused review refreshes returned changes and replies automatically; active input is
+retained with **Reload review** available. **This round** compares the accumulated
+proposal to its fixed base; **Since baseline** includes selected changes across earlier
+rounds. An explicitly requested separate revision pass can still create a new round.
 
-Revision passes follow the manuscript repository’s branch and commit conventions,
-run its build checks, and publish a diff against the version reviewed before the pass.
-Responses identify that revision. The author reviews the wording and resolves settled
-threads. Ordinary Git commits and PRs can supply the comparison versions; the app
-retains its annotations and decisions without changing Git HEAD or staging.
-
-With pending review decisions or unsaved source, the task thinks through the comment
-and replies without editing files. Once decisions are complete, it can make surgical
-changes and publish a new review round. Applying decisions remains an author action.
-
-**Copy agent request** still prepares a request for your preferred external chat.
-The skill reads comments and earlier
-responses, makes the requested surgical changes, publishes a new round, and appends
-replies. Existing prose is settled wording; a style guide alone does not authorize
-rewriting it. Agent conversations stay in your agent's interface.
-
-**Reload review** refreshes comments after replies. **Open manuscript review** selects
-a new round; the agent can also return a link of the form
-`vscode://njwfish.manuscript-review/review/REVIEW_ID` to open it directly. **This round**
-shows the latest pass and **Since baseline** shows accumulated selected changes.
-Replies without source changes stay in the same round.
+**Review highlights** in the sidebar turns diff highlighting and surrounding dimming
+off or on, independently of **Source comments**. Existing comments remain available.
 
 ## Build
-
-Build on macOS with Xcode Command Line Tools to include the universal native sending
-helper. Builds on other platforms retain manual submission in the agent tab.
 
 From this repository's `vscode/` directory:
 

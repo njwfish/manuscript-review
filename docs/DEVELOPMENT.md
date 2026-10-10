@@ -10,7 +10,7 @@ npm ci
 
 Node.js runs the client model, editor, and save-queue checks in the test suite. To change the editor, edit `frontend/editor.js` and regenerate the checked-in bundle with `npm run build`. Both CI and release builds check that regeneration produces the same bundle. Without Node, client checks are skipped. Use an isolated library for write tests. The [architecture](../ARCHITECTURE.md) describes persistence and source-write boundaries.
 
-Dispatch tests use mocked subprocesses to check the exact prompt, argument boundaries, and revision checks; client checks cover save failures and concurrent editing. For a live check, create a synthetic repository and separate review library, dispatch one comment through each installed CLI, and verify its final response in the saved discussion. Confirm that manuscript bytes, decisions, and resolution remain unchanged for a reply-only task. Also verify that a source revision can write Git checkpoints, publish its diff, and return a response in the new round. Check provider session persistence separately from desktop visibility. Do not use a person's saved review as a live fixture.
+Dispatch tests use mocked subprocesses to check the exact prompt, argument boundaries, and revision checks; client checks cover save failures and concurrent editing. For a live check, create a synthetic repository and separate review library, dispatch one comment through each installed CLI, and verify its final response in the saved discussion. Confirm that manuscript bytes, decisions, and resolution remain unchanged for a reply-only task. Also verify that a source revision can write Git checkpoints, accumulate its diff, and return a response in the current review while author input stays intact. Check provider session persistence separately from desktop visibility. Do not use a person's saved review as a live fixture.
 
 ## Repository and releases
 
@@ -41,13 +41,10 @@ VSIX with an isolated library and real LaTeX before distribution, then check the
 native editor, comments, word and PDF navigation, Apply, and setup in an extension
 development host. Promote a preview to a production release after those checks pass.
 
-Build the distributable VSIX on macOS with Xcode Command Line Tools to compile its
-universal Accessibility helper for Apple Silicon and Intel. Linux builds omit that
-helper and use manual agent submission. Test automatic native sending from the
-actual extension host after granting VS Code Accessibility; a shell permission probe
-does not establish that host’s authorization. Use synthetic comments, verify the
-provider’s complete composer and its submitted message, and confirm that author
-focus and clipboard contents return. Never retry an uncertain Send.
+Comment dispatch uses the shared CLI operation on macOS and Linux. Test it with an
+isolated library and synthetic comments: verify the exact prompt, detached process,
+proposal publication, and final response while the author continues editing. Keep
+provider startup out of the interface request, and retain its output for diagnostics.
 
 ## Build the macOS app
 

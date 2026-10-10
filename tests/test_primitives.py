@@ -67,8 +67,9 @@ for(const decisions of [{},{[first.id]:'reject'},{[first.id]:'reject',[second.id
 assert.equal(file.before.slice(...sourceRange(file,second,'before',{})),second.old);
 assert.equal(file.after.slice(...sourceRange(file,second,'after',{})),second.new);
 assert.ok(agentRequest(data,true).includes(data.feedback_path));
-assert.ok(agentRequest(data,true).includes('For replies only'));
-assert.ok(agentRequest(data,false).includes('leave manuscript revisions until I finish reviewing'));"""
+assert.ok(agentRequest(data).includes('For replies only'));
+assert.ok(agentRequest(data).includes('begin --parallel'));
+assert.ok(agentRequest(data).includes('finish --workspace'));"""
         subprocess.run(['node', '--input-type=module', '-e', script, module], input=json.dumps(fixture), text=True, check=True)
 
     @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client-model tests.')

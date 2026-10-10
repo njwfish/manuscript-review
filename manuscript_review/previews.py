@@ -3,6 +3,12 @@ import threading
 from .storage import FileLock, atomic_json, read_json
 
 
+def preview_assets(passages):
+    """Keep display assets and diagnostics, without duplicating manuscript source."""
+    return {key: {side: {name: value for name, value in entry.items() if name != 'context'}
+                  for side, entry in passage.items()} for key, passage in passages.items()}
+
+
 class Previews:
     def __init__(self, session):
         self.session = session
@@ -56,7 +62,7 @@ class Previews:
             try:
                 cache = store.directory / 'preview-cache' / '-'.join(generation)
                 cache.mkdir(parents=True, exist_ok=True)
-                render(cache, data_override=snapshot)
+                render(cache, data_override=snapshot, source_cache=store.directory / 'preview-cache/sources')
                 rendered = read_json(cache / 'renders/manifest.json')
                 output.mkdir(exist_ok=True)
                 for asset in (cache / 'renders').iterdir():
@@ -64,7 +70,8 @@ class Previews:
                         (output / asset.name).write_bytes(asset.read_bytes())
                 failures = [document[key] for document in rendered.get('documents', {}).values()
                             for key in ('error', 'excerpt_error') if document.get(key)]
-                available = any(document.get('pages') for document in rendered.get('documents', {}).values()) or any(rendered.get('passages', {}).values())
+                available = any(document.get('pages') for document in rendered.get('documents', {}).values()) or any(
+                    side.get('asset') for passage in rendered.get('passages', {}).values() for side in passage.values())
                 result, error = ('error' if failures and not available else 'ready'), '\n'.join(failures) or None
             except Exception as failure:
                 result, error = 'error', str(failure)

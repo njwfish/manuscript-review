@@ -6,6 +6,53 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_imported_responses_are_acknowledged_for_subsequent_idle_refresh(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8'),handlers={};
+const source=app.slice(app.indexOf("$('response-file').addEventListener"),app.indexOf('async function copyAgentRequest'));
+const context={data:{comments:{edit:'Author note'},history:[]},comments:{edit:'Author note'},decisions:{edit:'accept'},savedInput:JSON.stringify([{edit:'accept'},{edit:'Author note'}]),
+ saving:Promise.resolve(),saveFailed:false,draftChanges:new Map(),saveDrafts(){},save(){},readOnly:()=>false,render(){},resultStatus(){},status(){},
+ post:async()=>({history:[{id:'note',comment:'Author note',replies:[{text:'Final response'}]}],comments:{}}),
+ $:id=>({addEventListener(name,handler){handlers[name]=handler;},close(){}})};
+vm.createContext(context);vm.runInContext(source,context);
+await handlers.change({target:{files:[{text:async()=>JSON.stringify([{id:'note',text:'Final response'}])}],value:'file'}});
+assert.equal(context.savedInput,JSON.stringify([context.decisions,context.comments]));
+assert.equal(context.data.history[0].replies[0].text,'Final response');
+"""
+        subprocess.run(['node','--input-type=module','-e',script],cwd=Path(__file__).parents[1],check=True)
+
+    def test_external_results_refresh_an_idle_view_without_discarding_active_input_or_navigation(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+import {reviewPosition} from './manuscript_review/review_model.js';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('function canRefreshExternal'),app.indexOf('async function watchReview'));
+for(const mode of ['idle','revised-edit','navigate','typing','draft','decision','own-save','scope','older']){
+ let release;const gate=new Promise(resolve=>release=resolve),events=[];
+ const files=['main.tex','other.tex'].map(path=>({path,hunks:[{id:path+'-hunk',base_span:[0,200],edits:[0,1,2].map(index=>({id:path+'-edit-'+index,base_span:[index*40,index*40+10]}))}]}));
+ const returned=structuredClone(files);if(mode==='revised-edit')returned[0].hunks[0].edits[2].id='new-wording';
+ const original={id:'review',revision:1,scope:'round',files,decisions:{},comments:{},drafts:{}};
+ const context={data:original,decisions:original.decisions,comments:original.comments,savedInput:JSON.stringify([{},{}]),
+  saving:Promise.resolve(),refreshingExternal:false,fileEditor:null,editing:false,saveFailed:false,noteChanges:new Map(),draftChanges:new Map(),
+  active:0,passage:0,edit:2,staleReview:true,locations:[],document:{activeElement:{matches:()=>false},querySelector:()=>null},
+  currentFile:()=>context.data.files[context.active],currentHunk:()=>context.currentFile().hunks[context.passage],currentEdit:()=>context.currentHunk().edits[context.edit],
+  reviewPosition,editLocations:()=>[],render:()=>events.push('render'),watchPreviews:()=>events.push('preview'),$:()=>({hidden:false}),
+  request:async()=>{await gate;return {ok:true,json:async()=>({...original,files:returned,revision:mode==='older'?0:2,decisions:{},comments:{},drafts:{},preview_status:'queued'})};}};
+ vm.createContext(context);vm.runInContext(source,context);
+ const pending=vm.runInContext('refreshExternal()',context);await new Promise(resolve=>setImmediate(resolve));
+ if(mode==='navigate')context.active=1;
+ if(mode==='typing')context.document.activeElement.matches=()=>true;
+ if(mode==='draft')context.draftChanges.set('main.tex','Exact author text');
+ if(mode==='decision')context.decisions.choice='accept';
+ if(mode==='own-save')context.data.revision=3;
+ if(mode==='scope')context.data={...original,scope:'baseline'};
+ release();const refreshed=await pending;
+ assert.equal(refreshed,['idle','revised-edit'].includes(mode));assert.equal(context.refreshingExternal,false);
+ if(['idle','revised-edit'].includes(mode)){assert.equal(context.data.revision,2);assert.deepEqual(events,['render','preview']);assert.equal(context.staleReview,false);assert.equal(context.edit,2);}
+ else{assert.deepEqual(events,[]);if(mode==='navigate')assert.equal(context.active,1);if(mode==='draft')assert.equal(context.draftChanges.get('main.tex'),'Exact author text');}
+}
+"""
+        subprocess.run(['node','--input-type=module','-e',script],cwd=Path(__file__).parents[1],check=True)
+
     def test_editing_folder_flushes_notes_and_opens_the_bound_source_or_copies_its_path(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8');
@@ -87,7 +134,7 @@ assert.deepEqual(events,[]);
 let prevented=0;const enter={key:'Enter',preventDefault(){prevented++;},stopPropagation(){}};
 handlers.keydown(enter);handlers.keydown(enter);assert.equal(prevented,2);assert.deepEqual(events,['flush']);
 release();await new Promise(resolve=>setImmediate(resolve));
-assert.deepEqual(events,['flush',['discussion','round'],'blur','focus']);assert.equal(context.dispatchingComment,false);
+assert.deepEqual(events,['flush',['discussion','round'],'Sent to agent in the background.','blur','focus']);assert.equal(context.dispatchingComment,false);
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
 
@@ -159,20 +206,20 @@ assert.equal(context.noteTarget.comment,'Second');
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8');
 const source=app.slice(app.indexOf('async function watchReview'),app.indexOf('async function watchPreviews'));
-for(const changed of ['response','round','local-save','none']){
+for(const changed of ['response','round','round-refreshed','local-save','none']){
  const label={textContent:''},notice={hidden:true,querySelector:()=>label},reload={textContent:'Reload review'},events=[];
  let release;const saving=new Promise(resolve=>release=resolve);
  const context={data:{id:'round',scope:'round',revision:1,latest_review:'round'},saving,staleReview:false,newerReview:false,
-  comments:{draft:'Keep this input'},request:async()=>({ok:true,json:async()=>({revision:changed==='none'?1:2,latest_review:changed==='round'?'new-round':'round'})}),
+  comments:{draft:'Keep this input'},refreshExternal:async()=>{if(changed!=='round-refreshed')return false;context.data={...context.data,revision:2,latest_review:'new-round'};return true;},request:async()=>({ok:true,json:async()=>({revision:changed==='none'?1:2,latest_review:changed.startsWith('round')?'new-round':'round'})}),
   $:id=>id==='review-notice'?notice:reload,updateProgress:()=>events.push('notice'),setTimeout:()=>events.push('poll')};
  vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('watchReview()',context);
  await new Promise(resolve=>setImmediate(resolve));assert.equal(notice.hidden,true);
  if(changed==='local-save')context.data.revision=2;release();await pending;
  assert.equal(context.comments.draft,'Keep this input');assert.equal(context.data.id,'round');
  assert.equal(context.staleReview,['response','round'].includes(changed));
- assert.equal(context.newerReview,changed==='round');
- assert.equal(events.includes('poll'),['local-save','none'].includes(changed));
- if(changed==='round'){assert.equal(reload.textContent,'Open Library');assert.equal(context.data.latest_review,'new-round');}
+ assert.equal(context.newerReview,changed.startsWith('round'));
+ assert.equal(events.includes('poll'),!changed.startsWith('round'));
+ if(changed.startsWith('round')){assert.equal(reload.textContent,'Open Library');assert.equal(context.data.latest_review,'new-round');}
 }
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
@@ -197,7 +244,7 @@ const revision=app.slice(app.indexOf('async function showRevision'),app.indexOf(
 const listener=app.slice(app.indexOf("if(embedded)window.addEventListener('message'"),app.lastIndexOf('ready();'));
 for(const failed of [false,true]){
  let receive;const calls=[];
- const context={embedded:true,hostMessage:event=>hostMessage(event,'vscode-webview://review'),window:{addEventListener(name,handler){receive=handler;}},calls,
+ const context={refreshExternal:async()=>false,embedded:true,hostMessage:event=>hostMessage(event,'vscode-webview://review'),window:{addEventListener(name,handler){receive=handler;}},calls,
   saveNotes:()=>calls.push('notes'),saveDrafts:()=>calls.push('drafts'),save:()=>calls.push('decisions'),
   switchScope:async(scope,file)=>{calls.push(['scope',scope,file]);vm.runInContext("data.scope='round';locations=[[0,0,0]]",context);},
   render:()=>calls.push('render'),openComment:passage=>calls.push(['comment',passage]),status:(text,error)=>calls.push(['status',text,error])};
@@ -373,5 +420,30 @@ fail=false;await context.window.flushReview();
 assert.equal(vm.runInContext('draftChanges.size',context),0);
 assert.equal(requests.at(-1)[0],'/ui');
 assert.equal(requests.filter(([path])=>path==='/draft').at(-1)[1].draft.text,'Unsaved manuscript words');
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
+    def test_lazy_source_loading_preserves_decisions_and_does_not_change_focus(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('function loadSelectedFile'),app.indexOf('function focusSelection'));
+for(const change of ['none','file','round','version','typing','preview']){
+ const original={path:'large.json',loaded:false,hunks:[{id:'passage',rendered:{}}]},other={path:'other.tex'},calls=[];
+ let release;const gate=new Promise(resolve=>release=resolve);
+ const context={data:{id:'review',scope:'round',base:'a',proposed:'b',files:[original,other],decisions:{edit:'reject'}},active:0,
+  document:{activeElement:{matches:()=>change==='typing',closest:()=>null}},currentFile:()=>context.data.files[context.active],render:()=>calls.push('render'),focusSelection:()=>calls.push('focus'),
+  request:async path=>{assert.equal(path,'/data?scope=round&file=large.json');await gate;return {ok:true,json:async()=>({id:'review',base:'a',proposed:'b',files:[{path:'large.json',after:'Exact source.',hunks:[{id:'passage',rendered:{}}]}]})};},
+  $:()=>({replaceChildren:()=>calls.push('error')}),node(){},button(){}};
+ vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('loadSelectedFile()',context);
+ if(change==='file')context.active=1;
+ if(change==='round')context.data.id='new-review';
+ if(change==='version')context.data.proposed='new-version';
+ if(change==='preview')original.hunks[0].rendered={after:{asset:'ready.svg'}};
+ release();await pending;
+ assert.equal(context.data.decisions.edit,'reject');assert.equal(Boolean(original.loading),false);
+ if(['none','preview'].includes(change))assert.deepEqual(calls,['render','focus']);else assert.deepEqual(calls,change==='typing'?['render']:[]);
+ if(['none','file','typing','preview'].includes(change))assert.equal(context.data.files[0].after,'Exact source.');else assert.equal(context.data.files[0],original);
+ if(change==='preview')assert.equal(context.data.files[0].hunks[0].rendered.after.asset,'ready.svg');
+}
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)

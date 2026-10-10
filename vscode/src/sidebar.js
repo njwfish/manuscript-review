@@ -13,6 +13,7 @@ function render(){
  element('progress').textContent=state.pending?'Comparison not opened':state.applied?'Applied':state.progress||'';
  element('progress').hidden=!element('progress').textContent;
  element('comments').checked=state.commentsEnabled!==false;
+ element('highlights').checked=state.highlights!==false;
  element('discussion').hidden=!state.active;
  element('unresolved').textContent=`${state.unresolved||0} unresolved`;
  element('agent-label').textContent=state.agent||'Codex';element('agent').title='Choose the agent for comment requests';
@@ -21,6 +22,7 @@ function render(){
 const send=action=>api.postMessage({action,review:state.review,revision:state.revision,folder:state.folder,fromVersion:state.fromVersion,toVersion:state.toVersion,entry:state.entry});
 document.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('click',()=>send(button.dataset.action)));
 element('comments').addEventListener('change',()=>send('comments'));
+element('highlights').addEventListener('change',()=>send('highlights'));
 window.addEventListener('message',event=>{
  const message=event.data;
  if(message?.type==='state'){state=message.state;element('error').hidden=true;render();}

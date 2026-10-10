@@ -62,6 +62,27 @@ class ReviewFixture(unittest.TestCase):
 
 
 class ReviewTests(ReviewFixture):
+    def test_manual_source_edit_preserves_separators_in_repeated_prose_after_rejections(self):
+        from manuscript_review.application import write_file_edit
+        from manuscript_review.comparison import compare
+        base, proposed = 'a c a b d d a c.\n', 'a b c b d a c c.\n'
+        file = compare('main.tex', base, proposed)
+        enrich_snapshot({'files':[file]})
+        record = self.session.store.read()
+        record['snapshot']['files'] = [file]
+        record['snapshot']['entry'] = ''
+        record['decisions'] = {edit['id']:'reject' for edit in file['edits']}
+        physical = 'a c b d a c c.\n'
+        (self.repo / 'main.tex').write_text(physical)
+        from manuscript_review.application import digest
+        record['applied'] = {'main.tex':digest(physical)}
+        self.session.store.commit(record)
+        # A selected-source insertion must map through the exact review segments.
+        selected = selected_content(file, record['decisions'])
+        start = selected.index('a b') + 2
+        write_file_edit(self.session.store, record, record, file, [(start,start,'z ')], record['decisions'])
+        self.assertEqual((self.repo / 'main.tex').read_text(), 'a c z b d a c c.\n')
+
     def test_applied_state_tracks_selected_wording_and_survives_notes(self):
         self.assertFalse(self.session.view()['applied'])
         accepted = {g['id']: 'accept' for f in self.session.snapshot['files'] for g in f['edits']}

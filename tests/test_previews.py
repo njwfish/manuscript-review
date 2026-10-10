@@ -15,7 +15,7 @@ class PreviewTests(ReviewFixture):
         self.session.store.commit(r)
         started, release, finished = threading.Event(), threading.Event(), threading.Event()
         calls = []
-        def render(directory, data_override):
+        def render(directory, data_override, source_cache):
             calls.append(data_override['proposed'])
             if len(calls) == 1:
                 started.set()

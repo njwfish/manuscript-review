@@ -12,12 +12,13 @@ from .file_editing import file_replacements, replace_ranges
 from .anchors import SourceSpan, SourceMap
 from .feedback import feedback_report, validate_comments
 from .history import add_explanations, add_responses, build_history, round_id, attach
-from .previews import Previews
+from .previews import Previews, preview_assets
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
 from .documents import document_file, manuscript_files, source_point
 from .render_latex import RENDER_VERSION
 from .workspace import edit_checkout, working_directory, same_repository
+from .merging import merge_text
 
 
 def local_edit_label(label, version):
@@ -26,14 +27,15 @@ def local_edit_label(label, version):
 
 
 class ReviewSession:
-    def __init__(self, directory, library_url=None, review_context=None):
-        self.store = ReviewStore(directory)
+    def __init__(self, directory, library_url=None, review_context=None, *, store=None):
+        self.store = store if store is not None else ReviewStore(directory)
         self.directory = self.store.directory
         self.library_url = library_url
         self.review_context = review_context
         self.previews = Previews(self)
         self.cumulative = None
         self.cumulative_history = None
+        self.status_cache = None
         self.comparison_lock = FileLock(self.directory / '.comparison.lock')
         with self.store.transaction():
             self.store.read()
@@ -42,13 +44,23 @@ class ReviewSession:
     def snapshot(self):
         return self.store.read()['snapshot']
 
-    def report(self):
+    def report(self, thread=None):
         with self.store.transaction():
             r = self.store.read()
-            return {**feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'], r['resolved']),
-                    'baseline': r['baseline'], 'result': r['result'],
-                    'previous': r['metadata'].get('previous'), 'workspace': str(working_directory(r)),
-                    'drafts': r['drafts'], 'comparison': 'round'}
+            report = {**feedback_report(r['snapshot'], r['decisions'], r['comments'], r['history'], r['metadata']['id'], r['resolved']),
+                      'revision': r['revision'], 'baseline': r['baseline'], 'result': r['result'],
+                      'previous': r['metadata'].get('previous'), 'workspace': str(working_directory(r)),
+                      'drafts': r['drafts'], 'comparison': 'round'}
+            if thread:
+                notes = [*report['comments'], *report['history']]
+                selected = next((note for note in notes if thread in (note['id'], note.get('discussion_id'), note['thread_id'])), None)
+                if selected is None:
+                    raise ValueError('Choose a saved discussion thread.')
+                for key in ('comments', 'history'):
+                    report[key] = [note for note in report[key] if note['thread_id'] == selected['thread_id']]
+                report['edits'] = [edit for edit in report['edits'] if edit['file'] == selected['file']]
+                report['drafts'] = {key: value for key, value in report['drafts'].items() if key == selected['file']}
+            return report
 
     def agent_request(self, request):
         from .dispatch import comment_task
@@ -56,7 +68,7 @@ class ReviewSession:
             record = self.store.read()
             self.check_revision(request, record)
             return comment_task(record, self.directory, request['id'], skill=request.get('skill'),
-                                launcher=request.get('launcher'), dirty=bool(request.get('dirty')))
+                                launcher=request.get('launcher'))
 
     def selected_patch(self, scope='round'):
         with self.store.transaction():
@@ -131,6 +143,39 @@ class ReviewSession:
             record['ui'] = ui
             self.store.commit(record)
         return {'message': 'Review position saved.'}
+
+    def _status(self):
+        with self.store.transaction():
+            stat = self.store.path.stat()
+            version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            if self.status_cache is None or self.status_cache[0] != version:
+                record = self.store.read()
+                self.status_cache = (version, {**record['metadata'], 'revision': record['revision'],
+                                              'base': record['snapshot']['base'], 'proposed': record['snapshot']['proposed'],
+                                              'entry': record['snapshot']['entry'],
+                                              'baseline': record['baseline'], 'result': record['result']})
+            result = dict(self.status_cache[1])
+        return result
+
+    def status(self):
+        state = self._status()
+        return {'id': state['id'], 'revision': state['revision'],
+                **(self.review_context() if self.review_context else {})}
+
+    def preview(self, scope='round'):
+        if scope not in ('round', 'baseline', 'manuscript'):
+            raise ValueError('Choose this round or since baseline.')
+        state = self._status()
+        baseline = scope == 'baseline'
+        base, proposed = (state['baseline'], state['result']) if baseline else (state['base'], state['proposed'])
+        manifest = read_json(self.directory / ('baseline-renders' if scope == 'baseline' else 'renders') / 'manifest.json', {})
+        valid = (manifest.get('base'), manifest.get('proposed'), manifest.get('renderer')) == (base, proposed, RENDER_VERSION)
+        status = state.get('baseline_preview_status' if baseline else 'preview_status', 'queued')
+        return {'base': base, 'proposed': proposed,
+                'preview_status': status if valid else 'queued' if state.get('entry') else 'none',
+                'preview_error': state.get('baseline_preview_error' if baseline else 'preview_error'),
+                'documents': manifest.get('documents', {}) if valid else {},
+                'passages': preview_assets(manifest.get('passages', {})) if valid else {}}
 
     def editor(self, path, text=None, point=None):
         """Project review spans onto selected wording or an exact external buffer."""
@@ -298,8 +343,9 @@ class ReviewSession:
                         or not isinstance(draft['text'], str) or len(draft['text']) > 1_000_000
                         or not isinstance(draft['source'], str) or len(draft['source']) != 40):
                     raise ValueError('A draft needs its pinned source and at most 1,000,000 characters.')
-                if (read_blob(record['snapshot']['repo'], draft['source'], identifier) or '') != (selected_content(file, record['decisions']) or ''):
-                    raise ValueError('The selected wording changed. Your draft is retained; reload before editing.')
+                # Retain the editor's exact input version even when a parallel
+                # proposal arrived. Saving the file performs the three-way merge.
+                git(record['snapshot']['repo'], 'rev-parse', '--verify', draft['source'] + '^{commit}')
             previous = record['drafts'].get(identifier)
             if draft != previous:
                 if draft is None:
@@ -418,8 +464,9 @@ class ReviewSession:
         file = document_file(previous, path)
         if file is None or not isinstance(text, str) or len(text) > 1_000_000:
             raise ValueError('Choose a reviewed file with at most 1,000,000 characters.')
-        if not isinstance(source, str) or len(source) != 40 or (read_blob(old['repo'], source, path) or '') != (selected_content(file, record['decisions']) or ''):
+        if not isinstance(source, str) or not re.fullmatch(r'[a-f0-9]{40}', source):
             raise ValueError('The editor source changed. Your draft is retained; reload before saving.')
+        text = merge_text(read_blob(old['repo'], source, path) or '', selected_content(file, record['decisions']) or '', text)
         replacements, selected_replacements = file_replacements(file, record['decisions'], text)
         if not replacements:
             record['drafts'].pop(path, None)
@@ -497,9 +544,17 @@ class ReviewSession:
                     replacements = [(0, len(file['after'] or ''), text)]
                 else:
                     groups = {group['id']: group for group in file['edits']}
-                    working_choices = {identifier: 'reject' for _, _, start, end, identifier in projection_blocks(file, before)
-                                       if identifier and before[start:end] == groups[identifier]['old']}
-                    replacements, _ = file_replacements(file, working_choices, text)
+                    try:
+                        blocks = projection_blocks(file, before)
+                    except ValueError:
+                        # An agent proposal can introduce a third version beyond
+                        # this editor's last saved source and the fixed baseline.
+                        merged = merge_text(before_blob, selected_content(file, previous['decisions']), text)
+                        replacements, _ = file_replacements(file, previous['decisions'], merged or '')
+                    else:
+                        working_choices = {identifier: 'reject' for _, _, start, end, identifier in blocks
+                                           if identifier and before[start:end] == groups[identifier]['old']}
+                        replacements, _ = file_replacements(file, working_choices, text)
                 record = copy.deepcopy(previous)
                 after = replace_ranges(file['after'] or '', replacements)
                 changed = [SourceSpan(start, end) for start, end, _ in replacements]
@@ -520,7 +575,60 @@ class ReviewSession:
             self.previews.queue()
         return {'revision': record['revision'], 'data': self.view(), 'message': f'Saved edits to {path}; comparison updated.'}
 
-    def replace_proposal_file(self, previous, record, file, after, changed):
+    def merge_proposal(self, starting, proposed):
+        """Accumulate a parallel proposal without writing the author's working files."""
+        with self.store.transaction():
+            previous = self.store.read()
+            old = previous['snapshot']
+            repo = old['repo']
+            with repository_lock(repo):
+                if git(repo, 'rev-parse', proposed + '^{tree}') == git(repo, 'rev-parse', starting + '^{tree}'):
+                    raise ValueError('No source changes in this proposal. Add a reply in the existing review instead.')
+                changes = build_snapshot(repo, starting, proposed, text_only=True)['files']
+                from .file_scope import project_paths
+                paths, _ = project_paths(repo, list(filter(None, git(repo, 'diff', '--no-renames', '--name-only', '-z', starting, proposed).decode().split('\0'))))
+                unsupported = set(paths) - {file['path'] for file in changes}
+                if unsupported:
+                    raise ValueError('This proposal contains binary or unsupported file changes: ' + ', '.join(sorted(unsupported)) + '. Keep them in its checkout and handle them in Git before publishing a text proposal. The review is unchanged.')
+                if not changes:
+                    raise ValueError('This proposal is already incorporated. Add its reply in the current review.')
+                record = copy.deepcopy(previous)
+                incorporated = False
+                for change in changes:
+                    current_text = read_blob(repo, previous['result'], change['path'])
+                    try:
+                        incoming = merge_text(change['before'], current_text, change['after'])
+                    except ValueError as error:
+                        raise ValueError(f"{change['path']}: proposal overlaps newer manuscript edits. Begin a fresh parallel proposal against the current review, resolve the wording there, and finish with its starting version. This proposal, the author’s source, and review are unchanged. {error}") from error
+                    if incoming == current_text:
+                        continue
+                    incorporated = True
+                    file = next((file for file in record['snapshot']['files'] if file['path'] == change['path']), None)
+                    if file is None:
+                        file = enrich_snapshot({'files': [compare(change['path'], read_blob(repo, old['base'], change['path']), change['before'])]})['files'][0]
+                    if incoming is None or file['after'] is None:
+                        after = incoming
+                        changed = [SourceSpan(0, len(file['after'] or ''))]
+                    else:
+                        replacements, _ = file_replacements(file, record['decisions'], incoming)
+                        after = replace_ranges(file['after'], replacements)
+                        changed = [SourceSpan(start, end) for start, end, _ in replacements]
+                    self.replace_proposal_file(copy.deepcopy(record), record, file, after, changed, accept=False)
+                    if change['path'] not in record['applied']:
+                        record['applied'][change['path']] = digest(read_blob(repo, old['proposed'], change['path']))
+                if not incorporated:
+                    raise ValueError('This proposal is already incorporated. Add its reply in the current review.')
+                record['revision'] += 1
+                record['metadata'].update(proposal_label=local_edit_label(previous['metadata']['proposal_label'], record['snapshot']['proposed']),
+                                          preview_status='queued' if old['entry'] else 'none')
+                self.store.archive(previous)
+                self.store.commit(record)
+        if old['entry']:
+            self.previews.queue()
+        return {'revision': record['revision'], 'starting_version': starting, 'proposed_version': record['snapshot']['proposed'],
+                'edits': sum(len(file['edits']) for file in record['snapshot']['files']), 'baseline': record['baseline']}
+
+    def replace_proposal_file(self, previous, record, file, after, changed, accept=True):
         path, old = file['path'], previous['snapshot']
         current = record['snapshot']
         revised = enrich_snapshot({'files': [compare(path, file['before'], after)]})['files'][0]
@@ -546,7 +654,8 @@ class ReviewSession:
         record['decisions'] = {key: value for key, value in record['decisions'].items() if key in valid and key not in affected}
         for group in revised['edits']:
             if group['id'] not in old_edits:
-                record['decisions'][group['id']] = 'accept'
+                if accept:
+                    record['decisions'][group['id']] = 'accept'
         record['comments'] = {key: value for key, value in record['comments'].items() if key not in archived}
         record['result'] = selected_version(record)
         return revised

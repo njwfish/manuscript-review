@@ -1,5 +1,6 @@
 """One durable review record, atomic replacements, and recoverable file transactions."""
 import fcntl
+import copy
 import json
 import os
 import secrets
@@ -133,6 +134,7 @@ class ReviewStore:
         self.lock = FileLock(self.directory / '.session.lock')
         self.path = self.directory / 'review.json'
         self.journal = self.directory / 'transaction.json'
+        self.cached = None
 
     @contextmanager
     def transaction(self):
@@ -145,7 +147,14 @@ class ReviewStore:
             yield self
 
     def read(self):
-        return validate_record(read_json(self.path))
+        with self.lock:
+            if not self.path.exists():
+                raise ValueError('Review record not found.')
+            stat = self.path.stat()
+            version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            if self.cached is None or self.cached[0] != version:
+                self.cached = (version, validate_record(read_json(self.path)))
+            return copy.deepcopy(self.cached[1])
 
     def backup_request(self, request):
         folder = self.directory / 'conflicting-drafts'
@@ -168,6 +177,8 @@ class ReviewStore:
             self.recover()
         else:
             atomic_json(self.path, record)
+        stat = self.path.stat()
+        self.cached = ((stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns), copy.deepcopy(record))
 
     def recover(self):
         transaction = read_json(self.journal)

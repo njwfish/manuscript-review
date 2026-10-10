@@ -121,7 +121,7 @@ export function createComments(vscode,getRuntime,{onChange,onReview,onProjection
     const runtime=getRuntime();
     const ticket=++generation,review=runtime?.review;
     if(!review||disposed)return;
-    const data=await runtime.data('round');
+    const data=await runtime.data('round',fileFor(vscode.window.activeTextEditor?.document));
     if(ticket!==generation||disposed||runtime.review?.id!==review.id)return;
     const groups=new Map(discussionGroups([...data.history,...currentFeedback(data,data.comments)]).map(messages=>[messages[0].origin_id||messages[0].id,messages])),latest=commentThreads(data,data.comments);
     const projections=new Map(),present=new Set(),reviewed=new Set(data.files.map(file=>file.path));
@@ -129,7 +129,15 @@ export function createComments(vscode,getRuntime,{onChange,onReview,onProjection
     for(const file of new Set([...latest.map(entry=>entry.file),...visible])) {
       try {
         const document=await documentFor(file);
-        if(fileFor(document))projections.set(file,await project(document));
+        if(fileFor(document)){
+          if(data.files.find(item=>item.path===file)?.loaded===false){
+            const full=await runtime.data('round',file);
+            const replacement=full.files.find(item=>item.path===file);
+            if(full.id!==data.id||full.revision!==data.revision||full.proposed!==data.proposed||!replacement)return;
+            const index=data.files.findIndex(item=>item.path===file);data.files[index]=replacement;
+          }
+          projections.set(file,await project(document));
+        }
       } catch(error) {
         if(error.code==='SourceChanged')return;
         if(error.code!=='ENOENT'&&error.code!=='FileNotFound')throw error;
