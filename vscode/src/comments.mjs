@@ -1,18 +1,20 @@
 import path from 'node:path';
 import {commentThreads,currentFeedback,discussionGroups} from '../../manuscript_review/review_model.js';
+import {snapshotFile,snapshotVersion} from './source-documents.mjs';
 
 export function sourceDocument(document){
  return document?.uri.scheme==='file'&&['.tex','.bib','.md','.txt','.typ','.rst'].includes(path.extname(document.uri.fsPath));
 }
 
 export function sourceFile(review,document){
+ const snapshot=snapshotFile(review,document);if(snapshot)return snapshot;
  if(!review||!sourceDocument(document))return null;
  const relative=path.relative(review.workspace||review.repo,document.uri.fsPath);
  return relative&&!path.isAbsolute(relative)&&relative!=='..'&&!relative.startsWith(`..${path.sep}`)
   ?relative.split(path.sep).join('/'):null;
 }
 
-export function createComments(vscode,getRuntime,{onChange,onReview,onProjection,onAgent,onSource,canComment=sourceDocument}={}) {
+export function createComments(vscode,getRuntime,{openDocument,onChange,onReview,onProjection,onAgent,onSource,canComment=sourceDocument}={}) {
   const controller=vscode.comments.createCommentController('manuscript-review','Manuscript Review');
   const subscriptions=[controller],threads=new Map(),pending=new Set();
   let generation=0,disposed=false,activeThread,includeResolved=false;
@@ -32,12 +34,7 @@ export function createComments(vscode,getRuntime,{onChange,onReview,onProjection
     }));
   }
 
-  async function documentFor(file) {
-    const runtime=getRuntime();
-    const uri=vscode.Uri.file(path.join(runtime.review.workspace||runtime.review.repo,file));
-    return vscode.workspace.textDocuments.find(document=>document.uri.toString()===uri.toString())
-      || await vscode.workspace.openTextDocument(uri);
-  }
+  const documentFor=file=>openDocument(file);
 
   async function project(document) {
     if(!fileFor(document))await onSource?.(document);
@@ -45,7 +42,8 @@ export function createComments(vscode,getRuntime,{onChange,onReview,onProjection
     const review=runtime?.review,file=fileFor(document),reviewId=review?.id;
     if(!file)throw new Error('Choose a source file in the reviewed repository.');
     const text=document.getText(),version=document.version;
-    const result=await runtime.request('/editor',{file,text});
+    const saved=snapshotVersion(document);
+    const result=await runtime.request('/editor',{file,text,...(saved?{version:saved}:{})});
     if(getRuntime()!==runtime||runtime?.review?.id!==reviewId||document.version!==version||document.getText()!==text)
       throw Object.assign(new Error('The source changed while locating this comment. Try again.'),{code:'SourceChanged'});
     return {...result,file,text,document,reviewId};

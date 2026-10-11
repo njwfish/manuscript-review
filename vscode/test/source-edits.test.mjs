@@ -26,6 +26,13 @@ test('only supported saved source inside the editing checkout is captured',async
  f.document.isDirty=true;await f.edits.save(f.document);assert.deepEqual(f.events,[]);
 });
 
+test('saved review documents cannot be captured or written back as working source',async()=>{
+ const f=fixture();
+ const uri={scheme:'manuscript-review-source',authority:f.runtime.review.id,path:'/main.tex',fsPath:'/main.tex'};
+ await f.edits.save({...f.document,uri});
+ assert.deepEqual(f.events,[]);assert.equal(f.edits.pending,false);
+});
+
 test('a newer Save during the author-state flush coalesces into the latest saved text',async()=>{
  let release,entered;const enteredFlush=new Promise(resolve=>entered=resolve),blocked=new Promise(resolve=>release=resolve);
  let count=0;const f=fixture({async flush(){if(++count===1){entered();await blocked;}}});

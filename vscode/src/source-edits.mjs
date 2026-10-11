@@ -24,7 +24,7 @@ export function createSourceEdits(runtime,{flushPanel,unlockPanel,refreshPanel,r
  function flush(){saving=saving.catch(()=>{}).then(drain);return saving;}
  function save(document){
   const review=runtime.review,file=sourceFile(review,document);
-  if(disposed||!file||!review.workspace||document.isDirty)return Promise.resolve();
+  if(disposed||document.uri.scheme!=='file'||!file||!review.workspace||document.isDirty)return Promise.resolve();
   pending.set(file,{review:review.id,text:document.getText()});
   return flush();
  }

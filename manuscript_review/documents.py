@@ -1,5 +1,30 @@
 """Selected manuscript files and comments anchored to exact source versions."""
+import re
 from .comparison import compare, enrich_snapshot, git, read_blob
+
+
+def saved_source(record, path, version=None):
+    """Read pinned source without requiring or restoring a working file."""
+    if (not isinstance(path, str) or not path or '\\' in path
+            or path.startswith('/') or any(part in ('', '.', '..') for part in path.split('/'))):
+        raise ValueError('Choose a source file within the manuscript.')
+    snapshot = record['snapshot']
+    versions = [version] if version else [record['result'], snapshot['proposed'], snapshot['base'],
+               *(source for entry in reversed(record['history']) if entry['file'] == path
+                 for source in (entry['anchor']['revision'], entry['base'], entry['source_proposed'])), record['baseline']]
+    for source in dict.fromkeys(versions):
+        if not isinstance(source, str) or not re.fullmatch(r'[a-f0-9]{40}', source):
+            raise ValueError('Choose a pinned manuscript source version.')
+        entry = git(snapshot['repo'], 'ls-tree', source, '--', path).decode()
+        if not entry.startswith('100644 '):
+            continue
+        text = read_blob(snapshot['repo'], source, path)
+        if text is None:
+            continue
+        if '\0' in text or len(text) > 1_000_000:
+            raise ValueError('Choose a text source file of at most 1,000,000 characters.')
+        return {'file': path, 'source': source, 'text': text}
+    raise ValueError('This file has no saved source in the review.')
 
 
 def document_file(record, path):

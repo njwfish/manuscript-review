@@ -15,7 +15,7 @@ from .history import add_explanations, add_responses, build_history, round_id, a
 from .previews import Previews, preview_assets
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
-from .documents import document_file, manuscript_files, source_point
+from .documents import document_file, manuscript_files, source_point, saved_source
 from .render_latex import RENDER_VERSION
 from .workspace import edit_checkout, working_directory, same_repository
 from .merging import merge_text
@@ -177,11 +177,17 @@ class ReviewSession:
                 'documents': manifest.get('documents', {}) if valid else {},
                 'passages': preview_assets(manifest.get('passages', {})) if valid else {}}
 
-    def editor(self, path, text=None, point=None):
+    def editor(self, path, text=None, point=None, version=None):
         """Project review spans onto selected wording or an exact external buffer."""
         with self.store.transaction():
             record = self.store.read()
-        file = document_file(record, path)
+        if version is None:
+            file = document_file(record, path)
+        else:
+            saved = saved_source(record, path, version)
+            file = next((file for file in record['snapshot']['files'] if file['path'] == path), None)
+            if file is None:
+                file = enrich_snapshot({'files': [compare(path, saved['text'], saved['text'])]})['files'][0]
         projected = project_source(file, record['decisions'])
         original = projected.content or ''
         draft = record['drafts'].get(path)
@@ -210,8 +216,14 @@ class ReviewSession:
             anchor = entry['anchor']
             version = anchor['revision']
             if version not in sources:
-                sources[version] = SourceMap(read_blob(record['snapshot']['repo'], version, path) or '', text)
-            span = sources[version].project(SourceSpan(anchor['start'], anchor['end']))
+                source = read_blob(record['snapshot']['repo'], version, path)
+                sources[version] = SourceMap(source or '', text), source is None
+            note_mapping, missing = sources[version]
+            span = note_mapping.project(SourceSpan(anchor['start'], anchor['end']))
+            if missing and entry['before']:
+                start = text.find(entry['before'])
+                if start >= 0 and text.find(entry['before'], start + 1) < 0:
+                    span = SourceSpan(start, start + len(entry['before']))
             notes.append({'id': entry['id'], 'from': offset(span.start), 'to': offset(span.end), 'note': True})
         position = None
         if point is not None:
@@ -251,7 +263,6 @@ class ReviewSession:
     def _source_note(self, record, request, author, identifier):
         """Capture source context once for editor comments and imported feedback."""
         path, text, source = request['file'], request['text'], request['source']
-        file = document_file(record, path)
         draft = record['drafts'].get(path)
         if (not isinstance(text, str) or len(text) > 1_000_000
                 or source != (draft['source'] if draft else record['result'])):
@@ -263,6 +274,13 @@ class ReviewSession:
         parent = next((entry for entry in record['history'] if entry['id'] == request.get('parent')), None)
         if request.get('parent') and (parent is None or parent['file'] != path):
             raise ValueError('The original comment is not in this file.')
+        try:
+            file = document_file(record, path)
+        except ValueError:
+            if parent is None:
+                raise
+            saved = saved_source(record, path)
+            file = enrich_snapshot({'files': [compare(path, saved['text'], saved['text'])]})['files'][0]
         snapshot = record['snapshot']
         pinned = source_version(snapshot['repo'], record['result'], {path: text},
                                 'refs/manuscript-review/' + record['metadata']['id'] + '/notes',
