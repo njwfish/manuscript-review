@@ -1,4 +1,6 @@
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 from test_review import ReviewFixture
 from manuscript_review.storage import ReviewStore, atomic_json, atomic_chunks
@@ -6,6 +8,41 @@ from manuscript_review.comparison import git, read_blob
 
 
 class StateWriteTests(ReviewFixture):
+    def test_commit_publishes_its_cache_before_a_concurrent_state_save_can_continue(self):
+        store = self.session.store
+        record = store.read()
+        record['snapshot']['entry'] = 'main.tex'
+        replaced, release, entered = threading.Event(), threading.Event(), threading.Event()
+        write = store._write_record
+        def waiting(path, value):
+            result = write(path, value)
+            if threading.current_thread().name == 'source-commit':
+                replaced.set()
+                if not release.wait(5):
+                    raise RuntimeError('The test did not release cache publication.')
+            return result
+        def commit():
+            threading.current_thread().name = 'source-commit'
+            store.commit(record)
+        def state():
+            entered.set()
+            store.patch({'ui': {'file': 'main.tex'}})
+        with patch.object(store, '_write_record', side_effect=waiting), ThreadPoolExecutor(max_workers=2) as executor:
+            committed = executor.submit(commit)
+            self.assertTrue(replaced.wait(5))
+            saved = executor.submit(state)
+            self.assertTrue(entered.wait(5))
+            try:
+                with self.assertRaises(TimeoutError):
+                    saved.result(0.05)
+            finally:
+                release.set()
+            committed.result(5)
+            saved.result(5)
+        expected = {**record, 'ui': {'file': 'main.tex'}}
+        self.assertEqual(store.read(), expected)
+        self.assertEqual(json.loads(store.path.read_text()), expected)
+
     def test_state_updates_reuse_source_bytes_and_preserve_every_other_field(self):
         before = self.session.store.read()
         ui = {'file': 'main.tex', 'edit': 'selection'}

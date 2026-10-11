@@ -206,24 +206,26 @@ class ReviewStore:
         atomic_json(folder / (secrets.token_hex(12) + '.json'), request)
 
     def archive(self, record):
-        folder = self.directory / 'versions'
-        folder.mkdir(exist_ok=True)
-        self._write_record(folder / f'{record["revision"]:08d}.json', record)
+        with self.lock:
+            folder = self.directory / 'versions'
+            folder.mkdir(exist_ok=True)
+            self._write_record(folder / f'{record["revision"]:08d}.json', record)
 
     def commit(self, record, files=None):
-        validate_record(record)
-        if self.journal.exists():
-            raise ValueError('An interrupted manuscript save needs recovery before another write.')
-        if files:
-            # The journal is durable before any manuscript write. Recovery completes
-            # the exact same transaction, refusing any intervening external edits.
-            atomic_json(self.journal, {'record': record, 'files': files})
-            self.recover()
-            self.snapshot_json = None
-        else:
-            self.snapshot_json = self._write_record(self.path, record)
-        stat = self.path.stat()
-        self.cached = ((stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns), copy.deepcopy(record))
+        with self.lock:
+            validate_record(record)
+            if self.journal.exists():
+                raise ValueError('An interrupted manuscript save needs recovery before another write.')
+            if files:
+                # The journal is durable before any manuscript write. Recovery completes
+                # the exact same transaction, refusing any intervening external edits.
+                atomic_json(self.journal, {'record': record, 'files': files})
+                self.recover()
+                self.snapshot_json = None
+            else:
+                self.snapshot_json = self._write_record(self.path, record)
+            stat = self.path.stat()
+            self.cached = ((stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns), copy.deepcopy(record))
 
     def recover(self):
         transaction = read_json(self.journal)
