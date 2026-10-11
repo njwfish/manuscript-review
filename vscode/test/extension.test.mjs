@@ -529,6 +529,8 @@ test('comment dispatch saves the note and starts the selected CLI without touchi
  const request=f.calls.find(call=>call.kind==='request'&&call.route==='/agent');
  assert.equal(request.body.id,'saved-comment');assert.equal(request.body.revision,f.runtime.review.revision);
  assert.equal(request.body.agent,'claude');assert.equal(f.doc.isDirty,true);
+ assert.equal(request.body.authoring,true);
+ assert.equal(f.calls.some(call=>call.kind==='request'&&['/agent-request','/authoring'].includes(call.route)),false);
  assert.ok(f.calls.findIndex(call=>call.kind==='flush')<f.calls.indexOf(request));
  assert.equal(f.vscode.window.activeTextEditor,before);assert.equal(f.calls.some(call=>call.kind==='open-agent'||call.kind==='show-source'),false);
 });
@@ -537,6 +539,15 @@ test('repeated sends may run independently after each background handoff',async 
  const f=await fixture(t);await f.command('open');
  await f.commentsCallbacks.onAgent('first');await f.commentsCallbacks.onAgent('second');
  assert.deepEqual(f.calls.filter(call=>call.kind==='request'&&call.route==='/agent').map(call=>call.body.id),['first','second']);
+});
+
+test('dispatch retains its comment source when the author moves to another editor',async t=>{
+ const f=await fixture(t);await f.command('open');
+ const other={uri:uri(path.join(f.repo,'supporting.tex'))};
+ f.vscode.window.activeTextEditor={document:other};
+ await f.commentsCallbacks.onAgent('saved-comment',undefined,uri(f.source));
+ assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent').body.entry,'main.tex');
+ assert.equal(f.vscode.window.activeTextEditor.document,other);
 });
 
 test('review highlights switch off independently of comments and remain off across source refreshes',async t=>{

@@ -218,8 +218,23 @@ test('a follow-up dispatch keeps its saved identity even when the native refresh
  f.beforeProjection(()=>{if(f.data.revision>1)f.documents[0].change(f.documents[0].text+'!');});
  assert.equal(await f.command('sendComment',{thread,text:'Address this follow-up, not the preceding note.'}),true);
  assert.deepEqual(f.sent,['note-1']);assert.equal(f.data.history.at(-1).comment,'Address this follow-up, not the preceding note.');
- assert.equal(thread.reviewState.entry.id,'root','refresh legitimately leaves the preceding native presentation in place');
+ assert.equal(thread.reviewState.entry.id,'note-1','the saved follow-up is immediately available even if source refresh cannot finish');
+ assert.equal(thread.comments.at(-1).body,'Address this follow-up, not the preceding note.');
  f.comments.dispose();
+});
+
+test('send publishes the durable note and hands off while its source refresh is still waiting',async()=>{
+ const f=fixture([]),thread=await f.comments.annotate(f.editor);
+ let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ const data=f.runtime.data;f.runtime.data=async()=>{entered();await gate;return data();};
+ const sending=f.command('sendComment',{thread,text:'Work while I keep reading.'});
+ await started;
+ assert.equal(await sending,true);assert.deepEqual(f.sent,['note-1']);
+ assert.equal(thread.comments[0].body,'Work while I keep reading.');
+ assert.equal(thread.comments[0].editable,true);assert.equal(thread.reviewState.data.revision,2);
+ release();await f.comments.refresh();
+ assert.equal(f.created.length,1);assert.equal(f.created[0],thread);
+ assert.deepEqual(f.errors,[]);f.comments.dispose();
 });
 
 test('refresh keeps native thread objects, reply inputs, and an unfinished root edit',async()=>{

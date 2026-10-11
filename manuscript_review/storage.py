@@ -49,6 +49,10 @@ class FileLock:
 
 
 def atomic_bytes(path, contents):
+    atomic_chunks(path, (contents,))
+
+
+def atomic_chunks(path, chunks):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
@@ -57,7 +61,8 @@ def atomic_bytes(path, contents):
         with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.' + path.name + '-', delete=False) as file:
             temporary = Path(file.name)
             os.fchmod(file.fileno(), mode)
-            file.write(contents)
+            for chunk in chunks:
+                file.write(chunk)
             file.flush()
             os.fsync(file.fileno())
         temporary.replace(path)
@@ -140,6 +145,7 @@ class ReviewStore:
         self.path = self.directory / 'review.json'
         self.journal = self.directory / 'transaction.json'
         self.cached = None
+        self.snapshot_json = None
 
     @contextmanager
     def transaction(self):
@@ -154,13 +160,45 @@ class ReviewStore:
     def read(self, select=None):
         """Copy only a caller's projection, without exposing the cached record."""
         with self.lock:
-            if not self.path.exists():
-                raise ValueError('Review record not found.')
+            record = self._record()
+            return copy.deepcopy(select(record) if select else record)
+
+    def _record(self):
+        if not self.path.exists():
+            raise ValueError('Review record not found.')
+        stat = self.path.stat()
+        version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        if self.cached is None or self.cached[0] != version:
+            self.cached = (version, validate_record(read_json(self.path)))
+            self.snapshot_json = None
+        return self.cached[1]
+
+    def _write_record(self, path, record):
+        """Reuse immutable comparison bytes within the same canonical JSON record."""
+        snapshot = self.snapshot_json
+        if snapshot is None or self.cached is None or record['snapshot'] != self.cached[1]['snapshot']:
+            snapshot = json.dumps(record['snapshot'], ensure_ascii=False, separators=(',', ':')).encode()
+        def chunks():
+            yield b'{\n'
+            for index, (key, value) in enumerate(record.items()):
+                if index:
+                    yield b',\n'
+                yield (json.dumps(key) + ': ').encode()
+                yield snapshot if key == 'snapshot' else json.dumps(value, ensure_ascii=False, indent=2).encode()
+            yield b'\n}\n'
+        atomic_chunks(path, chunks())
+        return snapshot
+
+    def patch(self, fields):
+        """Replace mutable fields without copying the unchanged source comparison."""
+        with self.transaction():
+            previous = self._record()
+            if not fields.keys() <= previous.keys() - {'schema', 'snapshot'}:
+                raise ValueError('A state update cannot replace the source comparison or record format.')
+            record = validate_record({**previous, **copy.deepcopy(fields)})
+            self.snapshot_json = self._write_record(self.path, record)
             stat = self.path.stat()
-            version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
-            if self.cached is None or self.cached[0] != version:
-                self.cached = (version, validate_record(read_json(self.path)))
-            return copy.deepcopy(select(self.cached[1]) if select else self.cached[1])
+            self.cached = ((stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns), record)
 
     def backup_request(self, request):
         folder = self.directory / 'conflicting-drafts'
@@ -168,23 +206,26 @@ class ReviewStore:
         atomic_json(folder / (secrets.token_hex(12) + '.json'), request)
 
     def archive(self, record):
-        folder = self.directory / 'versions'
-        folder.mkdir(exist_ok=True)
-        atomic_json(folder / f'{record["revision"]:08d}.json', record)
+        with self.lock:
+            folder = self.directory / 'versions'
+            folder.mkdir(exist_ok=True)
+            self._write_record(folder / f'{record["revision"]:08d}.json', record)
 
     def commit(self, record, files=None):
-        validate_record(record)
-        if self.journal.exists():
-            raise ValueError('An interrupted manuscript save needs recovery before another write.')
-        if files:
-            # The journal is durable before any manuscript write. Recovery completes
-            # the exact same transaction, refusing any intervening external edits.
-            atomic_json(self.journal, {'record': record, 'files': files})
-            self.recover()
-        else:
-            atomic_json(self.path, record)
-        stat = self.path.stat()
-        self.cached = ((stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns), copy.deepcopy(record))
+        with self.lock:
+            validate_record(record)
+            if self.journal.exists():
+                raise ValueError('An interrupted manuscript save needs recovery before another write.')
+            if files:
+                # The journal is durable before any manuscript write. Recovery completes
+                # the exact same transaction, refusing any intervening external edits.
+                atomic_json(self.journal, {'record': record, 'files': files})
+                self.recover()
+                self.snapshot_json = None
+            else:
+                self.snapshot_json = self._write_record(self.path, record)
+            stat = self.path.stat()
+            self.cached = ((stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns), copy.deepcopy(record))
 
     def recover(self):
         transaction = read_json(self.journal)

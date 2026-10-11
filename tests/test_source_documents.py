@@ -79,6 +79,10 @@ class SourceDocumentTests(ReviewFixture):
                                    'parent':note['id']})['entry']
         self.assertEqual(reply['origin_id'],note['origin_id'])
         self.assertEqual(reply['before'],'Deleted')
+        from manuscript_review.comparison import read_blob
+        self.assertEqual(read_blob(self.repo, reply['anchor']['revision'], 'deleted.txt'), source['text'])
+        refreshed = current.editor('deleted.txt', source['text'], version=source['source'])
+        self.assertIn({'id': reply['id'], 'from': 0, 'to': 7, 'note': True}, refreshed['notes'])
         self.assertFalse((self.repo / 'deleted.txt').exists())
 
     def test_deletion_edit_comment_retains_its_original_source_across_rounds(self):

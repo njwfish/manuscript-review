@@ -97,7 +97,7 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                     result = session.agent_request(request)
                 elif self.path == '/agent':
                     from .dispatch import dispatch_comment
-                    result = dispatch_comment(session.agent_request(request), request['agent'], session.directory.parent.parent, model=request.get('model'))
+                    result = dispatch_comment(session.dispatch_task(request), request['agent'], session.directory.parent.parent, model=request.get('model'))
                 elif self.path == '/agents':
                     from .dispatch import agent_runs
                     result = {'runs': agent_runs(session.directory.parent.parent, session.directory.name)}

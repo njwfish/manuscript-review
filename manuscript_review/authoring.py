@@ -1,5 +1,4 @@
 """Keep author wording as the base of one accumulating agent comparison."""
-import copy
 from .anchors import SourceMap, SourceSpan
 from .comparison import build_snapshot
 from .feedback import feedback_report
@@ -48,7 +47,7 @@ def authored_text(before, baseline, saved):
 
 
 def rebase(record, base, directory, proposed=None):
-    previous = copy.deepcopy(record)
+    previous = dict(record)
     old = previous['snapshot']
     snapshot = build_snapshot(old['repo'], base, proposed or old['proposed'], text_only=True)
     snapshot.update({key: old[key] for key in ('source_head', 'entry', 'token', 'created')})

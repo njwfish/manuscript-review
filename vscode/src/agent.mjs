@@ -31,7 +31,7 @@ export function createAgentTools({extensionPath,storagePath,version,python=''}){
  }
  async function run(command,args,source){
   try{
-   const result=await execute(command,['-m','manuscript_review.agent',...args],{env:{...process.env,PYTHONPATH:source},maxBuffer:1_000_000});
+   const result=await execute(command,['-m','manuscript_review.agent',...args],{cwd:source,env:{...process.env,PYTHONPATH:source},maxBuffer:1_000_000});
    return JSON.parse(result.stdout);
   }catch(error){throw new Error(error.stderr?.trim()||error.message);}
  }

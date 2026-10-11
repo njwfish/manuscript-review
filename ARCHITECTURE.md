@@ -157,6 +157,18 @@ edit identities and counts and load on demand. Record and library caches invalid
 on file metadata changes, and PDF/SVG transport caches include the source version.
 These caches and response projections never replace the canonical record.
 
+State-only saves patch explicit fields without copying the source comparison. The
+store reuses its serialized snapshot while streaming one complete `review.json`
+through the same durable atomic replacement. External record replacements invalidate
+both caches. Archives remain complete records, and manuscript writes retain their
+recovery journal. Comments whose captured text matches the selected source pin that
+existing commit directly; unsaved and historical source still creates an exact checkpoint.
+
+Native comment submission promotes the saved thread immediately and refreshes its
+source and sidebar in the background. One `/agent` request checks the saved discussion,
+enters authoring when requested, and returns a task for the committed revision. CLI
+handoff follows that transaction; provider execution remains detached.
+
 Interactive reads select their needed fields before copying the record. The sidebar
 reads counts and comparison metadata; source projections read one file and its anchors.
 Pinned Git sources have bounded session caches. Native typing reuses review data and

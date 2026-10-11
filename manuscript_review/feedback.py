@@ -2,6 +2,13 @@
 from .history import build_history, discussion_id
 
 
+def feedback_record(record):
+    """Current comments need source files; saved discussion already carries context."""
+    files = [file for file in record['snapshot']['files'] if any(record['comments'].get(item['id'], '').strip()
+             for passage in file['hunks'] for item in [passage, *passage['edits']])]
+    return {**record, 'snapshot': {**record['snapshot'], 'files': files}}
+
+
 def validate_comments(snapshot, comments):
     valid = {g['id'] for f in snapshot['files'] for g in f['edits']}
     valid.update(h['id'] for f in snapshot['files'] for h in f['hunks'])
