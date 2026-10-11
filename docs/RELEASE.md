@@ -1,8 +1,8 @@
-Manuscript Review 0.14.9 includes the standalone macOS app and VS Code extension 0.1.16, built from the same commit. Both interfaces and the shared engine are maintained on `main`.
+Manuscript Review 0.14.10 includes the standalone macOS app and VS Code extension 0.1.17, built from the same commit. Both interfaces and the shared engine are maintained on `main`.
 
-This release fixes source and comment navigation when a reviewed file has been deleted or moved. Missing files open in a read-only VS Code editor from their saved Git version. Existing comments remain accessible, and a missing filename no longer interrupts comment loading for the rest of the review. Already open source buffers retain unsaved text. Opening saved source leaves deleted files deleted and preserves review records, decisions, and discussion.
+This release keeps a paragraph comment's native gutter icon on the blank line immediately following its selected text. VS Code repeats whole-line icons on soft-wrapped rows; a paragraph break gives the comment one marker. Saved source anchors remain exact, and navigation and replies use the original selection. Comments without a following paragraph break retain their existing placement.
 
-Saved-source tabs retain their exact source version across review changes and window reloads. Permission errors and source paths outside the manuscript remain explicit errors.
+Review records, decisions, discussions, and manuscript files need no migration or rewriting. The native comment thread and its unfinished inputs remain intact across refreshes.
 
 Download the app ZIP for Apple Silicon macOS 13 or later, or install the `.vsix` through **Extensions → Install from VSIX…**. The extension runs independently on macOS and Linux with Git and Python 3.12 or later. [Installation](https://github.com/njwfish/manuscript-review/blob/main/docs/INSTALL.md) covers prerequisites and agent skill setup; the [VS Code guide](https://github.com/njwfish/manuscript-review/blob/main/vscode/README.md) and [standalone guide](https://github.com/njwfish/manuscript-review/blob/main/README.md#review-in-the-standalone-app) describe the review cycle. Reload VS Code after updating. **Setup and agent skill** refreshes the bundled instructions and command launcher.
 

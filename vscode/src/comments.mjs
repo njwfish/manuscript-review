@@ -57,10 +57,20 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   }
 
   function makeThread(document,range) {
-    const thread=controller.createCommentThread(document.uri,range,[]);
+    const thread=controller.createCommentThread(document.uri,displayRange(document,range),[]);
     thread.contextValue='manuscriptReview';
     thread.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
     return thread;
+  }
+
+  function displayRange(document,range) {
+    if(!range)return range;
+    const text=document.getText(),lineEnd=text.indexOf('\n',document.offsetAt(range.end));
+    if(lineEnd<0)return range;
+    const nextEnd=text.indexOf('\n',lineEnd+1);
+    if(text.slice(lineEnd+1,nextEnd<0?text.length:nextEnd).trim())return range;
+    // Native whole-line icons repeat on wrapped rows. Paragraph breaks do not wrap.
+    return new vscode.Range(range.start,document.positionAt(lineEnd+1));
   }
 
   function suspendThread(state) {
@@ -153,9 +163,9 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
         state={thread:makeThread(projection.document,range)};
         threads.set(key,state);state.thread.reviewState=state;
       }
-      Object.assign(state,{entry,origin,key,data,projection,reviewId:review.id});
+      Object.assign(state,{entry,origin,key,data,projection,range,reviewId:review.id});
       resumeThread(state);
-      state.thread.range=range;
+      state.thread.range=displayRange(projection.document,range);
       state.thread.canReply=!entry.current;
       commentsFor(state,groups.get(origin));
       present.add(key);
@@ -262,17 +272,17 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   async function move(direction) {
     const runtime=getRuntime();
     if(!await refresh())return false;
-    const states=[...threads.values()].filter(state=>state.reviewId===runtime.review?.id&&state.thread.range&&(includeResolved||!state.entry.resolved))
-      .sort((a,b)=>a.entry.file.localeCompare(b.entry.file)||a.thread.range.start.compareTo(b.thread.range.start));
+    const states=[...threads.values()].filter(state=>state.reviewId===runtime.review?.id&&state.range&&(includeResolved||!state.entry.resolved))
+      .sort((a,b)=>a.entry.file.localeCompare(b.entry.file)||a.range.start.compareTo(b.range.start));
     if(!states.length)return false;
     const native=vscode.window.activeTextEditor,file=fileFor(native?.document),cursor=native?.selection.active;
     let current=states.findIndex(state=>state.key===activeThread),next;
     if(file&&cursor) {
-      const contains=state=>state.projection.document===native.document&&state.thread.range.contains(cursor);
+      const contains=state=>state.projection.document===native.document&&state.range.contains(cursor);
       if(current<0||!contains(states[current]))current=states.findIndex(contains);
       if(current<0) {
         const after=states.findIndex(state=>state.entry.file.localeCompare(file)>0
-          ||(state.entry.file===file&&state.thread.range.start.compareTo(cursor)>0));
+          ||(state.entry.file===file&&state.range.start.compareTo(cursor)>0));
         next=direction<0?(after<0?states.length-1:Math.max(0,after-1)):(after<0?states.length-1:after);
       }
     }
@@ -281,8 +291,8 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     if(document.getText()!==text)return false;
     const editor=await vscode.window.showTextDocument(document,{preserveFocus:false});
     if(runtime.review?.id!==id||runtime.review.revision!==revision||document.version!==version||document.getText()!==text)return false;
-    editor.selection=new vscode.Selection(state.thread.range.start,state.thread.range.end);
-    editor.revealRange(state.thread.range,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    editor.selection=new vscode.Selection(state.range.start,state.range.end);
+    editor.revealRange(state.range,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
     state.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Expanded;
     activeThread=state.key;
     return true;

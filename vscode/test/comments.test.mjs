@@ -117,6 +117,44 @@ test('projects exact dirty-buffer UTF-16 spans and groups roots with responses a
   f.comments.dispose();
 });
 
+test('paragraph comments use one marker at the following break while navigation and replies retain the exact selection',async()=>{
+  const text='🙂 '+ 'A long manuscript sentence. '.repeat(18)+'selected words.';
+  const selected=text.slice(8,text.length-1),f=fixture([source('root','main.tex','Please clarify.',{before:selected})]);
+  f.documents[0].change(text+'\r\n\r\nAnother paragraph.');
+  await f.comments.refresh();
+  const thread=f.created[0],range=thread.reviewState.range;
+  assert.deepEqual(range,new Range(new Position(0,8),new Position(0,text.length-1)));
+  assert.deepEqual(thread.range,new Range(range.start,new Position(1,0)));
+  thread.input='An unfinished reply';f.data.revision++;await f.comments.refresh();
+  assert.equal(f.created.length,1);assert.equal(thread.input,'An unfinished reply');
+  assert.equal(await f.comments.move(1),true);
+  assert.deepEqual(f.vscode.window.activeTextEditor.selection,new Selection(range.start,range.end));
+  assert.deepEqual(f.vscode.window.activeTextEditor.revealed,range);
+  await f.command('reply',{thread,text:'Follow up on those words.'});
+  const write=f.requests.find(request=>request.route==='/note');
+  assert.equal(write.body.text.slice(write.body.start,write.body.end),selected);
+  assert.equal(f.documents[0].getText(),text+'\r\n\r\nAnother paragraph.');
+  f.comments.dispose();
+});
+
+test('new native comments retain their selection while the marker sits on a paragraph break',async()=>{
+  const f=fixture([]);f.documents[0].change('A sentence with selected words here.\n\nNext paragraph.');
+  const thread=await f.comments.annotate(f.editor);
+  assert.deepEqual(thread.range.end,new Position(1,0));
+  await f.command('reply',{thread,text:'Please refine this selection.'});
+  const write=f.requests.find(request=>request.route==='/note');
+  assert.deepEqual([write.body.start,write.body.end],[6,20]);
+  f.comments.dispose();
+});
+
+test('markers do not extend into subsequent source text or beyond the document',async()=>{
+  for(const ending of ['\nMore source immediately follows.','']){
+    const f=fixture();f.documents[0].change('First selected words.'+ending);
+    await f.comments.refresh();assert.deepEqual(f.created[0].range,f.created[0].reviewState.range);
+    f.comments.dispose();
+  }
+});
+
 test('send saves a new comment before dispatch and a failed save never launches an agent',async()=>{
  const f=fixture([]),thread=await f.comments.annotate(f.editor);
  f.failNote(true);

@@ -6,7 +6,7 @@
     "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
