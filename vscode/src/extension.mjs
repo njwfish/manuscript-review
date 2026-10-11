@@ -109,6 +109,7 @@ export function activate(context){
    delivery=createDelivery(vscode,runtime,{sourceEdits,openDocument:sources.open,reviewing:()=>panel.visible,
     onConflict:()=>showAgentHighlights('Saved your wording; overlapping agent changes await review.'),
     onDelivered:()=>showAgentHighlights('Agent changes joined your saved draft.')});
+   void prepareTools().catch(error=>output.appendLine('Agent tools: '+error.message));
   })().finally(()=>{starting=undefined;});
   return starting;
  }
@@ -227,14 +228,11 @@ export function activate(context){
   const agent=selectedAgent();
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   await prepareTools();
-  if(!panel.visible){
-   const task=await runtime.request('/agent-request',{id:identifier,launcher:agentTools.launcher,skill:agentTools.skill});
-   identifier=task.discussion;
-   await runtime.request('/authoring',{entry:sourceFile(runtime.review,vscode.window.activeTextEditor?.document)});
-  }
-  const data=await runtime.request('/summary');
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
-  const result=await runtime.request('/agent',{revision:data.revision,id:identifier,launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id,...(agent.model?{model:agent.model}:{})});
+  const result=await runtime.request('/agent',{revision:runtime.review.revision,id:identifier,
+   authoring:!panel.visible,entry:sourceFile(runtime.review,sourceUri?{uri:sourceUri}:vscode.window.activeTextEditor?.document),
+   launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id,...(agent.model?{model:agent.model}:{})});
+  panel.changed();
   output.appendLine(result.message+' Output: '+result.log);
   vscode.window.setStatusBarMessage(result.message,4000);
   return true;

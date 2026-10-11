@@ -54,11 +54,11 @@ class Previews:
                 if (manifest.get('base'), manifest.get('proposed'), manifest.get('renderer')) == (snapshot['base'], snapshot['proposed'], RENDER_VERSION):
                     if record['metadata'].get(status_key) in ('queued', 'rendering'):
                         record['metadata'][status_key] = 'ready'
-                        store.commit(record)
+                        store.patch({'metadata': record['metadata']})
                     return
                 generation = (snapshot['base'], snapshot['proposed'])
                 record['metadata'][status_key] = 'rendering'
-                store.commit(record)
+                store.patch({'metadata': record['metadata']})
             try:
                 cache = store.directory / 'preview-cache' / '-'.join(generation)
                 cache.mkdir(parents=True, exist_ok=True)
@@ -77,10 +77,11 @@ class Previews:
                 result, error = 'error', str(failure)
                 rendered = {}
             with store.transaction():
-                record = store.read()
+                record = store.read(lambda record: {key: record[key] for key in ('metadata', 'baseline', 'result')}
+                                    | {'snapshot': {key: record['snapshot'][key] for key in ('base', 'proposed')}})
                 current = ((record['snapshot']['base'], record['snapshot']['proposed']) if scope == 'round'
                            else (record['baseline'], record['result']))
                 if current == generation:
                     atomic_json(output / 'manifest.json', {'base': generation[0], 'proposed': generation[1], 'renderer': RENDER_VERSION, **rendered})
                     record['metadata'].update({status_key: result, error_key: error})
-                    store.commit(record)
+                    store.patch({'metadata': record['metadata']})

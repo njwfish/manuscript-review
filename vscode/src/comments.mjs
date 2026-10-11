@@ -217,7 +217,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     return thread;
   }
 
-  async function changed() {await refresh();await onChange?.();}
+  async function changed() {await refresh();if(!disposed)await onChange?.();}
 
   async function reply({thread,text}) {
     if(!text.trim())return false;
@@ -253,7 +253,12 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       state.key=threadKey(state.thread.uri,state.origin);
       threads.set(state.key,state);activeThread=state.key;
     }
-    await changed();
+    state.data={...(state.data||cachedData),revision:result.revision};
+    const messages=state.thread.comments.filter(comment=>comment.id===comment.entry.id).map(comment=>comment.entry);
+    state.entry={...result.entry,resolved:state.data.resolved?.includes(result.entry.origin_id)||state.entry.resolved};
+    commentsFor(state,[...messages,state.entry]);
+    resumeThread(state);
+    void changed().catch(error=>{if(!disposed)void vscode.window.showErrorMessage('Comment saved. Could not refresh its source: '+error.message);});
     return result.entry.id;
   }
 

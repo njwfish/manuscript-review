@@ -68,6 +68,33 @@ class DispatchTests(ReviewFixture):
         with patch('manuscript_review.dispatch.shutil.which', return_value=None), self.assertRaisesRegex(ValueError, 'not installed'):
             dispatch_comment({}, 'codex', self.root)
 
+    def test_native_dispatch_enters_authoring_once_and_keeps_the_original_discussion(self):
+        self.session.edit_workspace(self.request())
+        note = self.session.report()['comments'][0]
+        self.session.resolve_thread(self.request(id=note['discussion_id'], resolved=True))
+        before = self.session.store.read()
+        task = self.session.dispatch_task(self.request(id=self.identifier, authoring=True))
+        after = self.session.store.read()
+        self.assertTrue(after['metadata']['authoring'])
+        self.assertEqual(task['discussion'], note['discussion_id'])
+        self.assertEqual(task['revision'], after['revision'])
+        self.assertEqual(after['baseline'], before['baseline'])
+        self.assertEqual(after['resolved'], before['resolved'])
+        archived = json.loads((self.directory / 'versions' / f'{before["revision"]:08d}.json').read_text())
+        self.assertEqual(archived, before)
+        unchanged = self.session.store.path.read_bytes()
+        self.session.dispatch_task(self.request(id=task['discussion'], authoring=True))
+        self.assertEqual(self.session.store.path.read_bytes(), unchanged)
+
+    def test_invalid_native_dispatch_cannot_change_the_comparison(self):
+        self.session.edit_workspace(self.request())
+        before = self.session.store.path.read_bytes()
+        for request in (self.request(id='missing', authoring=True), self.request(id=self.identifier, authoring=True, revision=-1)):
+            with self.assertRaises(ValueError):
+                self.session.dispatch_task(request)
+        self.assertEqual(self.session.store.path.read_bytes(), before)
+        self.assertFalse((self.directory / 'versions').exists())
+
     def test_codex_gets_exact_stdin_and_an_independent_process_group(self):
         task = self.session.agent_request(self.request(id=self.identifier))
         prompts = []

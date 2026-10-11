@@ -12,7 +12,7 @@ from .comparison import compare, enrich_snapshot, make_patch, validate_decisions
 from .editing import selected_content, project_source, projection_blocks
 from .file_editing import file_replacements, replace_ranges
 from .anchors import SourceSpan, SourceMap
-from .feedback import feedback_report, validate_comments
+from .feedback import feedback_report, feedback_record, validate_comments
 from .history import add_explanations, add_responses, build_history, round_id, attach
 from .previews import Previews, preview_assets
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
@@ -39,6 +39,7 @@ class ReviewSession:
         self.cumulative_history = None
         self.status_cache = None
         self.note_sources = OrderedDict()
+        self.note_versions = OrderedDict()
         self.editor_files = OrderedDict()
         self.comparison_lock = FileLock(self.directory / '.comparison.lock')
         with self.store.transaction():
@@ -69,12 +70,22 @@ class ReviewSession:
     def agent_request(self, request):
         from .dispatch import comment_task
         with self.store.transaction():
-            record = self.store.read(lambda record: {**record, 'snapshot': {**record['snapshot'], 'files': [
-                file for file in record['snapshot']['files'] if any(record['comments'].get(item['id'], '').strip()
-                for passage in file['hunks'] for item in [passage, *passage['edits']])]}})
+            record = self.store.read(feedback_record)
             self.check_revision(request, record)
             return comment_task(record, self.directory, request['id'], skill=request.get('skill'),
                                 launcher=request.get('launcher'))
+
+    def dispatch_task(self, request):
+        """Prepare authoring and the canonical discussion in one checked transaction."""
+        from .dispatch import comment_note
+        with self.store.transaction():
+            if request.get('authoring'):
+                record = self.store.read(feedback_record)
+                self.check_revision(request, record)
+                note = comment_note(record, request['id'])
+                revision, _ = self._enter_authoring(request)
+                request = {**request, 'revision': revision, 'id': note.get('discussion_id', note['id'])}
+            return self.agent_request(request)
 
     def selected_patch(self, scope='round'):
         with self.store.transaction():
@@ -83,7 +94,7 @@ class ReviewSession:
 
     def comparison(self, record, scope):
         if scope in ('round', 'manuscript'):
-            return copy.deepcopy(record['snapshot'])
+            return record['snapshot']
         with self.comparison_lock:
             if self.cumulative is None or self.cumulative[0] != record['result']:
                 current = record['snapshot']
@@ -167,9 +178,7 @@ class ReviewSession:
         if not isinstance(ui, dict) or 'drafts' in ui or len(json.dumps(ui)) > 2_000_000:
             raise ValueError('Invalid review position.')
         with self.store.transaction():
-            record = self.store.read()
-            record['ui'] = ui
-            self.store.commit(record)
+            self.store.patch({'ui': ui})
         return {'message': 'Review position saved.'}
 
     def _status(self):
@@ -213,15 +222,7 @@ class ReviewSession:
         if version is None:
             file = next(iter(record['snapshot']['files']), None)
             if file is None:
-                snapshot = record['snapshot']
-                key = (snapshot['repo'], snapshot['base'], snapshot['proposed'], path)
-                with self.store.transaction():
-                    if key not in self.editor_files:
-                        self.editor_files[key] = document_file(record, path)
-                    self.editor_files.move_to_end(key)
-                    file = self.editor_files[key]
-                    while len(self.editor_files) > 8:
-                        self.editor_files.popitem(last=False)
+                file = self._document_file(record, path)
         else:
             saved = saved_source(record, path, version)
             file = next((file for file in record['snapshot']['files'] if file['path'] == path), None)
@@ -280,10 +281,26 @@ class ReviewSession:
         return {'revision': record['revision'], 'file': path, 'source': draft['source'] if draft else record['result'],
                 'original': original, 'text': text, 'ranges': ranges, 'passages': passages, 'notes': notes, 'position': position}
 
+    def _document_file(self, record, path):
+        """Share immutable unchanged-file comparisons between projection and comments."""
+        existing = next((file for file in record['snapshot']['files'] if file['path'] == path), None)
+        if existing is not None:
+            return existing
+        snapshot = record['snapshot']
+        key = (snapshot['repo'], snapshot['base'], snapshot['proposed'], path)
+        with self.store.transaction():
+            if key not in self.editor_files:
+                self.editor_files[key] = document_file(record, path)
+            self.editor_files.move_to_end(key)
+            while len(self.editor_files) > 8:
+                self.editor_files.popitem(last=False)
+            return self.editor_files[key]
+
     def save_note(self, request):
         """Use ordinary discussion entries for comments on any source selection."""
         with self.store.transaction():
-            record = self.store.read()
+            record = self.store.read(lambda record: {**record, 'snapshot': {**record['snapshot'],
+                'files': [file for file in record['snapshot']['files'] if file['path'] == request.get('file')]}})
             self.check_revision(request, record)
             comment = request['comment']
             if not isinstance(comment, str) or len(comment) > 20_000:
@@ -305,7 +322,7 @@ class ReviewSession:
                 entry = self._source_note(record, request, 'user', identifier)
                 record['history'].append(entry)
             record['revision'] += 1
-            self.store.commit(record)
+            self.store.patch({'revision': record['revision'], 'history': record['history']})
             return {'revision': record['revision'], 'entry': entry, 'message': 'Comment saved.'}
 
     def _source_note(self, record, request, author, identifier):
@@ -323,16 +340,29 @@ class ReviewSession:
         if request.get('parent') and (parent is None or parent['file'] != path):
             raise ValueError('The original comment is not in this file.')
         try:
-            file = document_file(record, path)
+            file = self._document_file(record, path)
+            selected = selected_content(file, record['decisions'])
         except ValueError:
             if parent is None:
                 raise
             saved = saved_source(record, path)
             file = enrich_snapshot({'files': [compare(path, saved['text'], saved['text'])]})['files'][0]
+            selected = None
         snapshot = record['snapshot']
-        pinned = source_version(snapshot['repo'], record['result'], {path: text},
-                                'refs/manuscript-review/' + record['metadata']['id'] + '/notes',
-                                'Manuscript Review comment source')
+        reference = 'refs/manuscript-review/' + record['metadata']['id'] + '/notes'
+        key = (snapshot['repo'], record['result'], path, text)
+        if key not in self.note_versions:
+            if selected == text:
+                pinned = record['result']
+                git(snapshot['repo'], 'update-ref', reference + '/' + pinned, pinned)
+            else:
+                pinned = source_version(snapshot['repo'], record['result'], {path: text}, reference,
+                                        'Manuscript Review comment source')
+            self.note_versions[key] = pinned
+        self.note_versions.move_to_end(key)
+        pinned = self.note_versions[key]
+        while len(self.note_versions) > 16:
+            self.note_versions.popitem(last=False)
         breaks = list(re.finditer(r'\r?\n\r?\n', text))
         left = max((match.end() for match in breaks if match.end() <= start), default=0)
         right = min((match.start() for match in breaks if match.start() >= end), default=len(text))
@@ -398,11 +428,13 @@ class ReviewSession:
 
     def save_draft(self, request):
         with self.store.transaction():
-            record = self.store.read()
+            record = self.store.read(lambda record: {**record, 'snapshot': {**record['snapshot'],
+                'files': [file for file in record['snapshot']['files'] if file['path'] == request['id']]}})
             self.check_revision(request, record)
             identifier, draft = request['id'], request['draft']
             discard_saved = draft is None and identifier in record['drafts']
-            file = None if discard_saved else document_file(record, identifier)
+            if not discard_saved:
+                self._document_file(record, identifier)
             if draft is not None:
                 if (not isinstance(draft, dict) or draft.get('file') != identifier
                         or set(draft) != {'file', 'source', 'text'}
@@ -419,13 +451,13 @@ class ReviewSession:
                 else:
                     record['drafts'][identifier] = draft
                 record['revision'] += 1
-                self.store.commit(record)
+                self.store.patch({'revision': record['revision'], 'drafts': record['drafts']})
             return {'revision': record['revision'], 'message': 'Draft saved.' if draft is not None else 'Draft discarded.'}
 
     def resolve_thread(self, request):
         """Resolve one discussion origin without changing wording or its messages."""
         with self.store.transaction():
-            record = self.store.read()
+            record = self.store.read(feedback_record)
             self.check_revision(request, record)
             if type(request.get('resolved')) is not bool:
                 raise ValueError('Choose resolved or unresolved for this thread.')
@@ -447,7 +479,7 @@ class ReviewSession:
                     resolved.discard(origin)
                 record['resolved'] = sorted(resolved)
                 record['revision'] += 1
-                self.store.commit(record)
+                self.store.patch({'revision': record['revision'], 'resolved': record['resolved']})
             return {'revision': record['revision'], 'resolved': record['resolved'],
                     'message': 'Comment resolved.' if request['resolved'] else 'Comment reopened.'}
 
@@ -466,7 +498,7 @@ class ReviewSession:
             r['history'] = add_responses(entries, records)
             r['comments'] = {key: text for key, text in r['comments'].items() if key not in notes}
             r['revision'] += 1
-            self.store.commit(r)
+            self.store.patch({'revision': r['revision'], 'history': r['history'], 'comments': r['comments']})
             return {'history': r['history'], 'comments': r['comments'], 'revision': r['revision']}
 
     def import_explanations(self, records, revision):
@@ -477,7 +509,7 @@ class ReviewSession:
             if entries != r['history']:
                 r['history'] = entries
                 r['revision'] += 1
-                self.store.commit(r)
+                self.store.patch({'revision': r['revision'], 'history': r['history']})
             return {'history': r['history'], 'revision': r['revision']}
 
     def check_revision(self, request, previous):
@@ -504,7 +536,7 @@ class ReviewSession:
             record.update(decisions=request['decisions'], comments=request['comments'], revision=previous['revision'] + 1)
             record['result'] = selected_version(record)
             if action == 'save':
-                self.store.commit(record)
+                self.store.patch({key: record[key] for key in ('revision', 'result', 'decisions', 'comments')})
                 return {'revision': record['revision'], 'result': record['result'], 'message': 'Saved locally.'}
             if action == 'apply':
                 if record['drafts']:
@@ -666,17 +698,24 @@ class ReviewSession:
         return {'revision': record['revision'], 'data': self.view(file=path, interactive=interactive), 'message': f'Saved edits to {path}; comparison updated.'}
 
     def authoring(self, request, *, interactive=False):
+        revision, changed = self._enter_authoring(request)
+        result = {'revision': revision}
+        if changed:
+            result['data'] = self.view(file=request.get('entry'), interactive=interactive)
+        return result
+
+    def _enter_authoring(self, request):
         """Enter authoring in this review; retain the earlier comparison verbatim."""
         from .authoring import rebase
         with self.store.transaction():
             state = self.store.read(lambda record: {'revision': record['revision'], 'metadata': record['metadata']})
             self.check_revision(request, state)
             if state['metadata'].get('authoring'):
-                return {'revision': state['revision']}
+                return state['revision'], False
             previous = self.store.read()
             if 'workspace' not in previous['metadata'] or previous['drafts']:
                 raise ValueError('Open the editing folder and save or discard retained drafts before reviewing agent changes.')
-            record = copy.deepcopy(previous)
+            record = {**previous, 'metadata': dict(previous['metadata'])}
             with repository_lock(record['snapshot']['repo']):
                 rebase(record, record['metadata']['workspace_version'], self.directory, proposed=record['result'])
                 entry = request.get('entry')
@@ -691,7 +730,7 @@ class ReviewSession:
                 self.store.commit(record)
         if record['snapshot']['entry']:
             self.previews.queue()
-        return {'revision': record['revision'], 'data': self.view(file=request.get('entry'), interactive=interactive)}
+        return record['revision'], True
 
     def delivery(self, request):
         """Plan exact editor replacements; only the editor writes or saves buffers."""

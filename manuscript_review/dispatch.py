@@ -20,17 +20,22 @@ from .storage import atomic_json, read_json
 AGENTS = {'codex': 'Codex', 'claude': 'Claude Code'}
 
 
-def comment_task(record, directory, identifier, *, skill=None, launcher=None):
+def comment_note(record, identifier):
     if not isinstance(identifier, str) or not identifier:
         raise ValueError('Save this comment before sending it to an agent.')
-    skill = Path(skill) if skill else skill_directory()
-    launcher = Path(launcher) if launcher else skill / 'scripts/review-agent'
     report = feedback_report(record['snapshot'], record['decisions'], record['comments'],
                              record['history'], record['metadata']['id'], record['resolved'])
     note = next((item for item in [*report['comments'], *report['history']]
                  if identifier in (item['id'], item.get('discussion_id'))), None)
     if note is None or not note['comment'].strip():
         raise ValueError('Save this comment before sending it to an agent.')
+    return note
+
+
+def comment_task(record, directory, identifier, *, skill=None, launcher=None):
+    note = comment_note(record, identifier)
+    skill = Path(skill) if skill else skill_directory()
+    launcher = Path(launcher) if launcher else skill / 'scripts/review-agent'
     discussion = note.get('discussion_id', note['id'])
     directory = Path(directory)
     workspace = str(working_directory(record))

@@ -1,13 +1,14 @@
-Manuscript Review 0.15.1 includes VS Code extension 0.2.1 and the standalone macOS app.
+Manuscript Review 0.15.2 includes VS Code extension 0.2.2 and the standalone macOS app.
 
-Native typing now reuses review data and unchanged comment locations, and sidebar
-updates read a small summary. Interactive reads copy only the source they need.
-Background reads no longer hold up saves, and record watchers no longer parse large
-review records in the extension host.
+Native Send displays the saved comment immediately and prepares the agent task in one
+service request. Source and sidebar refreshes continue in the background. The selected
+CLI runs independently of the editor.
 
-Git and PDF pickers open immediately and refresh their choices in place. Sending a
-comment keeps the focused panel open and reuses installed agent tools. Focused review
-loads collapsed context when opened and combines queued decisions into the latest save.
+Comments reuse an existing pinned source when its wording matches the captured text.
+Unsaved text and comments on deleted files retain exact source checkpoints. Mutable
+review state reuses the serialized comparison within the same atomic JSON record;
+comments, drafts, decisions and navigation avoid copying unchanged source. Entering
+authoring and loading a comparison also avoid redundant copies.
 
 Saved discussions, decisions, baselines, native buffers and source Undo are preserved.
 
