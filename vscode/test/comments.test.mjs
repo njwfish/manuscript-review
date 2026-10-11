@@ -81,12 +81,26 @@ function fixture(history=[source('root')]) {
       }
       throw new Error('Unexpected write: '+route);
     }};
-  const comments=createComments(vscode,()=>runtime,{onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
+  let openDocument=async file=>{const target=uri((runtime.review.workspace||runtime.review.repo)+'/'+file);return vscode.workspace.textDocuments.find(document=>document.uri.toString()===target.toString())||vscode.workspace.openTextDocument(target);};
+  const comments=createComments(vscode,()=>runtime,{openDocument:file=>openDocument(file),onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
   const editor={document:documents[0],selection:new Selection(new Position(0,6),new Position(0,20))};
   return {comments,vscode,runtime,data,documents,created,requests,errors,opened,editor,controller,projections,sent,
     command:(name,...args)=>handlers.get(`manuscriptReview.${name}`)(...args),
-    beforeProjection:handler=>beforeProjection=handler,failNote:value=>failNote=value,changes:()=>changes};
+    beforeProjection:handler=>beforeProjection=handler,openDocument:handler=>openDocument=handler,failNote:value=>failNote=value,changes:()=>changes};
 }
+
+test('comments on removed source remain navigable beside comments on working files',async()=>{
+ const f=fixture([source('archived','main.tex'),source('working','other.tex')]);
+ f.documents[0].uri={scheme:'manuscript-review-source',authority:'review',path:'/main.tex',fsPath:'/main.tex',toString:()=> 'manuscript-review-source://review/main.tex?version=pinned'};
+ f.openDocument(async file=>f.documents[file==='main.tex'?0:1]);
+ await f.comments.refresh();assert.equal(f.created.length,2);
+ assert.equal(f.projections.length,2);assert.equal(f.created[0].uri.scheme,'manuscript-review-source');
+ assert.equal(await f.comments.move(1),true);assert.equal(await f.comments.move(1),true);
+ assert.equal(f.opened.length,2);assert.deepEqual(f.errors,[]);
+ await f.command('reply',{thread:f.created[0],text:'This should apply to its replacement file.'});
+ assert.equal(f.data.history.at(-1).origin_id,'archived');
+ f.comments.dispose();
+});
 
 test('projects exact dirty-buffer UTF-16 spans and groups roots with responses and follow-ups',async()=>{
   const f=fixture([source('root','main.tex','Initial feedback',{author:'agent',replies:[{id:'reply',text:'Addressed.'}]}),

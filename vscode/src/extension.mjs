@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import path from 'node:path';
-import {realpath,readFile} from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
 import {createRuntime} from './runtime.mjs';
 import {createComments,sourceFile,sourceDocument} from './comments.mjs';
 import {createSourceEdits} from './source-edits.mjs';
+import {createSourceDocuments,sourceScheme,snapshotVersion} from './source-documents.mjs';
 import {createPanel} from './panel.mjs';
 import {createDecorations} from './decorations.mjs';
 import {createAgentTools} from './agent.mjs';
@@ -32,15 +33,19 @@ export function activate(context){
   if(agent){await context.globalState.update('commentAgent',agent.id);comments.setAgent(agent.label);panel?.setAgent(agent.label);await sidebar.refresh();}
   return selectedAgent().label;
  }
- const subscriptions=[output];
+ const sources=createSourceDocuments(vscode,async()=>{await start();return runtime;});
+ const subscriptions=[output,sources];
  const comments=createComments(vscode,()=>runtime,{onSource:ensureCommentSource,canComment,
+  openDocument:sources.open,
   onChange:async()=>{panel?.changed();await sidebar.refresh();},onReview:entry=>panel.show(entry),
   onProjection:(projection,data)=>decorations.update(projection,data),onAgent:sendToAgent});
  comments.setAgent(selectedAgent().label);comments.setEnabled(commentsEnabled());
  const sidebar=createSidebar(vscode,context,{load:loadSidebar,onAction:sidebarAction,onError:error=>output.appendLine(error.stack||error.message)});
  subscriptions.push(sidebar);
  function updateSourceContext(){
-  void vscode.commands.executeCommand('setContext','manuscriptReview.source',Boolean(vscode.workspace.isTrusted&&sourceDocument(vscode.window.activeTextEditor?.document)));
+  const document=vscode.window.activeTextEditor?.document;
+  const source=sourceDocument(document)||(document?.uri.scheme===sourceScheme&&sourceFile(runtime?.review,document));
+  void vscode.commands.executeCommand('setContext','manuscriptReview.source',Boolean(vscode.workspace.isTrusted&&source));
   void vscode.commands.executeCommand('setContext','manuscriptReview.commentsEnabled',commentsEnabled());
  }
  async function discardUnopenedRuntime(){if(runtime&&!runtime.review){sourceEdits?.dispose();panel?.dispose();await runtime.dispose();await viewer?.dispose();runtime=panel=sourceEdits=viewer=undefined;updateSourceContext();}}
@@ -196,15 +201,11 @@ export function activate(context){
  }
  async function openSource(message){
   await sourceEdits.flush();
-  const {id}=runtime.review,repo=runtime.review.workspace||runtime.review.repo,requested=path.resolve(repo,message.file||'');
-  const relative=path.relative(repo,requested);
-  if(!relative||path.isAbsolute(relative)||relative==='..'||relative.startsWith(`..${path.sep}`))throw new Error('Choose a source file in this manuscript.');
-  const canonical=await realpath(requested),resolvedRepo=await realpath(repo),resolved=path.relative(resolvedRepo,canonical);
-  if(resolved==='..'||resolved.startsWith(`..${path.sep}`)||path.isAbsolute(resolved))throw new Error('The source file points outside this manuscript.');
-  const document=await vscode.workspace.openTextDocument(vscode.Uri.file(requested));
+  const {id}=runtime.review,document=await sources.open(message.file);
   if(runtime.review?.id!==id)throw new Error('The manuscript review changed. Open this location again.');
   const version=document.version,text=document.getText();
-  const source=await runtime.request('/editor',{file:relative.split(path.sep).join('/'),text,...(Number.isInteger(message.position)?{point:message.position}:{})});
+  const saved=snapshotVersion(document);
+  const source=await runtime.request('/editor',{file:sourceFile(runtime.review,document)||message.file,text,...(saved?{version:saved}:{}),...(Number.isInteger(message.position)?{point:message.position}:{})});
   if(runtime.review?.id!==id||document.version!==version)throw new Error('The source or review changed while opening this location. Try again.');
   const range=source.notes.find(note=>note.id===message.comment)||source.ranges.find(range=>range.id===message.edit);
   const start=source.position??range?.from??0,end=message.comment?range?.to??start:start;
@@ -212,6 +213,7 @@ export function activate(context){
   if(runtime.review?.id!==id||document.version!==version)throw new Error('The source or review changed while opening this location. Try again.');
   editor.selection=new vscode.Selection(document.positionAt(start),document.positionAt(end));
   editor.revealRange(editor.selection,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  if(document.uri.scheme===sourceScheme)vscode.window.setStatusBarMessage('File removed from editing folder; showing saved review source.',5000);
  }
  async function reviewSavedChanges(){
   if(!await ensureReview())return;

@@ -99,6 +99,16 @@ record and the working file intact. New editor drafts use VS Code's own buffer a
 recovery behavior. Native author saves update the current proposal; external revision
 passes use the shared proposal operations to accumulate changes; separate rounds remain explicit.
 
+`source-documents.mjs` opens native files for both comment navigation and focused
+review. Missing files open through a read-only text content provider, with their
+review ID, file path, and exact Git version in the document URI. The library's
+`/source` operation reads that immutable text without changing the selected review
+or its record. Existing native buffers take precedence, preserving unsaved work.
+An open saved-source document retains its identity across decisions and file
+restoration, keeping native reply editors intact. Saved-source documents never
+recreate files or enter source-save capture. Historical projection and follow-up
+notes use the discussion's pinned context even when both current versions lack its file.
+
 The agent skill, command engine, and referenced guides ship in the VSIX. Setup reports
 prerequisites without opening a review library, so its commands remain available for
 explicit migrations. On setup or opening a review,

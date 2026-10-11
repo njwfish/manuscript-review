@@ -24,6 +24,7 @@ from .server import create_server
 from .session import ReviewSession
 from .application import is_applied
 from .editing import selected_content
+from .documents import saved_source
 from .workspace import working_directory, same_repository
 from .http import LocalHandler
 from .setup import setup_status, install_skill
@@ -60,6 +61,10 @@ class Library:
         store = self.store(identifier)
         with store.transaction():
             return store.read()['metadata']
+
+    def source(self, identifier, path, version=None):
+        """Read immutable review source without restoring a working file."""
+        return {'review': identifier, **saved_source(self.store(identifier).read(), path, version)}
 
     def store(self, identifier):
         directory = self.directory(identifier)
@@ -429,6 +434,8 @@ def create_library_server(library, port=0):
                 request = self.read_request(limit=100_000)
                 if self.path == '/inspect':
                     result = library.inspect(request['repo'])
+                elif self.path == '/source':
+                    result = library.source(request['id'], request['file'], request.get('version'))
                 elif self.path == '/clone':
                     result = {'job': library.repository_job(clone_repository, request['url'], request['directory'])}
                 elif self.path == '/fetch':

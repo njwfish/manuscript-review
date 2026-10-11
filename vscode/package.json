@@ -6,7 +6,7 @@
     "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -380,7 +380,7 @@
         "command": "manuscriptReview.comment",
         "key": "ctrl+shift+m",
         "mac": "cmd+shift+m",
-        "when": "manuscriptReview.source && manuscriptReview.commentsEnabled && editorTextFocus"
+        "when": "manuscriptReview.source && manuscriptReview.commentsEnabled && resourceScheme == file && editorTextFocus"
       },
       {
         "command": "manuscriptReview.previousComment",

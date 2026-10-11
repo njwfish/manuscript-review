@@ -26,20 +26,21 @@ async function fixture(t,options={}) {
   const source=path.join(repo,'main.tex');await writeFile(source,'A manuscript sentence.\n');
   const record=path.join(directory,'review.json');await writeFile(record,'{"revision":1}');
   t.after(()=>rm(directory,{recursive:true,force:true}));
-  const handlers=new Map(),contexts=new Map(),calls=[],errors=[],events={},watchers=[],output=[];
+  const handlers=new Map(),contexts=new Map(),calls=[],errors=[],events={},watchers=[],output=[],providers=new Map();
   const doc={uri:uri(source),version:1,text:'A manuscript sentence.\n',isDirty:false,languageId:'latex',
     getText(){return this.text;},positionAt(offset){const lines=this.text.slice(0,offset).split('\n');return new Position(lines.length-1,lines.at(-1).length);}};
   const editor={document:doc,viewColumn:1,selection:new Selection(new Position(0,0),new Position(0,1)),revealRange(range){this.revealed=range;}};
   const disposable=()=>({dispose(){}});
   function event(name){return callback=>{events[name]=callback;return disposable();};}
-  const vscode={Uri:{file:uri},Selection,QuickPickItemKind:{Separator:-1},ViewColumn:{One:1},ProgressLocation:{Notification:15},TextEditorRevealType:{InCenterIfOutsideViewport:2},env:{clipboard:{async writeText(text){calls.push({kind:'clipboard',text});}}},
+  const vscode={Uri:{file:uri,from:value=>({...value,fsPath:value.path,toString(){return `${this.scheme}://${this.authority}${this.path}?${this.query}`;}})},Selection,QuickPickItemKind:{Separator:-1},ViewColumn:{One:1},ProgressLocation:{Notification:15},TextEditorRevealType:{InCenterIfOutsideViewport:2},env:{clipboard:{async writeText(text){calls.push({kind:'clipboard',text});}}},
     RelativePattern:class{constructor(base,pattern){Object.assign(this,{base,pattern});}},
     commands:{registerCommand(name,callback){handlers.set(name,callback);return {dispose(){handlers.delete(name);}};},
       async executeCommand(name,...args){calls.push({kind:'command',name,args});if(name==='setContext')contexts.set(args[0],args[1]);}},
     workspace:{isTrusted:options.trusted??true,workspaceFolders:[{uri:uri(repo)}],textDocuments:[doc],
+      registerTextDocumentContentProvider(scheme,provider){providers.set(scheme,provider);return {dispose(){providers.delete(scheme);}};},
       getConfiguration:()=>({get:(key,fallback)=>options.config?.[key]??fallback}),
       getWorkspaceFolder:()=>({uri:uri(repo)}),
-      async openTextDocument(requested){calls.push({kind:'document',file:requested.fsPath,content:requested.content,language:requested.language});if(requested.content!==undefined)return {uri:{scheme:'untitled'},getText:()=>requested.content};assert.equal(requested.fsPath,source);return doc;},
+      async openTextDocument(requested){calls.push({kind:'document',file:requested.fsPath,content:requested.content,language:requested.language});if(requested.content!==undefined)return {uri:{scheme:'untitled'},getText:()=>requested.content};if(providers.has(requested.scheme))return {...doc,uri:requested,text:await providers.get(requested.scheme).provideTextDocumentContent(requested)};assert.equal(requested.fsPath,source);return doc;},
       createFileSystemWatcher(pattern){const watcher={pattern,onDidChange:event('record-change'),onDidCreate:event('record-create'),dispose(){this.disposed=true;}};watchers.push(watcher);return watcher;},
       onDidChangeTextDocument:event('document-change'),onDidSaveTextDocument:event('document-save')},
     window:{setStatusBarMessage(message){calls.push({kind:'status',message});},activeTextEditor:options.active===false?undefined:editor,visibleTextEditors:[editor],tabGroups:{activeTabGroup:{viewColumn:1}},
@@ -63,7 +64,7 @@ async function fixture(t,options={}) {
     extensions:{getExtension(id){calls.push({kind:'extension',id});return options.workshop===false?undefined:{async activate(){calls.push({kind:'activate-workshop'});}};}}};
   let selected,panelCallbacks,commentsCallbacks,preparedRepo;
   const runtime={get review(){return selected?{...selected}:undefined;},
-    async library(route,body){calls.push({kind:'library',route,body});if(route==='/import')return {review:reviewId};return route==='/inspect'
+    async library(route,body){calls.push({kind:'library',route,body});if(route==='/import')return {review:reviewId};if(route==='/source')return {review:body.id,file:body.file,source:'b'.repeat(40),text:'Saved review source.'};return route==='/inspect'
       ?{repo,base:'1'.repeat(40),head:'2'.repeat(40),entries:options.entries||['main.tex'],...options.inspect}: {reviews:typeof options.reviews==='function'?options.reviews(repo):options.reviews||[]};},
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id){calls.push({kind:'open',id});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
@@ -91,7 +92,7 @@ async function fixture(t,options={}) {
   const preferences=new Map([['commentAgent',options.agent],...(options.commentsEnabled===undefined?[]:[['commentsEnabled',options.commentsEnabled]])]);
   const module={exports:{}},context={globalState:{get:(key,fallback)=>preferences.has(key)?preferences.get(key):fallback,async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
   context.workspaceState=context.globalState;
-  vm.runInNewContext(await bundle,{exports:module.exports,module,require:name=>name==='vscode'?vscode:adapters[name]||nativeRequire(name),process,AbortController,setTimeout,clearTimeout,console},{filename:'extension.cjs'});
+  vm.runInNewContext(await bundle,{exports:module.exports,module,require:name=>name==='vscode'?vscode:adapters[name]||nativeRequire(name),process,AbortController,URLSearchParams,setTimeout,clearTimeout,console},{filename:'extension.cjs'});
   module.exports.activate(context);await new Promise(resolve=>setImmediate(resolve));t.after(()=>module.exports.deactivate());
   return {vscode,runtime,doc,editor,source,repo,calls,errors,contexts,events,watchers,deactivate:()=>module.exports.deactivate(),
     command:(name,...args)=>handlers.get('manuscriptReview.'+name)(...args),
@@ -274,6 +275,23 @@ test('a buffer change during source mapping is rejected before moving the editor
   assert.equal(f.calls.some(call=>call.kind==='show-source'),false);
 });
 
+test('source navigation opens deleted manuscript text from its saved review without restoring the file',async t=>{
+ const f=await fixture(t);await f.command('open');await rm(f.source);
+ f.vscode.workspace.textDocuments=[];
+ await f.panelCallbacks.onSource({file:'main.tex',edit:'edit'});
+ const saved=f.calls.find(call=>call.kind==='library'&&call.route==='/source');
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.body)),{id:reviewId,file:'main.tex'});
+ const shown=f.calls.find(call=>call.kind==='show-source');
+ assert.equal(shown.document.uri.scheme,'manuscript-review-source');assert.equal(shown.document.getText(),'Saved review source.');
+ f.vscode.window.activeTextEditor={document:shown.document};f.events['active-change'](f.vscode.window.activeTextEditor);
+ assert.equal(f.contexts.get('manuscriptReview.source'),true);
+ const different={document:{...shown.document,uri:{...shown.document.uri,authority:'b'.repeat(24)}}};
+ f.vscode.window.activeTextEditor=different;f.events['active-change'](different);
+ assert.equal(f.contexts.get('manuscriptReview.source'),false);
+ assert.equal(f.calls.some(call=>call.kind==='request'&&['/capture','/apply','/save'].includes(call.route)),false);
+ await assert.rejects(realpath(f.source),error=>error.code==='ENOENT');assert.deepEqual(f.errors,[]);
+});
+
 test('source navigation refuses symlinks leaving the manuscript repository',async t=>{
   const f=await fixture(t);await f.command('open');
   const external=path.join(path.dirname(f.repo),'outside.tex');await writeFile(external,'Outside text.');
@@ -311,6 +329,7 @@ test('review shortcuts and the comment context menu require the active manuscrip
   const actions=manifest.contributes.menus['comments/commentThread/context'];assert.equal(actions.find(item=>item.group==='inline@0').command,'manuscriptReview.sendComment');
   const action=manifest.contributes.menus['editor/context'].find(action=>action.command==='manuscriptReview.comment');
   assert.match(action.when,/manuscriptReview\.source/);
+  assert.match(manifest.contributes.keybindings.find(binding=>binding.command==='manuscriptReview.comment').when,/resourceScheme == file/);
 });
 
 test('native source context is reset when focus moves outside the reviewed manuscript',async t=>{

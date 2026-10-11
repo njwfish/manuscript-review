@@ -91,7 +91,7 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
             try:
                 request = self.read_request()
                 if self.path == '/editor':
-                    result = session.editor(request['file'], request['text'], request.get('point'))
+                    result = session.editor(request['file'], request['text'], request.get('point'), request.get('version'))
                 elif self.path == '/workspace':
                     result = session.edit_workspace(request)
                 elif self.path == '/capture':

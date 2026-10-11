@@ -93,6 +93,10 @@ Source remains a normal VS Code document with saving, undo, syntax highlighting,
 LaTeX Workshop compilation. Change backgrounds and hovers show replacements against
 the exact current editor buffer.
 
+If a reviewed file has been removed or moved, its saved source opens in a read-only
+editor. Existing comments remain accessible there. Opening saved source never
+restores a deleted file; an already open source buffer retains your unsaved text.
+
 Saving a native source edit refreshes the current comparison automatically. **From**
 stays at A; **To** becomes B plus your local edits. New manual edits are accepted,
 unaffected choices remain, and comments on revised edits move into discussion.
