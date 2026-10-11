@@ -9,7 +9,7 @@ const execute=promisify(execFile);
 export const shellQuote=value=>"'"+value.replaceAll("'","'\"'\"'")+"'";
 
 export function createAgentTools({extensionPath,storagePath,version,python=''}){
- let preparing,interpreter;
+ let preparing,interpreter,settingUp;
  const root=path.join(storagePath,'tools',version),skill=path.join(storagePath,'skills','manuscript-review');
  const launcher=path.join(skill,'scripts','review-agent');
  async function prepare(python){
@@ -35,10 +35,11 @@ export function createAgentTools({extensionPath,storagePath,version,python=''}){
    return JSON.parse(result.stdout);
   }catch(error){throw new Error(error.stderr?.trim()||error.message);}
  }
- async function setup(){
+ async function reportSetup(){
   const result=await run(await resolvePython(python),['setup'],path.join(extensionPath,'dist','runtime'));
   await prepare(result.python);return result;
  }
+ function setup({refresh=false}={}){if(refresh)settingUp=undefined;settingUp??=reportSetup().catch(error=>{settingUp=undefined;throw error;});return settingUp;}
  async function install(agent){
   if(!['codex','claude'].includes(agent))throw new Error('Choose Codex or Claude Code.');
   if(!preparing)throw new Error('Open Setup before installing the agent skill.');

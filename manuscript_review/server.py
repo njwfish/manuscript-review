@@ -6,27 +6,6 @@ from pathlib import Path
 from .http import LocalHandler
 from .session import ReviewSession
 from .storage import StaleReview
-from .previews import preview_assets
-
-
-def review_payload(data, selected=None):
-    """Transfer source for the selected file and current feedback only."""
-    files = []
-    for index, file in enumerate(data['files']):
-        file = {**file, 'hunks': [{**passage, **({'rendered': preview_assets({'passage': passage['rendered']})['passage']} if 'rendered' in passage else {})}
-                                for passage in file['hunks']]}
-        ids = [file['id'] for file in file['edits']] + [passage['id'] for passage in file['hunks']]
-        if (file['path'] == selected or index == 0
-                or any(data['comments'].get(identifier) for identifier in ids)):
-            files.append(file)
-            continue
-        edits = [{key: value for key, value in edit.items() if key not in ('old', 'new')} for edit in file['edits']]
-        groups = {edit['id']: edit for edit in edits}
-        hunks = [{key: value for key, value in passage.items() if key not in ('before', 'after', 'segments', 'grouped_segments', 'edits')}
-                 | {'edits': [groups[edit['id']] for edit in passage['edits']]} for passage in file['hunks']]
-        files.append({key: value for key, value in file.items() if key not in ('before', 'after', 'pieces', 'edits', 'hunks')}
-                     | {'loaded': False, 'edits': edits, 'hunks': hunks})
-    return {**data, 'files': files}
 
 
 def create_server(directory, port=0, library_url=None, review_context=None, *, store=None):
@@ -50,8 +29,8 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                 scope = query.get('scope', ['round'])[0]
                 if scope not in ('round', 'baseline', 'manuscript'):
                     return self.response({'error': 'Unknown comparison scope.'}, status=400)
-                result = session.view(scope)
-                self.response(review_payload(result, query.get('file', [None])[0]))
+                result = session.view(scope, query.get('file', [None])[0], interactive=True)
+                self.response(result)
                 if result['preview_status'] in ('queued', 'rendering'):
                     session.previews.queue('baseline' if scope == 'baseline' else 'round')
             elif urlsplit(self.path).path == '/previews':
@@ -60,6 +39,8 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                     self.response(session.preview(scope))
                 except ValueError as error:
                     self.response({'error': str(error)}, status=400)
+            elif self.path == '/summary':
+                self.response(session.summary())
             elif self.path == '/status':
                 self.response(session.status())
             elif urlsplit(self.path).path == '/editor':
@@ -95,9 +76,9 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                 elif self.path == '/workspace':
                     result = session.edit_workspace(request)
                 elif self.path == '/capture':
-                    result = session.capture_file(request)
+                    result = session.capture_file(request, interactive=True)
                 elif self.path == '/authoring':
-                    result = session.authoring(request)
+                    result = session.authoring(request, interactive=True)
                 elif self.path == '/delivery':
                     result = session.delivery(request)
                 elif self.path == '/responses':
@@ -124,9 +105,7 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                     session.store.backup_request(request)
                     result = {'message': 'Unsaved changes retained.'}
                 else:
-                    result = session.update(self.path.removeprefix('/'), request)
-                if isinstance(result.get('data'), dict):
-                    result['data'] = review_payload(result['data'], request.get('file'))
+                    result = session.update(self.path.removeprefix('/'), request, interactive=True)
                 self.response(result)
             except StaleReview as error:
                 self.response({'error': str(error), 'stale': True}, status=409)

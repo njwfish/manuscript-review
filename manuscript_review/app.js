@@ -6,6 +6,7 @@ const embedded=Boolean(globalThis.acquireVsCodeApi);
 let data, decisions={}, comments={}, drafts={}, active=0, passage=0, edit=0;
 let view='auto', overrides={}, previewZoom=100, locations=[];
 let saving=Promise.resolve(), saveFailed=false, commentTimer,savedInput,refreshingExternal=false;
+let pendingChoices,choiceSaveQueued=false;
 let uiTimer,draftTimer,editing=false,staleReview=false,commentScope='edit';
 let reviewLock=null;
 const draftChanges=new Map();
@@ -76,8 +77,18 @@ function saveNotes(){
 }
 function save(){
  if(readOnly())return;
- clearTimeout(commentTimer);const values={...decisions},notes={...comments};status('Saving…');
- saving=saving.catch(()=>{}).then(()=>post('/save',values,notes)).then(result=>{savedInput=JSON.stringify([values,notes]);saveFailed=Boolean(draftChanges.size||noteChanges.size);if(!saveFailed)status(savedMessage());}).catch(e=>{saveFailed=true;status(e.message,true);});
+ clearTimeout(commentTimer);const values={...decisions},notes={...comments};
+ if(!choiceSaveQueued&&!saveFailed&&JSON.stringify([values,notes])===savedInput)return;
+ pendingChoices={values,notes};status('Saving…');
+ if(choiceSaveQueued)return;
+ choiceSaveQueued=true;
+ saving=saving.catch(()=>{}).then(async()=>{
+  while(pendingChoices){
+   const {values,notes}=pendingChoices;pendingChoices=undefined;
+   try{await post('/save',values,notes);savedInput=JSON.stringify([values,notes]);saveFailed=Boolean(draftChanges.size||noteChanges.size);if(!saveFailed)status(savedMessage());}
+   catch(error){saveFailed=true;status(error.message,true);pendingChoices=undefined;break;}
+  }
+ }).finally(()=>{choiceSaveQueued=false;});
 }
 function refreshCommentNavigation(){
  const host=$('discussion'),selector=host.querySelector('select[aria-label="Manuscript comments"]');
@@ -471,7 +482,7 @@ function sourceBody(h,f,fullPassage=false){
   const [start,end]=sourceRange(f,g,'selected',decisions);
   body.append(sourceText(context.before,start-context.before.length),marked(shown,edit),sourceText(context.after,end));
   if(context.trailing)body.append(node('span','ellipsis',' …'));wrap.append(body);
-  if(context.trimmed||large){const full=node('details','detail');full.dataset.key='full-passage-'+h.id;full.append(node('summary','','Full passage'),sourceBody(h,f,true));wrap.append(full);}
+  if(context.trimmed||large)wrap.append(disclosure('Full passage','full-passage-'+h.id,()=>sourceBody(h,f,true)));
   return wrap;
  }
  const code=f.supporting||f.path.endsWith('.bib')||h.edits.some(needsMath)||needsMath({new:h.after});
@@ -574,13 +585,18 @@ function exactEdit(g){
  if(g.old)row.append(node('span','word-label','Removed'),node('del','',displayText(g.old)));
  const updated=g.new;if(updated)row.append(node('span','word-label','Added'),node('ins','',displayText(updated)));return row;
 }
+function disclosure(label,key,content){
+ const detail=node('details','detail');detail.dataset.key=key;detail.append(node('summary','',label));
+ let loaded=false;detail.addEventListener('toggle',()=>{if(detail.open&&!loaded){detail.append(content());loaded=true;}});
+ return detail;
+}
 function allEdits(h){
- const detail=node('details','detail');detail.dataset.key='individual-'+h.id;detail.append(node('summary','',`All ${h.edits.length} edits in this passage`));
+ return disclosure(`All ${h.edits.length} edits in this passage`,'individual-'+h.id,()=>{
  const list=node('ol','edit-list');h.edits.forEach((g,i)=>{
   const li=node('li'),b=button('',()=>selectEdit(passage,i),'edit-option');if(i===edit)b.setAttribute('aria-current','true');
   const meta=node('span','edit-number');meta.append(node('span','',`${i+1}`),node('span','',groupStatus(g)));if(comments[g.id]?.trim())meta.append(node('span','','comment'));b.append(meta);
   if(g.old)b.append(node('del','',displayText(g.old)));const updated=g.new;if(updated)b.append(node('ins','',displayText(updated)));li.append(b);list.append(li);
- });detail.append(list);return detail;
+ });return list;});
 }
 function bulkControls(id,members,scope){
  const box=$(id);box.replaceChildren();[['Accept','accept'],['Reject','reject'],['Reset','pending']].forEach(([label,value])=>box.append(button(label,()=>{setChoices(members,value,scope);$('actions').close();focusSelection();},'')));
@@ -656,7 +672,7 @@ function render({keepDiscussion=false}={}){
  }else if(display==='rendered'&&f.path.endsWith('.tex')){
   card.append(renderedPair(h));
   const exact=node('div','selected-change');exact.append(node('span','selected-label','Selected edit'),exactEdit(g));card.append(exact);
-  const src=node('details','detail');src.dataset.key='source-'+h.id;src.append(node('summary','','Word changes in context'),sourceBody(h,f,true));card.append(src);
+  card.append(disclosure('Word changes in context','source-'+h.id,()=>sourceBody(h,f,true)));
  }else card.append(sourceBody(h,f));
  if(!existing)main.append(card);
  const controls=node('div','decisionbar'),s=groupStatus(g);

@@ -1,6 +1,7 @@
 """Selected manuscript files and comments anchored to exact source versions."""
 import re
 from .comparison import compare, enrich_snapshot, git, read_blob
+from .previews import preview_assets
 
 
 def saved_source(record, path, version=None):
@@ -67,3 +68,23 @@ def source_point(text, offset):
         return len(encoded[:offset * 2].decode('utf-16-le'))
     except UnicodeError as error:
         raise ValueError('The comment selection splits a character.') from error
+
+
+def review_payload(data, selected=None):
+    """Transfer source for the selected file and current feedback only."""
+    files = []
+    for index, file in enumerate(data['files']):
+        file = {**file, 'hunks': [{**passage, **({'rendered': preview_assets({'passage': passage['rendered']})['passage']} if 'rendered' in passage else {})}
+                                for passage in file['hunks']]}
+        ids = [file['id'] for file in file['edits']] + [passage['id'] for passage in file['hunks']]
+        if (file['path'] == selected or index == 0 and not selected
+                or any(data['comments'].get(identifier) for identifier in ids)):
+            files.append(file)
+            continue
+        edits = [{key: value for key, value in edit.items() if key not in ('old', 'new')} for edit in file['edits']]
+        groups = {edit['id']: edit for edit in edits}
+        hunks = [{key: value for key, value in passage.items() if key not in ('before', 'after', 'segments', 'grouped_segments', 'edits')}
+                 | {'edits': [groups[edit['id']] for edit in passage['edits']]} for passage in file['hunks']]
+        files.append({key: value for key, value in file.items() if key not in ('before', 'after', 'pieces', 'edits', 'hunks')}
+                     | {'loaded': False, 'edits': edits, 'hunks': hunks})
+    return {**data, 'files': files}

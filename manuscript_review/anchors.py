@@ -25,11 +25,11 @@ class SourceMap:
     """Reuse one alignment per file; rewritten text maps to its enclosing change."""
     def __init__(self, before, after):
         self.before, self.after = before, after
-        old, new = TOKEN.findall(before), TOKEN.findall(after)
-        a, b = [0, *accumulate(map(len, old))], [0, *accumulate(map(len, new))]
         self.blocks = []
         if before == after:
             return
+        old, new = TOKEN.findall(before), TOKEN.findall(after)
+        a, b = [0, *accumulate(map(len, old))], [0, *accumulate(map(len, new))]
         for tag, i, j, k, l in token_opcodes(old, new):
             self.blocks.append((tag, a[i], a[j], b[k], b[l]))
 

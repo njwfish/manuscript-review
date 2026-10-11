@@ -11,16 +11,22 @@ function versions(vscode,info){
  return groups.flatMap(([label,items])=>items.length?[{label,kind:vscode.QuickPickItemKind.Separator},...items]:[]);
 }
 
-function pickVersion(vscode,items,current,title){
+function pickVersion(vscode,items,current,title,loadItems,placeholder='Search by branch, commit message, date, or hash'){
  const picker=vscode.window.createQuickPick();
- picker.title=title;picker.placeholder='Search by branch, commit message, date, or hash';
+ picker.title=title;picker.placeholder=placeholder;
  picker.matchOnDescription=picker.matchOnDetail=true;
  const active=items.find(item=>item.revision===current.revision&&item.label===current.label)||current;
  picker.items=items.includes(active)?items:[active,...items];picker.activeItems=[active];
- return new Promise(resolve=>{
+ return new Promise((resolve,reject)=>{
+  let closed=false;
   const listeners=[picker.onDidAccept(()=>{const item=picker.selectedItems[0];if(item){resolve(item);picker.hide();}}),
-   picker.onDidHide(()=>{resolve(undefined);listeners.forEach(listener=>listener.dispose());picker.dispose();})];
+   picker.onDidHide(()=>{closed=true;resolve(undefined);listeners.forEach(listener=>listener.dispose());picker.dispose();})];
   picker.show();
+  if(loadItems&&!closed){
+   picker.busy=true;
+   loadItems().then(next=>{if(!closed){const selected=picker.activeItems[0]||active;picker.items=next.some(item=>item.revision===selected.revision&&item.label===selected.label)?next:[selected,...next];picker.activeItems=[picker.items.find(item=>item.revision===selected.revision&&item.label===selected.label)];}})
+    .catch(error=>{if(!closed){reject(error);picker.hide();}}).finally(()=>{if(!closed)picker.busy=false;});
+  }
  });
 }
 
@@ -53,21 +59,24 @@ export function refreshComparison(vscode,state,info){
  return {...state,info,choices,base:pinned(state.base),proposed:pinned(state.proposed)};
 }
 
-export async function changeComparison(vscode,state,field){
+export async function changeComparison(vscode,state,field,refresh){
  const {info,choices,base,proposed,entry}=state;
  const name=path.basename(info.repo);
+ let latest=state;
+ const entries=info=>[...info.entries,'Source only'].map(label=>({label}));
+ const load=refresh?async()=>{latest=await refresh();return field==='entry'?entries(latest.info):[{label:'Working files',revision:'working'},...latest.choices];}:undefined;
  const actions={
-  base:()=>pickVersion(vscode,[{label:'Working files',revision:'working',detail:'Compare against your current saved wording'},...choices],base,`From: ${name}`),
-  proposed:()=>pickVersion(vscode,[{label:'Working files',revision:'working',detail:'Saved tracked files, including staged new files'},...choices],proposed,`To: ${name}`),
-  entry:()=>vscode.window.showQuickPick([...info.entries,'Source only'],{title:'PDF document',placeHolder:entry||'Source only'})
+  base:()=>pickVersion(vscode,[{label:'Working files',revision:'working',detail:'Compare against your current saved wording'},...choices],base,`From: ${name}`,load),
+  proposed:()=>pickVersion(vscode,[{label:'Working files',revision:'working',detail:'Saved tracked files, including staged new files'},...choices],proposed,`To: ${name}`,load),
+  entry:()=>pickVersion(vscode,entries(info),{label:entry||'Source only'},'PDF document',load,'Choose the PDF document')
  };
  if(!Object.hasOwn(actions,field))throw new Error('Choose a comparison field.');
  const choice=await actions[field]();
  if(choice===undefined)return state;
- const value=field==='entry'?(choice==='Source only'?'':choice):choice;
+ const value=field==='entry'?(choice.label==='Source only'?'':choice.label):choice;
  if(field==='entry'?value===entry:value.revision===state[field].revision&&value.review===state[field].review&&value.label===state[field].label)
-  return field==='entry'||value===state[field]?state:{...state,[field]:value};
- return {...state,[field]:value,pending:true};
+  return latest;
+ return {...latest,[field]:value,pending:true};
 }
 
 export function comparisonRequest({info,base,proposed,entry}){

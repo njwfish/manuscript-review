@@ -69,7 +69,7 @@ async function fixture(t,options={}) {
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id){calls.push({kind:'open',id});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:{},comments:{},history:[],resolved:[],drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/authoring')return {revision:2};if(route==='/agent-request')return {discussion:body.id};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/authoring')return {revision:2};if(route==='/agent-request')return {discussion:body.id};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const panel={setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
@@ -567,10 +567,10 @@ test('focused review dims context and entering the manuscript editor reveals it'
 test('native save-and-send flushes focused drafts before saving the comment and refreshes afterward',async t=>{
  const f=await fixture(t,{pick:items=>items[0]});await f.command('open');
  await f.commentsCallbacks.onAgent(undefined,async()=>{f.calls.push({kind:'save-comment'});return 'new-comment';});
- const flush=f.calls.findLastIndex(call=>call.kind==='flush'),save=f.calls.findIndex(call=>call.kind==='save-comment'),refresh=f.calls.findIndex(call=>call.kind==='panel-refresh');
+ const flush=f.calls.findLastIndex(call=>call.kind==='flush'),save=f.calls.findIndex(call=>call.kind==='save-comment'),refresh=f.calls.findIndex(call=>call.kind==='panel-change');
  assert.ok(flush<save&&save<refresh&&refresh<f.calls.findIndex(call=>call.kind==='request'&&call.route==='/agent'));
  assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent').body.id,'new-comment');
- assert.equal(f.calls[refresh].options.flushed,true);
+ assert.equal(f.calls.some(call=>call.kind==='panel-refresh'),false);
  assert.equal(f.calls[flush].options.lock,true);assert.ok(f.calls.findIndex(call=>call.kind==='unlock')>refresh);
 });
 

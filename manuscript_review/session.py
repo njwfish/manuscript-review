@@ -2,6 +2,8 @@
 import copy
 import json
 import re
+from bisect import bisect_left
+from collections import OrderedDict
 import secrets
 import subprocess
 from datetime import datetime, timezone
@@ -15,7 +17,7 @@ from .history import add_explanations, add_responses, build_history, round_id, a
 from .previews import Previews, preview_assets
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
-from .documents import document_file, manuscript_files, source_point, saved_source
+from .documents import document_file, manuscript_files, source_point, saved_source, review_payload
 from .render_latex import RENDER_VERSION
 from .workspace import edit_checkout, working_directory, same_repository
 from .merging import merge_text
@@ -36,9 +38,11 @@ class ReviewSession:
         self.cumulative = None
         self.cumulative_history = None
         self.status_cache = None
+        self.note_sources = OrderedDict()
+        self.editor_files = OrderedDict()
         self.comparison_lock = FileLock(self.directory / '.comparison.lock')
         with self.store.transaction():
-            self.store.read()
+            self.store.read(lambda record: None)
 
     @property
     def snapshot(self):
@@ -65,7 +69,9 @@ class ReviewSession:
     def agent_request(self, request):
         from .dispatch import comment_task
         with self.store.transaction():
-            record = self.store.read()
+            record = self.store.read(lambda record: {**record, 'snapshot': {**record['snapshot'], 'files': [
+                file for file in record['snapshot']['files'] if any(record['comments'].get(item['id'], '').strip()
+                for passage in file['hunks'] for item in [passage, *passage['edits']])]}})
             self.check_revision(request, record)
             return comment_task(record, self.directory, request['id'], skill=request.get('skill'),
                                 launcher=request.get('launcher'))
@@ -93,11 +99,16 @@ class ReviewSession:
                 self.cumulative = (record['result'], snapshot)
             return copy.deepcopy(self.cumulative[1])
 
-    def view(self, scope='round'):
+    def view(self, scope='round', file=None, *, interactive=False):
         if scope not in ('round', 'baseline', 'manuscript'):
             raise ValueError('Choose this round or since baseline.')
         with self.store.transaction():
-            r = self.store.read()
+            if interactive and scope == 'round':
+                r, applied = self.store.read(lambda record: ({**record, 'snapshot': review_payload(
+                    {**record['snapshot'], 'comments': record['comments']}, file)}, is_applied(record)))
+            else:
+                r = self.store.read()
+                applied = is_applied(r)
         snapshot = self.comparison(r, scope)
         if scope == 'manuscript':
             snapshot['files'] = manuscript_files(r)
@@ -124,7 +135,7 @@ class ReviewSession:
             for h in f['hunks']:
                 h['rendered'] = passages.get(h['id'], {})
         context = self.review_context() if self.review_context else {}
-        return {**snapshot, **r['metadata'], **context, 'base': snapshot['base'], 'proposed': snapshot['proposed'],
+        result = {**snapshot, **r['metadata'], **context, 'base': snapshot['base'], 'proposed': snapshot['proposed'],
                 'revision': r['revision'], 'decisions': decisions, 'comments': comments,
                 'history': history, 'resolved': r['resolved'], 'drafts': r['drafts'], 'ui': r['ui'], 'round_id': round_id(snapshot),
                 'scope': scope, 'baseline': r['baseline'], 'result': r['result'],
@@ -132,8 +143,25 @@ class ReviewSession:
                 'preview_status': preview_status, 'preview_error': r['metadata'].get(error_key),
                 'proposal_label': (f'Selected manuscript ({r["result"][:7]})' if scope == 'baseline' else r['metadata']['proposal_label']),
                 'base_label': (r['metadata'].get('baseline_label', r['metadata']['base_label']) if scope == 'baseline' else r['metadata']['base_label']),
-                'applied': is_applied(r),
+                'applied': applied,
                 'library_url': self.library_url, 'feedback_path': str(self.store.path)}
+        return review_payload(result, file) if interactive else result
+
+    def summary(self):
+        """Sidebar state has no source, preview, or discussion bodies."""
+        def select(record):
+            snapshot, metadata = record['snapshot'], record['metadata']
+            ids = [edit['id'] for file in snapshot['files'] for edit in file['edits']]
+            done = sum(record['decisions'].get(identifier, 'pending') != 'pending' for identifier in ids)
+            origins = {entry.get('origin_id') or entry['id'] for entry in record['history'] if entry['comment'].strip()}
+            origins.update(metadata['id'] + ':' + key for key, text in record['comments'].items() if text.strip())
+            return {**metadata, 'repo': snapshot['repo'], 'base': snapshot['base'], 'proposed': snapshot['proposed'], 'entry': snapshot['entry'],
+                    'revision': record['revision'], 'result': record['result'], 'baseline': record['baseline'],
+                    'progress': {'total': len(ids), 'done': done, 'complete': done == len(ids)},
+                    'unresolved': len(origins - set(record['resolved'])), 'drafts': list(record['drafts']),
+                    'applied': is_applied(record)}
+        with self.store.transaction():
+            return self.store.read(select)
 
     def save_ui(self, ui):
         if not isinstance(ui, dict) or 'drafts' in ui or len(json.dumps(ui)) > 2_000_000:
@@ -149,17 +177,16 @@ class ReviewSession:
             stat = self.store.path.stat()
             version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
             if self.status_cache is None or self.status_cache[0] != version:
-                record = self.store.read()
-                self.status_cache = (version, {**record['metadata'], 'revision': record['revision'],
-                                              'base': record['snapshot']['base'], 'proposed': record['snapshot']['proposed'],
-                                              'entry': record['snapshot']['entry'],
-                                              'baseline': record['baseline'], 'result': record['result']})
+                state = self.store.read(lambda record: {**record['metadata'], 'revision': record['revision'],
+                    'base': record['snapshot']['base'], 'proposed': record['snapshot']['proposed'],
+                    'entry': record['snapshot']['entry'], 'baseline': record['baseline'], 'result': record['result']})
+                self.status_cache = (version, state)
             result = dict(self.status_cache[1])
         return result
 
     def status(self):
         state = self._status()
-        return {'id': state['id'], 'revision': state['revision'],
+        return {'id': state['id'], 'revision': state['revision'], 'authoring': state.get('authoring', False),
                 **(self.review_context() if self.review_context else {})}
 
     def preview(self, scope='round'):
@@ -180,9 +207,21 @@ class ReviewSession:
     def editor(self, path, text=None, point=None, version=None):
         """Project review spans onto selected wording or an exact external buffer."""
         with self.store.transaction():
-            record = self.store.read()
+            record = self.store.read(lambda record: {**record, 'snapshot': {**record['snapshot'],
+                'files': [file for file in record['snapshot']['files'] if file['path'] == path]},
+                'history': [entry for entry in record['history'] if entry['file'] == path]})
         if version is None:
-            file = document_file(record, path)
+            file = next(iter(record['snapshot']['files']), None)
+            if file is None:
+                snapshot = record['snapshot']
+                key = (snapshot['repo'], snapshot['base'], snapshot['proposed'], path)
+                with self.store.transaction():
+                    if key not in self.editor_files:
+                        self.editor_files[key] = document_file(record, path)
+                    self.editor_files.move_to_end(key)
+                    file = self.editor_files[key]
+                    while len(self.editor_files) > 8:
+                        self.editor_files.popitem(last=False)
         else:
             saved = saved_source(record, path, version)
             file = next((file for file in record['snapshot']['files'] if file['path'] == path), None)
@@ -195,9 +234,11 @@ class ReviewSession:
             text = draft['text'] if draft else original
         elif not isinstance(text, str) or len(text) > 1_000_000:
             raise ValueError('An editor buffer needs at most 1,000,000 characters.')
+        text.encode('utf-16-le')
         mapping = SourceMap(original, text)
+        supplementary = [match.start() for match in re.finditer(r'[^\u0000-\uFFFF]', text)]
         def offset(point):
-            return len(text[:point].encode('utf-16-le')) // 2
+            return point + bisect_left(supplementary, point)
         ranges = []
         for group in file['edits']:
             span = mapping.project(SourceSpan(*projected.ranges[group['id']]))
@@ -216,7 +257,14 @@ class ReviewSession:
             anchor = entry['anchor']
             version = anchor['revision']
             if version not in sources:
-                source = read_blob(record['snapshot']['repo'], version, path)
+                key = (record['snapshot']['repo'], version, path)
+                with self.store.transaction():
+                    if key not in self.note_sources:
+                        self.note_sources[key] = read_blob(*key)
+                    self.note_sources.move_to_end(key)
+                    source = self.note_sources[key]
+                    while len(self.note_sources) > 32:
+                        self.note_sources.popitem(last=False)
                 sources[version] = SourceMap(source or '', text), source is None
             note_mapping, missing = sources[version]
             span = note_mapping.project(SourceSpan(anchor['start'], anchor['end']))
@@ -437,7 +485,7 @@ class ReviewSession:
             self.store.backup_request(request)
             raise StaleReview('This review changed in another window. Your draft was retained. Reload to continue.')
 
-    def update(self, action, request):
+    def update(self, action, request, *, interactive=False):
         if action not in ('save', 'apply', 'file'):
             raise ValueError('Unknown action.')
         with self.store.transaction():
@@ -452,7 +500,7 @@ class ReviewSession:
                     raise ValueError('Save or discard the file draft before changing its review decisions.')
             if action == 'save' and request['decisions'] == previous['decisions'] and request['comments'] == previous['comments']:
                 return {'revision': previous['revision'], 'message': 'Saved locally.'}
-            record = copy.deepcopy(previous)
+            record = dict(previous) if action == 'save' else copy.deepcopy(previous)
             record.update(decisions=request['decisions'], comments=request['comments'], revision=previous['revision'] + 1)
             record['result'] = selected_version(record)
             if action == 'save':
@@ -473,7 +521,7 @@ class ReviewSession:
                 raise
         # Library context reads this record through another store. Fetch it only
         # after releasing the write transaction, as with an ordinary view request.
-        view = self.view()
+        view = self.view(file=request.get('file'), interactive=interactive)
         return {**result, 'revision': view['revision'], 'data': view}
 
     def revise_file(self, previous, record, request):
@@ -520,7 +568,7 @@ class ReviewSession:
                     self.store.commit(record)
             return {'revision': record['revision'], 'workspace': str(workspace), 'workspace_version': version}
 
-    def capture_file(self, request):
+    def capture_file(self, request, *, interactive=False):
         """Capture native saves and keep new author wording out of agent changes."""
         with self.store.transaction():
             previous = self.store.read()
@@ -615,16 +663,17 @@ class ReviewSession:
                 self.store.commit(record)
         if current['entry']:
             self.previews.queue()
-        return {'revision': record['revision'], 'data': self.view(), 'message': f'Saved edits to {path}; comparison updated.'}
+        return {'revision': record['revision'], 'data': self.view(file=path, interactive=interactive), 'message': f'Saved edits to {path}; comparison updated.'}
 
-    def authoring(self, request):
+    def authoring(self, request, *, interactive=False):
         """Enter authoring in this review; retain the earlier comparison verbatim."""
         from .authoring import rebase
         with self.store.transaction():
+            state = self.store.read(lambda record: {'revision': record['revision'], 'metadata': record['metadata']})
+            self.check_revision(request, state)
+            if state['metadata'].get('authoring'):
+                return {'revision': state['revision']}
             previous = self.store.read()
-            self.check_revision(request, previous)
-            if previous['metadata'].get('authoring'):
-                return {'revision': previous['revision']}
             if 'workspace' not in previous['metadata'] or previous['drafts']:
                 raise ValueError('Open the editing folder and save or discard retained drafts before reviewing agent changes.')
             record = copy.deepcopy(previous)
@@ -642,7 +691,7 @@ class ReviewSession:
                 self.store.commit(record)
         if record['snapshot']['entry']:
             self.previews.queue()
-        return {'revision': record['revision'], 'data': self.view()}
+        return {'revision': record['revision'], 'data': self.view(file=request.get('entry'), interactive=interactive)}
 
     def delivery(self, request):
         """Plan exact editor replacements; only the editor writes or saves buffers."""

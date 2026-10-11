@@ -60,11 +60,14 @@ class Library:
     def metadata(self, identifier):
         store = self.store(identifier)
         with store.transaction():
-            return store.read()['metadata']
+            return store.read(lambda record: record['metadata'])
 
     def source(self, identifier, path, version=None):
         """Read immutable review source without restoring a working file."""
-        return {'review': identifier, **saved_source(self.store(identifier).read(), path, version)}
+        record = self.store(identifier).read(lambda record: {'result': record['result'], 'baseline': record['baseline'],
+            'snapshot': {key: value for key, value in record['snapshot'].items() if key != 'files'},
+            'history': [entry for entry in record['history'] if entry['file'] == path]})
+        return {'review': identifier, **saved_source(record, path, version)}
 
     def store(self, identifier):
         directory = self.directory(identifier)
@@ -87,9 +90,10 @@ class Library:
             info['workspace'] = info['repo']
             info['repo'] = reviews[0]['repo']
         for index, review in enumerate(reviews):
-            store = ReviewStore(self.directory(review['id']))
+            store = self.store(review['id'])
             with store.transaction():
-                record = store.read()
+                record = store.read(lambda r: {'revision': r['revision'], 'result': r['result'], 'metadata': r['metadata'],
+                    'snapshot': {key: value for key, value in r['snapshot'].items() if key != 'files'}})
             if index == 0 and str(working_directory(record)) == info.get('workspace', info['repo']):
                 working_parent = record['metadata'].get('workspace_version')
             info['checkpoints'].append({'revision': record['result'], 'subject': f'Round {len(reviews)-index} selected draft',
@@ -175,6 +179,14 @@ class Library:
         return job
 
     def listing(self):
+        def summary(record):
+            metadata, snapshot, choices = record['metadata'], record['snapshot'], record['decisions']
+            edits = [g for f in snapshot['files'] for g in f['edits']]
+            done = sum(choices.get(g['id'], 'pending') != 'pending' for g in edits)
+            return {**metadata, 'total': len(edits), 'done': done, 'applied': is_applied(record),
+                    'comments': sum(bool(text.strip()) for text in record['comments'].values()) + sum(
+                        entry['kind'] == 'source' and not entry['replies'] and bool(entry['comment'].strip()) for entry in record['history']),
+                    'drafts': len(record['drafts']), 'files': len(snapshot['files']), 'skipped': snapshot.get('skipped', [])}
         results = []
         with self.lock:
             for folder in self.reviews.iterdir():
@@ -189,18 +201,9 @@ class Library:
                     if cached and cached[0] == version:
                         results.append(copy.deepcopy(cached[1]))
                         continue
-                    record = store.read()
-                metadata, snapshot, choices = record['metadata'], record['snapshot'], record['decisions']
-                edits = [g for f in snapshot['files'] for g in f['edits']]
-                done = sum(choices.get(g['id'], 'pending') != 'pending' for g in edits)
-                summary = {**metadata, 'total': len(edits), 'done': done, 'applied': is_applied(record),
-                                'comments': sum(bool(text.strip()) for text in record['comments'].values()) + sum(
-                                    entry['kind'] == 'source' and not entry['replies']
-                                    and bool(entry['comment'].strip()) for entry in record['history']),
-                                'drafts': len(record['drafts']),
-                                'files': len(snapshot['files']), 'skipped': snapshot.get('skipped', [])}
-                self.summaries[folder.name] = (version, summary)
-                results.append(copy.deepcopy(summary))
+                    value = store.read(summary)
+                self.summaries[folder.name] = (version, value)
+                results.append(copy.deepcopy(value))
             active = {result['id'] for result in results}
             self.summaries = {key: value for key, value in self.summaries.items() if key in active}
             self.stores = {key: value for key, value in self.stores.items() if key in active}

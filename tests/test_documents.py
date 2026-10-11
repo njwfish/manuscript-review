@@ -1,4 +1,6 @@
 import copy
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 from pathlib import Path
 from test_review import ReviewFixture
 from manuscript_review.comparison import git, read_blob
@@ -65,6 +67,22 @@ class ManuscriptTests(ReviewFixture):
         self.assertEqual(git(self.repo, 'ls-files', '--stage'), index)
         self.assertEqual({path: Path(path).read_bytes() for path in files}, files)
         self.assertEqual(self.session.report()['history'][0]['id'], entry['id'])
+
+    def test_typing_reuses_pinned_sources_across_files_and_concurrent_projections(self):
+        self.note('We score', 'Clarify the observations.')
+        self.note('Intro α😀', 'Keep the Unicode wording.', 'unicode.tex')
+        with patch('manuscript_review.session.read_blob', wraps=read_blob) as blobs:
+            for path in ['main.tex', 'unicode.tex'] * 3:
+                self.source(path)
+            self.assertEqual(blobs.call_count, 2)
+            with patch('manuscript_review.documents.git', side_effect=AssertionError('Warm typing reread a Git tree.')):
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    projections = list(executor.map(lambda path: self.session.editor(path, 'Prefix\n' + self.source(path)['text']),
+                                                    ['main.tex', 'unicode.tex'] * 10))
+            self.assertTrue(all(len(projection['notes']) == 1 for projection in projections))
+            self.assertEqual(blobs.call_count, 2)
+        self.save_file(self.source()['text'].replace('We score', 'We measure'))
+        self.assertIn('We measure', self.source()['original'])
 
     def test_imported_feedback_keeps_exact_unicode_anchors_and_is_idempotent(self):
         before = self.session.store.read()
