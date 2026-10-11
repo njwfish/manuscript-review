@@ -6,8 +6,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 
 const identifier = /^[a-f0-9]{24}$/;
 const scopes = new Set(['round', 'baseline', 'manuscript']);
-const libraryWrites = new Set(['/inspect', '/source', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
-const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain', '/agent-request', '/agent']);
+const libraryWrites = new Set(['/inspect', '/source', '/agent-models', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
+const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/authoring', '/delivery', '/agents', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain', '/agent-request', '/agent']);
 
 function localURL(value) {
     if (typeof value !== 'string' || !/^http:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*\/$/.test(value)) {

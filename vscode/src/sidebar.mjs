@@ -2,14 +2,14 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {commentThreads,reviewProgress} from '../../manuscript_review/review_model.js';
 
-export function sidebarState(comparison,data,commentsEnabled,agent,highlights=true){
+export function sidebarState(comparison,data,commentsEnabled,agent,highlights=true,model='CLI default'){
  const progress=data?reviewProgress(data.files,data.decisions):undefined;
  const unresolved=data?commentThreads(data,data.comments).filter(thread=>!thread.resolved).length:0;
- return {commentsEnabled,agent,highlights,folder:comparison?.info.workspace||comparison?.info.repo,
+ return {commentsEnabled,agent,highlights,model,folder:comparison?.info.workspace||comparison?.info.repo,
   from:comparison?.base.label,to:comparison?.proposed.label,entry:comparison?.entry||'Source only',
   fromVersion:comparison?.base.revision,toVersion:comparison?.proposed.revision,
   active:Boolean(data),review:data?.id,revision:data?.revision,pending:Boolean(comparison?.pending),
-  progress:progress?.total?`${progress.done} of ${progress.total} reviewed`:'',
+  progress:data?.delivery_conflicts?.length?'Review overlapping edits before applying':progress?.total?`${progress.done} of ${progress.total} reviewed`:'',
   canApply:Boolean(progress?.total&&progress.complete&&!data.applied&&!Object.keys(data.drafts).length),
   applied:Boolean(data?.applied),unresolved};
 }
@@ -32,17 +32,18 @@ button,input{font:inherit}button{cursor:pointer;color:inherit;border:0;border-ra
  <span>From</span><button id="from" class="version" aria-label="From" data-action="base"></button>
  <span>To</span><button id="to" class="version" aria-label="To" data-action="proposed"></button>
  <span>PDF</span><button id="entry" class="version" aria-label="PDF" data-action="entry"></button>
-</div><div class="actions"><button id="review" class="primary" data-action="review">Review changes</button><button id="apply" class="secondary" data-action="apply" hidden>Apply review</button></div><p id="progress" class="progress" hidden></p></div>
+</div><div class="actions"><button id="review" class="primary" data-action="review">Review changes</button><button class="secondary" data-action="agentChanges" title="Compare your saved draft to accumulated agent changes">Agent changes</button><button id="apply" class="secondary" data-action="apply" hidden>Apply review</button></div><p id="progress" class="progress" hidden></p></div>
 <div class="comments"><label class="toggle"><input id="highlights" type="checkbox" checked>Review highlights</label>
  <label class="toggle"><input id="comments" type="checkbox" checked>Source comments</label>
  <div id="discussion" class="discussion" hidden><span id="unresolved"></span><div><button data-action="previous" aria-label="Previous comment">Previous</button><button data-action="next" aria-label="Next comment">Next</button></div></div>
- <button id="agent" class="agent" data-action="agent"><span id="agent-label">Codex</span><svg width="9" height="5" viewBox="0 0 9 5" aria-hidden="true"><path d="m1 .5 3.5 3.5L8 .5" fill="none" stroke="currentColor"/></svg></button>
+ <div class="versions" style="margin-top:18px;margin-bottom:8px"><span>Agent</span><button id="agent" class="version" data-action="agent"><span id="agent-label">Codex</span></button><span>Model</span><button id="model" class="version" data-action="model">CLI default</button></div>
+ <button class="agent" data-action="sessions">Open agent session…</button>
 </div><p id="error" class="error" role="alert" hidden></p><script nonce="${nonce}" src="${script}"></script></body></html>`;
 }
 
 export function createSidebar(vscode,context,{load,onAction,onError}){
  let view,generation=0,disposed=false,busy=false;
- const actions=new Set(['repository','base','proposed','entry','review','apply','previous','next','agent','comments','highlights']);
+ const actions=new Set(['repository','base','proposed','entry','review','apply','previous','next','agent','model','sessions','agentChanges','comments','highlights']);
  const subscriptions=[vscode.window.registerWebviewViewProvider('manuscriptReview.start',{
   resolveWebviewView(next){
    view=next;next.webview.options={enableScripts:true,localResourceRoots:[vscode.Uri.file(path.join(context.extensionPath,'dist'))]};

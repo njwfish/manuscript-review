@@ -96,6 +96,10 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                     result = session.edit_workspace(request)
                 elif self.path == '/capture':
                     result = session.capture_file(request)
+                elif self.path == '/authoring':
+                    result = session.authoring(request)
+                elif self.path == '/delivery':
+                    result = session.delivery(request)
                 elif self.path == '/responses':
                     result = session.import_responses(request['responses'], request['revision'])
                 elif self.path == '/explanations':
@@ -112,7 +116,10 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                     result = session.agent_request(request)
                 elif self.path == '/agent':
                     from .dispatch import dispatch_comment
-                    result = dispatch_comment(session.agent_request(request), request['agent'], session.directory.parent.parent)
+                    result = dispatch_comment(session.agent_request(request), request['agent'], session.directory.parent.parent, model=request.get('model'))
+                elif self.path == '/agents':
+                    from .dispatch import agent_runs
+                    result = {'runs': agent_runs(session.directory.parent.parent, session.directory.name)}
                 elif self.path == '/retain':
                     session.store.backup_request(request)
                     result = {'message': 'Unsaved changes retained.'}

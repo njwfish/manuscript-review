@@ -4,6 +4,7 @@ import {comparisonContext} from '../../manuscript_review/review_model.js';
 function versions(vscode,info){
  const groups=[
   ['Selected drafts',(info.checkpoints||[]).map(item=>({...item,label:item.subject,description:`${item.short}  ${item.date}`}))],
+  ['Proposal history',(info.proposals||[]).map(item=>({...item,label:item.subject,description:`${item.short}  ${item.date}`}))],
   ['Branches and tags',(info.references||[]).map(item=>({...item,label:item.name,description:item.revision.slice(0,7),detail:item.subject}))],
   ['Commits',(info.commits||[]).map(item=>({...item,label:item.subject,description:`${item.short}  ${item.date}`,detail:item.refs}))]
  ];
@@ -56,7 +57,7 @@ export async function changeComparison(vscode,state,field){
  const {info,choices,base,proposed,entry}=state;
  const name=path.basename(info.repo);
  const actions={
-  base:()=>pickVersion(vscode,choices,base,`From: ${name}`),
+  base:()=>pickVersion(vscode,[{label:'Working files',revision:'working',detail:'Compare against your current saved wording'},...choices],base,`From: ${name}`),
   proposed:()=>pickVersion(vscode,[{label:'Working files',revision:'working',detail:'Saved tracked files, including staged new files'},...choices],proposed,`To: ${name}`),
   entry:()=>vscode.window.showQuickPick([...info.entries,'Source only'],{title:'PDF document',placeHolder:entry||'Source only'})
  };

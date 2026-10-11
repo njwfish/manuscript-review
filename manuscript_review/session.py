@@ -521,7 +521,7 @@ class ReviewSession:
             return {'revision': record['revision'], 'workspace': str(workspace), 'workspace_version': version}
 
     def capture_file(self, request):
-        """Capture a saved native edit without writing source or moving the base."""
+        """Capture native saves and keep new author wording out of agent changes."""
         with self.store.transaction():
             previous = self.store.read()
             self.check_revision(request, previous)
@@ -548,9 +548,13 @@ class ReviewSession:
                         raise ValueError('The editing checkout moved away from B. Return to the review checkout.') from None
                 if not destination.is_file() or destination.read_bytes().decode() != text:
                     raise ValueError('The saved file changed again. Save its latest text before capturing the diff.')
-                before_blob = read_blob(snapshot['repo'], metadata['workspace_version'], path)
+                editing = request.get('editing', metadata['workspace_version'])
+                if not isinstance(editing, str) or not re.fullmatch(r'[a-f0-9]{40}', editing):
+                    raise ValueError('Choose the saved editor source version.')
+                before_blob = read_blob(snapshot['repo'], editing, path)
                 before = before_blob or ''
-                if before_blob is not None and before == text:
+                conflict = False
+                if editing == metadata['workspace_version'] and before_blob is not None and before == text:
                     return {'revision': previous['revision'], 'message': 'No source changes to capture.'}
                 try:
                     file = document_file(previous, path)
@@ -560,6 +564,14 @@ class ReviewSession:
                     file = enrich_snapshot({'files': [compare(path, read_blob(snapshot['repo'], snapshot['base'], path), None)]})['files'][0]
                 if (file['before'] is None and file['after'] is None) or (before_blob is None and text == ''):
                     replacements = [(0, len(file['after'] or ''), text)]
+                elif metadata.get('authoring'):
+                    from .authoring import merge_saved
+                    selected = selected_content(file, previous['decisions'])
+                    if selected is None:
+                        replacements, conflict = [], True
+                    else:
+                        merged, conflict = merge_saved(before, selected, text)
+                        replacements, _ = file_replacements(file, previous['decisions'], merged)
                 else:
                     groups = {group['id']: group for group in file['edits']}
                     try:
@@ -574,9 +586,21 @@ class ReviewSession:
                                            if identifier and before[start:end] == groups[identifier]['old']}
                         replacements, _ = file_replacements(file, working_choices, text)
                 record = copy.deepcopy(previous)
-                after = replace_ranges(file['after'] or '', replacements)
+                if conflict and path not in record['metadata'].get('delivery_conflicts', []):
+                    record['metadata'].setdefault('delivery_conflicts', []).append(path)
+                after = file['after'] if metadata.get('authoring') and file['after'] is None and not replacements else replace_ranges(file['after'] or '', replacements)
                 changed = [SourceSpan(start, end) for start, end, _ in replacements]
                 self.replace_proposal_file(previous, record, file, after, changed)
+                if metadata.get('authoring'):
+                    from .authoring import authored_text, rebase
+                    baseline = read_blob(snapshot['repo'], snapshot['base'], path) or ''
+                    authored = authored_text(before, baseline, text)
+                    base = source_version(snapshot['repo'], snapshot['base'], {path: authored},
+                                          'refs/manuscript-review/' + metadata['id'] + '/author',
+                                          'Manuscript Review author wording')
+                    rebase(record, base, self.directory)
+                    if read_blob(snapshot['repo'], record['result'], path) == text:
+                        record['metadata']['delivery_conflicts'] = [file for file in record['metadata'].get('delivery_conflicts', []) if file != path]
                 current = record['snapshot']
                 record['metadata']['workspace_version'] = source_version(
                     snapshot['repo'], metadata['workspace_version'], {path: text},
@@ -592,6 +616,56 @@ class ReviewSession:
         if current['entry']:
             self.previews.queue()
         return {'revision': record['revision'], 'data': self.view(), 'message': f'Saved edits to {path}; comparison updated.'}
+
+    def authoring(self, request):
+        """Enter authoring in this review; retain the earlier comparison verbatim."""
+        from .authoring import rebase
+        with self.store.transaction():
+            previous = self.store.read()
+            self.check_revision(request, previous)
+            if previous['metadata'].get('authoring'):
+                return {'revision': previous['revision']}
+            if 'workspace' not in previous['metadata'] or previous['drafts']:
+                raise ValueError('Open the editing folder and save or discard retained drafts before reviewing agent changes.')
+            record = copy.deepcopy(previous)
+            with repository_lock(record['snapshot']['repo']):
+                rebase(record, record['metadata']['workspace_version'], self.directory, proposed=record['result'])
+                entry = request.get('entry')
+                if (entry and record['snapshot']['entry']
+                        and read_blob(record['snapshot']['repo'], record['result'], record['snapshot']['entry']) is None):
+                    source = saved_source(record, entry)
+                    if entry.endswith('.tex') and '\\documentclass' in source['text']:
+                        record['snapshot']['entry'] = record['metadata']['entry'] = entry
+                        record['metadata']['preview_status'] = 'queued'
+                record['revision'] += 1
+                self.store.archive(previous)
+                self.store.commit(record)
+        if record['snapshot']['entry']:
+            self.previews.queue()
+        return {'revision': record['revision'], 'data': self.view()}
+
+    def delivery(self, request):
+        """Plan exact editor replacements; only the editor writes or saves buffers."""
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision(request, record)
+        files = []
+        if record['metadata'].get('authoring') and not record['drafts']:
+            for file in record['snapshot']['files']:
+                if file['path'] in record['metadata'].get('delivery_conflicts', []):
+                    continue
+                before = read_blob(record['snapshot']['repo'], record['metadata']['workspace_version'], file['path'])
+                after = selected_content(file, record['decisions'])
+                if before == after or before is None or after is None or not file['path'].endswith(('.tex', '.bib', '.md', '.txt', '.typ', '.rst')):
+                    continue
+                if max(len(before), len(after)) > 1_000_000:
+                    continue
+                edits = [{'from': len(before[:a].encode('utf-16-le')) // 2,
+                          'to': len(before[:b].encode('utf-16-le')) // 2, 'text': after[c:d]}
+                         for tag, a, b, c, d in SourceMap(before, after).blocks if tag != 'equal']
+                files.append({'file': file['path'], 'before': before, 'after': after, 'edits': edits})
+        return {'revision': record['revision'], 'source': record['result'], 'files': files,
+                'conflicts': record['metadata'].get('delivery_conflicts', [])}
 
     def merge_proposal(self, starting, proposed):
         """Accumulate a parallel proposal without writing the author's working files."""
@@ -639,6 +713,10 @@ class ReviewSession:
                 record['revision'] += 1
                 record['metadata'].update(proposal_label=local_edit_label(previous['metadata']['proposal_label'], record['snapshot']['proposed']),
                                           preview_status='queued' if old['entry'] else 'none')
+                if record['metadata'].get('delivery_conflicts'):
+                    workspace = record['metadata']['workspace_version']
+                    record['metadata']['delivery_conflicts'] = [path for path in record['metadata']['delivery_conflicts']
+                        if read_blob(repo, workspace, path) != read_blob(repo, record['result'], path)]
                 self.store.archive(previous)
                 self.store.commit(record)
         if old['entry']:

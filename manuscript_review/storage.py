@@ -119,6 +119,11 @@ def validate_record(record):
     if 'drafts' in record['ui']:
         raise ValueError('Source drafts belong to review content, not navigation preferences.')
     metadata = record['metadata']
+    if 'authoring' in metadata and not isinstance(metadata['authoring'], bool):
+        raise ValueError('Invalid authoring comparison.')
+    conflicts = metadata.get('delivery_conflicts', [])
+    if not isinstance(conflicts, list) or any(not isinstance(path, str) for path in conflicts) or len(set(conflicts)) != len(conflicts):
+        raise ValueError('Conflicting delivery files must be distinct source paths.')
     if ('workspace' in metadata) != ('workspace_version' in metadata):
         raise ValueError('A source checkout needs its captured version.')
     if 'workspace' in metadata and (not isinstance(metadata['workspace'], str)

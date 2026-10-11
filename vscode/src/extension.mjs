@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {createRuntime} from './runtime.mjs';
 import {createComments,sourceFile,sourceDocument} from './comments.mjs';
 import {createSourceEdits} from './source-edits.mjs';
+import {createDelivery} from './delivery.mjs';
 import {createSourceDocuments,sourceScheme,snapshotVersion} from './source-documents.mjs';
 import {createPanel} from './panel.mjs';
 import {createDecorations} from './decorations.mjs';
@@ -19,19 +20,52 @@ let disposeExtension;
 export function activate(context){
  const output=vscode.window.createOutputChannel('Manuscript Review');
  const decorations=createDecorations(vscode);
- let runtime,panel,sourceEdits,watcher,timer,opening,navigation,agentTools,viewer,starting,disposing,comparison,disposed=false,sending=false;
+ let runtime,panel,sourceEdits,delivery,watcher,timer,opening,navigation,agentTools,viewer,starting,disposing,comparison,disposed=false,sending=false;
  let comparisonEpoch=0,inspection;
  function setComparison(value){comparison=value;comparisonEpoch++;}
  const commentsEnabled=()=>context.globalState.get('commentsEnabled',true);
  const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',true);
  decorations.setEnabled(highlightsEnabled());
  const canComment=document=>commentsEnabled()&&vscode.workspace.isTrusted&&sourceDocument(document);
- const selectedAgent=()=>agents.find(agent=>agent.id===context.globalState.get('commentAgent'))||agents[0];
+ const selectedAgent=()=>{const agent=agents.find(agent=>agent.id===context.globalState.get('commentAgent'))||agents[0];return {...agent,model:context.globalState.get('commentModels',{})[agent.id]};};
  async function chooseAgent(){
-  const current=selectedAgent(),options=[current,...agents.filter(agent=>agent!==current)];
+  const current=selectedAgent(),options=[current,...agents.filter(agent=>agent.id!==current.id)];
   const agent=await vscode.window.showQuickPick(options,{title:'Comment agent',placeHolder:'Enter sends to this agent'});
   if(agent){await context.globalState.update('commentAgent',agent.id);comments.setAgent(agent.label);panel?.setAgent(agent.label);await sidebar.refresh();}
   return selectedAgent().label;
+ }
+ async function chooseModel(){
+  await start();
+  const agent=selectedAgent(),data=await runtime.library('/agent-models',{agent:agent.id});
+  const choices=[{label:'CLI default',id:undefined,description:'Use your '+agent.label+' settings'},
+   ...data.models.map(model=>({...model,description:model.id})),{label:'Enter model name…',custom:true}];
+  const choice=await vscode.window.showQuickPick(choices,{title:agent.label+' model',placeHolder:agent.model||'CLI default',matchOnDescription:true});
+  if(!choice)return;
+  const model=choice.custom?await vscode.window.showInputBox({title:agent.label+' model',value:agent.model||'',prompt:'Model name accepted by the installed CLI',validateInput:value=>/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(value)?undefined:'Enter a model name.'}):choice.id;
+  if(choice.custom&&model===undefined)return;
+  await context.globalState.update('commentModels',{...context.globalState.get('commentModels',{}),[agent.id]:model});
+  await sidebar.refresh();
+ }
+ async function openAgentSession(){
+  if(!await ensureReview())return;
+  const {runs}=await runtime.request('/agents',{});
+  if(!runs.length){await vscode.window.showInformationMessage('No agents dispatched from this review.');return;}
+  const run=await vscode.window.showQuickPick(runs.map(run=>({label:run.title,description:agents.find(agent=>agent.id===run.agent)?.label+'  '+(run.model||'CLI default'),detail:run.status+'  '+run.created,run})),{title:'Agent sessions'});
+  if(!run)return;
+  const item=run.run;
+  const actions=[...(item.session?[{label:'Open in terminal',action:'terminal'},{label:'Open in '+(item.agent==='codex'?'Codex':'Claude Desktop'),action:'desktop'}]:[]),{label:'View launch log',action:'log'}];
+  const action=await vscode.window.showQuickPick(actions,{title:run.label});if(!action)return;
+  if(action.action==='log')return vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(item.log)),{viewColumn:vscode.ViewColumn.Beside});
+  if(item.agent==='codex'&&action.action==='desktop')return vscode.env.openExternal(vscode.Uri.parse('codex://threads/'+item.session));
+  const args=item.agent==='codex'?['resume',item.session]:action.action==='desktop'?['--desktop','--resume',item.session]:item.job?['attach',item.job]:['--resume',item.session];
+  const terminal=vscode.window.createTerminal({name:agents.find(agent=>agent.id===item.agent).label,cwd:item.repo,shellPath:item.agent,shellArgs:args});
+  terminal.show();
+ }
+ async function showAgentChanges(){
+  if(!await ensureReview())return;await sourceEdits.flush();await panel.flush();
+  await runtime.request('/authoring',{entry:sourceFile(runtime.review,vscode.window.activeTextEditor?.document)});setComparison(undefined);
+  await context.workspaceState.update('highlightsEnabled',true);decorations.setEnabled(true);
+  await delivery.refresh();await refreshSource();
  }
  const sources=createSourceDocuments(vscode,async()=>{await start();return runtime;});
  const subscriptions=[output,sources];
@@ -51,6 +85,10 @@ export function activate(context){
  async function discardUnopenedRuntime(){if(runtime&&!runtime.review){sourceEdits?.dispose();panel?.dispose();await runtime.dispose();await viewer?.dispose();runtime=panel=sourceEdits=viewer=undefined;updateSourceContext();}}
  const fail=async error=>{if(disposed)return;if(!opening)await discardUnopenedRuntime();output.appendLine(error.stack||error.message);vscode.window.showErrorMessage(error.message);};
  async function refreshSource(){await comments.refresh();await sidebar.refresh();}
+ async function showAgentHighlights(message){
+  await context.workspaceState.update('highlightsEnabled',true);decorations.setEnabled(true);await refreshSource();
+  vscode.window.setStatusBarMessage(message,5000);
+ }
  function refreshComments(){clearTimeout(timer);timer=setTimeout(()=>refreshSource().catch(fail),180);}
  async function start(){
   if(disposed)throw new Error('Manuscript Review has closed.');
@@ -68,21 +106,25 @@ export function activate(context){
    const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.workspace||runtime.review.repo),setup,sourceDrafts,chooseAgent,editingFolder};
    panel=createPanel(vscode,context,runtime,{viewer,onSource:openSource,onFocus:(file,edit)=>decorations.focus(file,edit),onAgent:sendToAgent,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
     agentLabel:()=>selectedAgent().label,onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
-   sourceEdits=createSourceEdits(runtime,{flushPanel:options=>panel.flush(options),unlockPanel:id=>panel.unlock(id),refreshPanel:options=>panel.refresh(options),refreshComments:refreshSource});
+   sourceEdits=createSourceEdits(runtime,{state:context.workspaceState,flushPanel:options=>panel.flush(options),unlockPanel:id=>panel.unlock(id),refreshPanel:()=>panel.changed(),refreshComments:refreshSource});
+   delivery=createDelivery(vscode,runtime,{sourceEdits,openDocument:sources.open,reviewing:()=>panel.visible,
+    onConflict:()=>showAgentHighlights('Saved your wording; overlapping agent changes await review.'),
+    onDelivered:()=>showAgentHighlights('Agent changes joined your saved draft.')});
   })().finally(()=>{starting=undefined;});
   return starting;
  }
  function watchRecord(){
   watcher?.dispose();
   const record=runtime.review.feedback_path;
+  let observed=runtime.review.revision;
   watcher=vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(path.dirname(record),path.basename(record)));
-  const changed=async()=>{try{const value=JSON.parse(await readFile(record,'utf8'));panel.changed(value.revision);refreshComments();}catch(error){output.appendLine(error.message);}};
+  const changed=async()=>{try{const value=JSON.parse(await readFile(record,'utf8'));if(value.revision<=observed)return;observed=value.revision;panel.changed(value.revision);refreshComments();if(value.metadata.authoring)await delivery.refresh();}catch(error){output.appendLine(error.message);}};
   watcher.onDidChange(changed);
   watcher.onDidCreate(changed);
  }
  function navigateReview(action,key){
   if(opening&&key!==undefined&&navigation===key)return opening;
-  const run=async()=>{await sourceEdits?.flush();return action();};
+  const run=async()=>{await delivery?.flush();await sourceEdits?.flush();return action();};
   const pending=(opening?opening.catch(()=>{}).then(run):run()).catch(async error=>{
    await discardUnopenedRuntime();
    throw error;
@@ -185,9 +227,14 @@ export function activate(context){
   const agent=selectedAgent();
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   await prepareTools();
+  if(!panel.visible){
+   const task=await runtime.request('/agent-request',{id:identifier,launcher:agentTools.launcher,skill:agentTools.skill});
+   identifier=task.discussion;
+   await runtime.request('/authoring',{entry:sourceFile(runtime.review,vscode.window.activeTextEditor?.document)});
+  }
   const data=await runtime.data('round');
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
-  const result=await runtime.request('/agent',{revision:data.revision,id:identifier,launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id});
+  const result=await runtime.request('/agent',{revision:data.revision,id:identifier,launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id,...(agent.model?{model:agent.model}:{})});
   output.appendLine(result.message+' Output: '+result.log);
   vscode.window.setStatusBarMessage(result.message,4000);
   return true;
@@ -272,7 +319,7 @@ export function activate(context){
    const data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.data('round'):undefined;
    if(epoch!==comparisonEpoch)return loadSidebar();
    if(data&&!comparison.pending)comparison=reviewComparison(comparison,data);
-   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled());
+   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default');
   }catch(error){if(!opening)await discardUnopenedRuntime();throw error;}
  }
  function checkSidebar(expected){
@@ -284,11 +331,11 @@ export function activate(context){
    if(expected?.review&&expected.review!==runtime?.review?.id)throw new Error('The review changed. Use the current sidebar controls.');
  }
  async function sidebarAction(action,expected){
-  if(!['comments','agent','repository','highlights'].includes(action))checkSidebar(expected);
+  if(!['comments','agent','model','sessions','agentChanges','repository','highlights'].includes(action))checkSidebar(expected);
   const actions={
    highlights:async()=>{const enabled=!highlightsEnabled();await context.workspaceState.update('highlightsEnabled',enabled);decorations.setEnabled(enabled);if(enabled)await comments.refresh();},
    comments:async()=>{const enabled=!commentsEnabled();await context.globalState.update('commentsEnabled',enabled);comments.setEnabled(enabled);updateSourceContext();if(enabled)await restoreSourceReview(vscode.window.activeTextEditor?.document);},
-   agent:chooseAgent,previous:()=>comments.move(-1),next:()=>comments.move(1),
+   agent:chooseAgent,model:chooseModel,sessions:openAgentSession,agentChanges:showAgentChanges,previous:()=>comments.move(-1),next:()=>comments.move(1),
    repository:async()=>{await start();const info=await chooseComparisonRepository();if(info)setComparison({...comparisonState(vscode,info),pending:true});},
    base:()=>editComparison('base'),proposed:()=>editComparison('proposed'),entry:()=>editComparison('entry'),
    review:()=>navigateReview(()=>openComparison(expected)),
@@ -314,7 +361,7 @@ export function activate(context){
   const data=runtime?.review?await runtime.data('round'):undefined;
   check();if(comparisonMatches(current,data)){await panel.show();return;}
   await prepareTools();await panel.flush();
-  check();if(current.proposed.revision==='working')requireRepositorySaved(current.info.workspace||current.info.repo);
+  check();if([current.base.revision,current.proposed.revision].includes('working'))requireRepositorySaved(current.info.workspace||current.info.repo);
   const job=await prepareReview('/prepare',comparisonRequest(current),'Preparing comparison');
   check();await selectRound(job.review);await panel.show();
  }
@@ -383,6 +430,9 @@ export function activate(context){
  command('sourceDrafts',sourceDrafts);
  command('editingFolder',editingFolder);
  command('chooseAgent',chooseAgent);
+ command('chooseModel',chooseModel);
+ command('agentSessions',openAgentSession);
+ command('agentChanges',showAgentChanges);
  command('library',reviewLibrary);
  command('import',importReview);
  command('comment',()=>comments.annotate(vscode.window.activeTextEditor));
@@ -392,7 +442,7 @@ export function activate(context){
  command('nextComment',()=>comments.move(1));
  subscriptions.push(vscode.window.registerUriHandler({handleUri:uri=>{const id=uri.path.match(/^\/review\/([a-f0-9]{24})$/)?.[1];if(!id)return;return navigateReview(async()=>{await start();await prepareTools();await panel.flush();await selectRound(id);await panel.show();}).catch(fail);}}));
  command('livePDF',async()=>{if(!vscode.window.activeTextEditor)throw new Error('Select a location in the LaTeX source first.');const extension=vscode.extensions.getExtension('James-Yu.latex-workshop');if(!extension)throw new Error('Install LaTeX Workshop to use source-to-PDF navigation.');await extension.activate();await vscode.commands.executeCommand('latex-workshop.synctex');});
- subscriptions.push(vscode.workspace.onDidSaveTextDocument(document=>sourceEdits?.save(document).catch(fail)));
+ subscriptions.push(vscode.workspace.onDidSaveTextDocument(document=>sourceEdits?.save(document).then(()=>delivery?.refresh()).catch(fail)));
  subscriptions.push(vscode.workspace.onDidChangeTextDocument(event=>{if(runtime?.review&&event.document.uri.scheme==='file')refreshComments();}));
  subscriptions.push(vscode.window.onDidChangeVisibleTextEditors(()=>{if(runtime?.review)refreshComments();}));
  subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor=>{if(!comparison&&!runtime?.review)comparisonEpoch++;updateSourceContext();if(sourceFile(runtime?.review,editor?.document))decorations.reveal();void restoreSourceReview(editor?.document).catch(error=>output.appendLine(error.message));}));
@@ -400,8 +450,9 @@ export function activate(context){
  disposeExtension=()=>disposing??=(async()=>{
   disposed=true;
   await starting?.catch(()=>{});
-  try{await sourceEdits?.flush();}catch(error){output.appendLine('Saved source remains on disk; compare saved changes to recover its diff: '+error.message);}
-  clearTimeout(timer);watcher?.dispose();sourceEdits?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();
+  delivery?.dispose();
+  try{await delivery?.flush();await sourceEdits?.flush();}catch(error){output.appendLine('Saved source remains on disk; compare saved changes to recover its diff: '+error.message);}
+  clearTimeout(timer);watcher?.dispose();delivery?.dispose();sourceEdits?.dispose();comments?.dispose();panel?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();
  })();
  context.subscriptions.push({dispose:()=>{void disposeExtension();}});
  updateSourceContext();void restoreSourceReview(vscode.window.activeTextEditor?.document).catch(error=>output.appendLine(error.message));

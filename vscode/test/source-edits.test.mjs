@@ -73,3 +73,41 @@ test('multiple saved files capture serially using the latest physical source ver
  const second=f.edits.save({...f.document,uri:{scheme:'file',fsPath:'/editing/second.tex'},text:'Second file'});release();await Promise.all([first,second]);
  assert.deepEqual(f.events.filter(event=>event.route).map(event=>[event.body.file,event.body.source]),[['main.tex','B'],['second.tex','B plus main']]);
 });
+
+test('native Save before delivery acknowledgement retains agent provenance for every file',async()=>{
+ const f=fixture();
+ const files=[{file:'main.tex',before:f.document.text},{file:'second.tex',before:'Second author text'}];
+ await f.edits.delivered(files,'Agent source');
+ f.document.text='Agent source words';
+ const first=f.edits.save(f.document);
+ const second=f.edits.save({...f.document,uri:{scheme:'file',fsPath:'/editing/second.tex'},text:'Second agent text'});
+ await f.edits.completeDelivery(files,'Agent source',true);await Promise.all([first,second]);
+ assert.deepEqual(f.events.filter(event=>event.route).map(event=>event.body.editing),['Agent source','Agent source']);
+});
+
+test('Save while delivery is staging remains an author save if applying is cancelled',async()=>{
+ const f=fixture(),files=[{file:'main.tex',before:f.document.text}];
+ await f.edits.delivered(files,'Cancelled agent source');
+ f.document.text='Fresh author text';const saved=f.edits.save(f.document);
+ await f.edits.completeDelivery(files,'Cancelled agent source',false);await saved;
+ assert.equal(f.events.find(event=>event.route).body.editing,undefined);
+});
+
+test('saving the original wording while staging does not attribute undelivered words to the author',async()=>{
+ const f=fixture(),files=[{file:'main.tex',before:f.document.text}];
+ await f.edits.delivered(files,'Future agent source');const saved=f.edits.save(f.document);
+ await f.edits.completeDelivery(files,'Future agent source',true);await saved;
+ assert.equal(f.events.find(event=>event.route).body.editing,undefined);
+ f.document.text='Delivered source';await f.edits.save(f.document);
+ assert.equal(f.events.filter(event=>event.route).at(-1).body.editing,'Future agent source');
+});
+
+test('Undo after delivery before its first successful Save captures the undo against the agent source',async()=>{
+ const f=fixture(),files=[{file:'main.tex',before:f.document.text}];
+ await f.edits.delivered(files,'Applied agent source');
+ await f.edits.completeDelivery(files,'Applied agent source',true);
+ // The delivery Save failed; Undo restored the author's exact original text.
+ await f.edits.save(f.document);
+ assert.equal(f.events.find(event=>event.route).body.editing,'Applied agent source');
+ assert.equal(f.events.find(event=>event.route).body.text,files[0].before);
+});

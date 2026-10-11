@@ -128,19 +128,19 @@ provider; Shift+Enter inserts a newline. Both interfaces call the same revision-
 Codex uses `exec` with file-backed prompt stdin; Claude uses its native `--bg` command.
 The library and common Git directory are supplied as writable directories. Provider
 startup, login, and execution do not block the editor. Launch output is retained in
-`agent-output/`; working transcripts belong to the provider. The app stores no task
-or conversation records.
+`agent-output/`; working transcripts belong to the provider. Launch receipts retain provider session handles; the app manages no conversations.
 
 `Library.begin(parallel=True)` pins the selected result and creates a unique detached
 proposal checkout. Pending decisions and retained author drafts do not block it.
 `finish_parallel` captures that checkout and calls `ReviewSession.merge_proposal`.
 Under the review and repository locks, `merging.py` merges incoming word changes
 against the current selected result, then projects that delta into the raw proposal.
-This preserves rejected changes elsewhere. New groups remain undecided, the fixed
-base and review ID stay the same, and earlier source versions are archived. Overlaps
+This preserves rejected changes elsewhere. New groups remain undecided, the review
+ID stays the same, and earlier source versions are archived. Explicit version reviews
+keep their base; source authoring carries saved author wording into its comparison base. Overlaps
 and unsupported binary changes are refused before committing the record; the proposal
-checkout remains available for reconciliation. The author's files, index, and buffers
-are untouched until Apply. The existing explicit begin/finish workflow creates a
+checkout remains available for reconciliation. Publishing never writes author source;
+native authoring delivery and explicit Apply own those writes. The existing explicit begin/finish workflow creates a
 separate round when requested.
 
 Native source saves and retained file drafts can continue from a source version that
@@ -191,7 +191,8 @@ A matching checkout is reused; otherwise a detached Git worktree in the reviewâ€
 `source/` directory starts from its selected draft. The canonical repository remains
 the library identity and Git object store. Imports discard local checkout bindings.
 Source writes and their recovery journal use the bound checkout. Native captures read
-saved bytes without writing source or moving the fixed comparison base. They map the
+saved bytes without writing source. Explicit version reviews keep their comparison
+base; authoring comparisons carry new author wording into it. Captures map the
 physical delta back into the proposal through the same manual-edit projection as the
 standalone editor. Managed checkouts remain available for ordinary Git work; the app
 does not delete an authorâ€™s files or commits.
@@ -217,3 +218,27 @@ The app reads only schema 7. The explicit migrations in `migrations/` port retir
 ## Verification
 
 Run `python3 -m unittest discover -s tests -v` from this directory. Tests cover exact reconstruction, absent and empty files, passage regeneration, retained notes and replies, stale writes, interrupted transactions, external edits, source anchors, client projection, modifier shortcuts, library operations, and LaTeX highlighting. Verify actual compilation and packaged startup when changing those boundaries.
+
+## Source authoring
+
+Sending a native source comment outside focused review, or selecting **Agent changes**,
+uses the existing review for one author-versus-agent comparison. `authoring.py` moves
+the comparison base to captured author wording and carries subsequent manual saves
+into that base. The original baseline and archived records retain earlier comparisons,
+choices and discussion. Proposals still merge through the same session operations.
+
+`delivery.mjs` requests exact replacements from the session, checks every participating
+native buffer is saved and unchanged, then uses a native WorkspaceEdit and Save. It
+never overwrites a dirty buffer or runs while focused review is visible. Delivery stages all source checkpoints before exposing edits and gates native
+capture until the workspace edit succeeds or rolls back. Source capture
+receives the delivered source checkpoint, distinguishing agent delivery from subsequent
+author edits; VS Code workspace storage retains that checkpoint until capture succeeds.
+New results that arrive during delivery merge into the next update. Overlapping edits
+remain in their original source versions for reconciliation. Delivery does not decide
+edits or resolve comments. It enables source highlights without taking editor focus.
+
+The sidebar chooses provider and model independently. `dispatch.py` retains only launch
+receipts and logs outside the review record, with handles to provider-owned sessions.
+Codex runs with JSON events and a CLI thread source; Claude uses its native background
+agent service. Open agent session uses those handles to resume in a native terminal or
+desktop app. No working transcript is added to a comment or managed by the review.

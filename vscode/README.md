@@ -142,8 +142,9 @@ the same thread state as native comments.
 ## Work with an agent
 
 Press **Enter** in a comment to save it and dispatch it through the selected agent's
-CLI; **Shift+Enter** adds a newline. Choose Codex or Claude Code beside Send, or from
-the arrow in a native comment's toolbar. The choice is remembered. **Add comment**
+CLI; **Shift+Enter** adds a newline. The sidebar chooses **Agent** (Codex or Claude
+Code) and **Model**; **CLI default** uses that provider's own settings. The arrow in
+a native comment toolbar also chooses the provider. Both choices are remembered. **Add comment**
 saves without dispatching; **Send to agent** also works on a saved comment.
 
 [Install and sign in to the CLI](../docs/INSTALL.md#agent-clis) first. No provider tab
@@ -151,15 +152,21 @@ opens and focus stays in your manuscript. Several agents can work while you cont
 editing or reviewing. Each receives one saved discussion, earlier replies, and the
 bundled command launcher. Working transcripts stay with the provider; only the final
 response is appended to the discussion. Launch details are in the Manuscript Review
-Output channel and the library's `agent-output/` directory.
+Output channel and the library's `agent-output/` directory. **Open agent session…**
+in the sidebar reopens that conversation in its CLI or desktop app, or shows its launch log.
 
 For source changes, the agent starts a separate proposal checkout with
 `begin --parallel`, follows the manuscript's Git workflow and build checks, then
 publishes with `finish --workspace`. Clean changes join the current comparison as
-undecided edits against its fixed base, preserving your choices, drafts, discussion,
-and other agent results. Different words in the same paragraph can merge;
-overlapping changes require reconciliation in a fresh proposal. Your source files
-and buffers remain untouched until **Apply**. Pending decisions and unsaved source
+undecided edits, preserving your choices, drafts, discussion, and other agent results.
+Sending from native source outside focused review starts one **Your saved draft →
+Agent changes** comparison. Clean results join saved source through native undoable
+edits. Dirty buffers wait for your next Save. Your own saves update the author side,
+so the diff contains agent changes; the original baseline and archived comparisons
+remain available. **Agent changes** in the sidebar also brings existing results into
+this workflow. Opening focused review pauses delivery and keeps **Apply review**
+explicit. Overlapping author and agent wording stays visible for review; neither
+version is lost. New or deleted files use explicit Apply. Pending decisions and unsaved source
 do not block agent revisions. The author reviews wording and resolves settled threads.
 
 **Copy agent request** prepares the same workflow for your external chat. An idle

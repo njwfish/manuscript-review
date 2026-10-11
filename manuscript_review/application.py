@@ -63,6 +63,9 @@ def commit_sources(store, previous, record, changes):
             {path: after for path, _, after in changes},
             'refs/manuscript-review/' + record['metadata']['id'] + '/workspace',
             'Manuscript Review source checkout')
+    if 'delivery_conflicts' in record['metadata']:
+        written = {path for path, _, after in changes if after == read_blob(record['snapshot']['repo'], record['result'], path)}
+        record['metadata']['delivery_conflicts'] = [path for path in record['metadata']['delivery_conflicts'] if path not in written]
     store.commit(record, plan)
     return len(plan)
 
