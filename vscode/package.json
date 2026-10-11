@@ -6,7 +6,7 @@
     "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.1.17",
+  "version": "0.2.0",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -193,6 +193,21 @@
       {
         "command": "manuscriptReview.toggleHighlights",
         "title": "Toggle review highlights",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.chooseModel",
+        "title": "Choose comment model",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.agentSessions",
+        "title": "Open agent session",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.agentChanges",
+        "title": "Review agent changes",
         "category": "Manuscript Review"
       }
     ],

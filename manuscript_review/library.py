@@ -80,6 +80,7 @@ class Library:
         info = inspect_repo(repositories[0])
         info['workspace'] = info['repo']
         info['checkpoints'] = []
+        info['proposals'] = []
         working_parent = None
         reviews = [review for review in self.listing() if info['repo'] in (review['repo'], review.get('workspace'))]
         if reviews and reviews[0].get('workspace') == info['repo']:
@@ -95,13 +96,21 @@ class Library:
                                         'date': review['created'][:10], 'short': record['result'][:7],
                                         'review': review['id'], 'review_revision': record['revision'],
                                         'entry': record['snapshot']['entry']})
+            versions = git(info['repo'], 'for-each-ref', '--sort=-committerdate', '--count=50',
+                           '--format=%(objectname)\t%(committerdate:short)',
+                           f'refs/manuscript-review/{review["id"]}/versions').decode().splitlines()
+            for version in versions:
+                revision, date = version.split('\t')
+                if revision != record['result']:
+                    info['proposals'].append({'revision': revision, 'subject': f'Round {len(reviews)-index} proposal',
+                                              'date': date, 'short': revision[:7]})
         if info['checkpoints']:
             info['base'] = info['checkpoints'][0]['revision']
         working, _ = working_snapshot(info.get('workspace', info['repo']), parent=working_parent) if info['dirty'] or working_parent else (info['head'], info['head'])
         info['working_version'] = working
         revisions = list(dict.fromkeys([working, *[r['revision'] for r in info['commits']],
                                        *[r['revision'] for r in info['references']],
-                                       *[r['revision'] for r in info['checkpoints']]]))
+                                       *[r['revision'] for r in info['checkpoints']], *[r['revision'] for r in info['proposals']]]))
         trees = git(info['repo'], 'rev-parse', *[revision + '^{tree}' for revision in revisions]).decode().splitlines()
         info['trees'] = dict(zip(revisions, trees))
         return info
@@ -248,7 +257,10 @@ class Library:
             proposed_ref = request.get('proposed', 'working').strip()
             if request.get('manuscript'):
                 proposed_ref = starting
-            base = git(repo, 'rev-parse', '--verify', base_ref + '^{commit}').decode().strip()
+            if base_ref == 'working':
+                base, _ = working_snapshot(workspace, parent=saved['metadata'].get('workspace_version') if saved else None)
+            else:
+                base = git(repo, 'rev-parse', '--verify', base_ref + '^{commit}').decode().strip()
             if proposed_ref == 'working':
                 proposed, source_head = working_snapshot(workspace, parent=saved['metadata'].get('workspace_version', base)
                                                          if saved and Path(workspace).resolve() == working_directory(saved) else base)
@@ -434,6 +446,9 @@ def create_library_server(library, port=0):
                 request = self.read_request(limit=100_000)
                 if self.path == '/inspect':
                     result = library.inspect(request['repo'])
+                elif self.path == '/agent-models':
+                    from .dispatch import agent_models
+                    result = {'models': agent_models(request['agent'])}
                 elif self.path == '/source':
                     result = library.source(request['id'], request['file'], request.get('version'))
                 elif self.path == '/clone':

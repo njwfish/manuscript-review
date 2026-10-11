@@ -154,7 +154,7 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAg
    await load(origin);
   }else{panel.reveal();await loaded;select();}
  }
- return {show,flush,unlock:id=>{if(id)panel?.webview.postMessage({type:'review-command',action:'unlock',id});},
+ return {show,flush,get visible(){return Boolean(panel?.visible);},unlock:id=>{if(id)panel?.webview.postMessage({type:'review-command',action:'unlock',id});},
   setAgent:label=>panel?.webview.postMessage({type:'review-agent',label}),
   changed,
   refresh:async({flushed=false}={})=>{if(!panel)return;if(!flushed)await flush();await load(panel,false);},
