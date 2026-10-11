@@ -171,8 +171,8 @@ do not block agent revisions. The author reviews wording and resolves settled th
 
 **Copy agent request** prepares the same workflow for your external chat. An idle
 focused review refreshes returned changes and replies automatically; active input is
-retained with **Reload review** available. **This round** compares the accumulated
-proposal to its fixed base; **Since baseline** includes selected changes across earlier
+retained with **Reload review** available. **This round** shows the current comparison;
+**Since baseline** includes selected changes across earlier
 rounds. An explicitly requested separate revision pass can still create a new round.
 
 **Review highlights** in the sidebar turns diff highlighting and surrounding dimming
