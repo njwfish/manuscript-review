@@ -33,8 +33,12 @@ def source_version(repo, parent, contents, reference, message, reuse=None):
 def selected_version(record):
     from .editing import selected_content
     snapshot = record['snapshot']
-    contents = {file['path']: selected_content(file, record['decisions']) for file in snapshot['files']
-                if selected_content(file, record['decisions']) != file['after']}
+    contents = {}
+    for file in snapshot['files']:
+        if any(record['decisions'].get(edit['id']) == 'reject' for edit in file['edits']):
+            content = selected_content(file, record['decisions'])
+            if content != file['after']:
+                contents[file['path']] = content
     if not contents:
         return snapshot['proposed']
     return source_version(snapshot['repo'], snapshot['proposed'], contents,

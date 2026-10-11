@@ -3,8 +3,8 @@ import {randomUUID} from 'node:crypto';
 import {commentThreads,reviewProgress} from '../../manuscript_review/review_model.js';
 
 export function sidebarState(comparison,data,commentsEnabled,agent,highlights=true,model='CLI default'){
- const progress=data?reviewProgress(data.files,data.decisions):undefined;
- const unresolved=data?commentThreads(data,data.comments).filter(thread=>!thread.resolved).length:0;
+ const progress=data?.progress||(data?reviewProgress(data.files,data.decisions):undefined);
+ const unresolved=data?.unresolved??(data?commentThreads(data,data.comments).filter(thread=>!thread.resolved).length:0);
  return {commentsEnabled,agent,highlights,model,folder:comparison?.info.workspace||comparison?.info.repo,
   from:comparison?.base.label,to:comparison?.proposed.label,entry:comparison?.entry||'Source only',
   fromVersion:comparison?.base.revision,toVersion:comparison?.proposed.revision,

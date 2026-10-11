@@ -81,6 +81,7 @@ function fixture(history=[source('root')]) {
       }
       throw new Error('Unexpected write: '+route);
     }};
+  Object.defineProperty(runtime.review,'revision',{get:()=>data.revision,set:value=>{data.revision=value;},configurable:true});
   let openDocument=async file=>{const target=uri((runtime.review.workspace||runtime.review.repo)+'/'+file);return vscode.workspace.textDocuments.find(document=>document.uri.toString()===target.toString())||vscode.workspace.openTextDocument(target);};
   const comments=createComments(vscode,()=>runtime,{openDocument:file=>openDocument(file),onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
   const editor={document:documents[0],selection:new Selection(new Position(0,6),new Position(0,20))};
@@ -88,6 +89,38 @@ function fixture(history=[source('root')]) {
     command:(name,...args)=>handlers.get(`manuscriptReview.${name}`)(...args),
     beforeProjection:handler=>beforeProjection=handler,openDocument:handler=>openDocument=handler,failNote:value=>failNote=value,changes:()=>changes};
 }
+
+test('typing projects only changed buffers and reuses review data and unchanged comment locations',async t=>{
+ const f=fixture([source('main'),source('other','other.tex')]);
+ const reads=t.mock.method(f.runtime,'data');
+ await f.comments.refresh();assert.equal(reads.mock.callCount(),1);assert.equal(f.requests.length,2);
+ for(let index=0;index<5;index++){
+  f.documents[0].change(`Prefix ${index}\nFirst selected words.`);
+  await f.comments.refresh({sourceOnly:true});
+ }
+ assert.equal(reads.mock.callCount(),1);assert.equal(f.requests.length,7);
+ assert.equal(f.requests.slice(2).every(request=>request.body.file==='main.tex'),true);
+ assert.equal(f.created.length,2);assert.equal(f.created[0].range.start.line,1);
+ f.comments.dispose();
+});
+
+test('overlapping typing refreshes coalesce and publish only the newest buffer',async()=>{
+ const f=fixture();await f.comments.refresh();
+ let release,entered;const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
+ f.beforeProjection(async()=>{entered();await gate;});
+ f.documents[0].change('First prefix selected words.');
+ const first=f.comments.refresh({sourceOnly:true});await began;
+ const pending=[];
+ for(let index=0;index<10;index++){
+  f.documents[0].change(`Newest ${index}\nselected words.`);
+  pending.push(f.comments.refresh({sourceOnly:true}));
+ }
+ assert.equal(pending.every(value=>value===first),true);
+ release();await first;
+ assert.equal(f.requests.length,3);
+ assert.equal(f.projections.at(-1).projection.text,'Newest 9\nselected words.');
+ assert.equal(f.created[0].range.start.line,1);f.comments.dispose();
+});
 
 test('comments on removed source remain navigable beside comments on working files',async()=>{
  const f=fixture([source('archived','main.tex'),source('working','other.tex')]);
@@ -405,6 +438,7 @@ test('navigation skips comments without a current source anchor',async()=>{
 
 test('navigation does not use retained anchors after a buffer changes during refresh',async()=>{
   const f=fixture();await f.comments.refresh();
+  f.documents[0].change('First selected words. A preceding edit.');
   f.beforeProjection(()=>f.documents[0].change('The native buffer changed while mapping.'));
   assert.equal(await f.comments.move(1),false);
   assert.equal(f.opened.length,0);assert.equal(f.created[0].disposed,undefined);

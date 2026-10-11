@@ -157,6 +157,17 @@ edit identities and counts and load on demand. Record and library caches invalid
 on file metadata changes, and PDF/SVG transport caches include the source version.
 These caches and response projections never replace the canonical record.
 
+Interactive reads select their needed fields before copying the record. The sidebar
+reads counts and comparison metadata; source projections read one file and its anchors.
+Pinned Git sources have bounded session caches. Native typing reuses review data and
+unchanged document projections, coalescing overlapping refreshes. Background reads wait
+for prior writes without joining the write queue; review epochs and monotonic revisions
+reject obsolete results. Record watchers read the small status endpoint rather than
+parsing source records in the extension host. Git pickers open with cached choices and
+refresh history in place. Focused review builds collapsed context on demand and combines
+queued decisions into the latest save. Manuscript writes retain the same locks, revision
+checks, durable record replacement, and recovery journal.
+
 Comparison construction reads Git trees and blobs in bulk. Source enumeration
 respects ignore rules, hidden and temporary directories, and nested Git boundaries
 without filtering by file extension. Existing snapshots remain intact. Preview source

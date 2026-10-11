@@ -12,7 +12,7 @@ function fixture(choose){
   showQuickPick:async(items,options)=>{calls.push({items,options});return choose(items,options);},
   createQuickPick(){
    const handlers={},picker={onDidAccept:fn=>listen('accept',fn),onDidHide:fn=>listen('hide',fn),
-    show(){calls.push({items:this.items,options:{title:this.title,activeItems:this.activeItems}});const item=choose(this.items);if(item===undefined)this.hide();else{this.selectedItems=[item];handlers.accept();}},
+    show(){calls.push({items:this.items,options:{title:this.title,activeItems:this.activeItems}});let item=choose(this.items);if(typeof item==='string')item=this.items.find(choice=>choice.label===item);if(item===undefined)this.hide();else{this.selectedItems=[item];handlers.accept();}},
     hide(){handlers.hide();},dispose(){}};
    function listen(name,fn){handlers[name]=fn;return {dispose(){delete handlers[name];}};}
    return picker;
@@ -79,4 +79,32 @@ test('reuse requires the actual pair, source checkout, and PDF document',()=>{
  assert.equal(comparisonMatches(state,data),true);
  for(const change of [{pending:true},{entry:'supplement.tex'},{info:{...info,workspace:'/other/checkout'}},{base:{revision:second}},{proposed:{revision:second}}])
   assert.equal(comparisonMatches({...state,...change},data),false);
+});
+
+test('pickers open before history loads and retain refreshed choices and checkpoint guards',async()=>{
+ let picker,accept,hide,release,loads=0;
+ const gate=new Promise(resolve=>{release=resolve;});
+ const vscode={QuickPickItemKind:{Separator:-1},window:{createQuickPick(){
+  picker={onDidAccept(fn){accept=fn;return {dispose(){}};},onDidHide(fn){hide=fn;return {dispose(){}};},
+   show(){this.shown=true;},hide(){hide();},dispose(){this.disposed=true;}};return picker;
+ }}};
+ const checkpoint={revision:first,review:'saved-round',review_revision:7,subject:'Selected draft',short:'1111111',date:'2026-10-09'};
+ const initial=comparisonState(vscode,{...info,checkpoints:[checkpoint]});initial.base={...initial.base,label:'Starting draft'};
+ const fresh={...info,entries:['new-main.tex'],checkpoints:[{...checkpoint,review_revision:8}],
+  commits:[{revision:third,subject:'New commit',short:'3333333',date:'2026-10-11'},...info.commits]};
+ const refresh=async()=>{loads++;await gate;return refreshComparison(vscode,initial,fresh);};
+ const changing=changeComparison(vscode,initial,'base',refresh);
+ assert.equal(picker.shown,true);assert.equal(picker.busy,true);assert.equal(loads,1);
+ release();await new Promise(resolve=>setImmediate(resolve));
+ assert.ok(picker.items.some(item=>item.revision===third));
+ picker.selectedItems=picker.activeItems;accept();const next=await changing;
+ assert.equal(comparisonRequest(next).expected_revision,8);assert.equal(next.pending,undefined);assert.equal(next.info,fresh);
+ const choosingPDF=changeComparison(vscode,next,'entry',async()=>refreshComparison(vscode,next,fresh));
+ assert.equal(picker.shown,true);await new Promise(resolve=>setImmediate(resolve));
+ picker.selectedItems=[picker.items.find(item=>item.label==='new-main.tex')];accept();
+ assert.equal((await choosingPDF).entry,'new-main.tex');
+ let finish;const waiting=new Promise(resolve=>{finish=resolve;});
+ const cancelling=changeComparison(vscode,next,'proposed',async()=>{await waiting;return refreshComparison(vscode,next,fresh);});
+ picker.hide();assert.equal(await cancelling,next);finish();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(picker.disposed,true);
 });

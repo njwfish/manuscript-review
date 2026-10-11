@@ -80,6 +80,8 @@ def mapped_range(blocks, span, included=()):
 
 
 def selected_content(file, decisions):
+    if not any(decisions.get(edit['id']) == 'reject' for edit in file['edits']):
+        return file['after']
     return project_source(file, decisions).content
 
 

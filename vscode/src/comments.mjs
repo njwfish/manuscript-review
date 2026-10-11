@@ -18,6 +18,8 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   const controller=vscode.comments.createCommentController('manuscript-review','Manuscript Review');
   const subscriptions=[controller],threads=new Map(),pending=new Set();
   let generation=0,disposed=false,activeThread,includeResolved=false;
+  let refreshing,requested=false,needsData=false,cachedData,cachedRuntime;
+  const projected=new WeakMap();
 
   const fileFor=document=>sourceFile(getRuntime()?.review,document);
   const threadKey=(uri,origin)=>JSON.stringify([uri.toString(),origin]);
@@ -43,10 +45,15 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     if(!file)throw new Error('Choose a source file in the reviewed repository.');
     const text=document.getText(),version=document.version;
     const saved=snapshotVersion(document);
+    const cached=projected.get(document);
+    if(cached?.runtime===runtime&&cached.value.reviewId===reviewId&&cached.value.revision===runtime.review.revision
+      &&cached.version===version&&cached.value.text===text)return cached.value;
     const result=await runtime.request('/editor',{file,text,...(saved?{version:saved}:{})});
     if(getRuntime()!==runtime||runtime?.review?.id!==reviewId||document.version!==version||document.getText()!==text)
       throw Object.assign(new Error('The source changed while locating this comment. Try again.'),{code:'SourceChanged'});
-    return {...result,file,text,document,reviewId};
+    const value={...result,file,text,document,reviewId};
+    projected.set(document,{runtime,version,value});
+    return value;
   }
 
   function rangeFor(entry,projection) {
@@ -125,11 +132,15 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       state.thread.comments=comments;
   }
 
-  async function refresh() {
+  async function update(ticket) {
     const runtime=getRuntime();
-    const ticket=++generation,review=runtime?.review;
+    const review=runtime?.review;
     if(!review||disposed)return;
-    const data=await runtime.data('round',fileFor(vscode.window.activeTextEditor?.document));
+    if(needsData||cachedRuntime!==runtime||cachedData?.id!==review.id||cachedData.revision!==review.revision){
+      needsData=false;
+      cachedData=await runtime.data('round',fileFor(vscode.window.activeTextEditor?.document));cachedRuntime=runtime;
+    }
+    const data=cachedData;
     if(ticket!==generation||disposed||runtime.review?.id!==review.id)return;
     const groups=new Map(discussionGroups([...data.history,...currentFeedback(data,data.comments)]).map(messages=>[messages[0].origin_id||messages[0].id,messages])),latest=commentThreads(data,data.comments);
     const projections=new Map(),present=new Set(),reviewed=new Set(data.files.map(file=>file.path));
@@ -178,6 +189,13 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     }
     for(const state of pending)state.reviewId===review.id?resumeThread(state):suspendThread(state);
     return true;
+  }
+
+  function refresh({sourceOnly=false}={}){
+    generation++;requested=true;needsData||=!sourceOnly;
+    refreshing??=(async()=>{let result;do{requested=false;result=await update(generation);}while(requested&&!disposed);return result;})()
+      .finally(()=>{refreshing=undefined;});
+    return refreshing;
   }
 
   async function annotate(editor=vscode.window.activeTextEditor) {

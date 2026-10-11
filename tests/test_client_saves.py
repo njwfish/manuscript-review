@@ -6,6 +6,29 @@ from pathlib import Path
 
 @unittest.skipUnless(shutil.which('node'), 'Node is needed only for client save checks.')
 class ClientSaveTests(unittest.TestCase):
+    def test_rapid_decisions_coalesce_without_losing_final_choices_and_failed_saves_retry(self):
+        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
+const app=readFileSync('manuscript_review/app.js','utf8');
+const source=app.slice(app.indexOf('function save(){'),app.indexOf('function refreshCommentNavigation'));
+const calls=[];let release,fail=false;
+const gate=new Promise(resolve=>release=resolve);
+const context={decisions:{},comments:{},savedInput:JSON.stringify([{},{}]),choiceSaveQueued:false,pendingChoices:undefined,
+ saving:Promise.resolve(),saveFailed:false,draftChanges:new Map(),noteChanges:new Map(),commentTimer:undefined,
+ clearTimeout,readOnly:()=>false,status(){},savedMessage:()=> 'Saved',
+ post:async(route,choices,comments)=>{calls.push([structuredClone(choices),structuredClone(comments)]);if(calls.length===1)await gate;if(fail)throw new Error('Disk error');}};
+vm.createContext(context);vm.runInContext(source,context);
+context.decisions.first='accept';context.save();await new Promise(resolve=>setImmediate(resolve));
+for(let i=0;i<25;i++){context.decisions['edit-'+i]='accept';context.comments.note='Exact author comment '+i;context.save();}
+assert.equal(calls.length,1);release();await context.saving;
+assert.equal(calls.length,2);assert.deepEqual(calls.at(-1),[context.decisions,context.comments]);
+assert.equal(context.choiceSaveQueued,false);assert.equal(context.saveFailed,false);
+context.save();await context.saving;assert.equal(calls.length,2);
+const previous=structuredClone(context.decisions);fail=true;context.decisions.first='reject';context.save();await context.saving;
+assert.equal(context.saveFailed,true);context.decisions=previous;fail=false;context.save();await context.saving;
+assert.equal(context.saveFailed,false);assert.equal(calls.length,4);assert.deepEqual(calls.at(-1)[0],previous);
+"""
+        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
+
     def test_imported_responses_are_acknowledged_for_subsequent_idle_refresh(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8'),handlers={};

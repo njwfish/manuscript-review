@@ -151,7 +151,8 @@ class ReviewStore:
                     self.recover()
             yield self
 
-    def read(self):
+    def read(self, select=None):
+        """Copy only a caller's projection, without exposing the cached record."""
         with self.lock:
             if not self.path.exists():
                 raise ValueError('Review record not found.')
@@ -159,7 +160,7 @@ class ReviewStore:
             version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
             if self.cached is None or self.cached[0] != version:
                 self.cached = (version, validate_record(read_json(self.path)))
-            return copy.deepcopy(self.cached[1])
+            return copy.deepcopy(select(self.cached[1]) if select else self.cached[1])
 
     def backup_request(self, request):
         folder = self.directory / 'conflicting-drafts'

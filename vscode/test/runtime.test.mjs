@@ -187,6 +187,46 @@ test('queued operations cannot write an earlier review into a newly opened one',
     assert.equal((await runtime.request('/note', {comment: 'New round note.'})).revision, 4);
 });
 
+test('a stalled source read does not block a save or regress the current revision',async t=>{
+    const {runtime}=await synthetic(t);await runtime.open(reviewId);
+    let release,entered;
+    const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
+    const original=globalThis.fetch;t.after(()=>release());
+    t.mock.method(globalThis,'fetch',async(url,options)=>{
+        const response=await original(url,options);
+        if(String(url).endsWith('/editor')){
+            const value=await response.json();entered();await gate;
+            return Response.json({...value,workspace:'/earlier',workspace_version:'b'.repeat(40)});
+        }
+        if(String(url).endsWith('/note'))return Response.json({...await response.json(),workspace:'/current',workspace_version:'c'.repeat(40)});
+        return response;
+    });
+    const reading=runtime.request('/editor',{file:'main.tex',text:'Dirty source.'});await began;
+    try{
+        const saved=await Promise.race([runtime.request('/note',{comment:'Save while a read waits.'}),delay(1000).then(()=>{throw new Error('A source read blocked the save.');})]);
+        assert.equal(saved.revision,4);assert.equal(runtime.review.workspace,'/current');
+    }finally{release();}
+    assert.equal((await reading).revision,3);
+    assert.equal(runtime.review.revision,4);assert.equal(runtime.review.workspace,'/current');
+    assert.equal(runtime.review.workspace_version,'c'.repeat(40));
+});
+
+test('late read replies are refused after reopening even the same review',async t=>{
+    const {runtime}=await synthetic(t);await runtime.open(reviewId);
+    let release,entered;
+    const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
+    const original=globalThis.fetch;t.after(()=>release());
+    t.mock.method(globalThis,'fetch',async(url,options)=>{
+        const response=await original(url,options);
+        if(String(url).endsWith('/editor')){entered();await gate;}
+        return response;
+    });
+    const reading=runtime.request('/editor',{file:'main.tex',text:'Earlier buffer.'});
+    const refused=assert.rejects(reading,/review changed/);await began;
+    await runtime.open(reviewId);release();await refused;
+    assert.equal(runtime.review.revision,3);
+});
+
 test('a queued Apply checks native source immediately before dispatch',async t=>{
     const {runtime}=await synthetic(t);await runtime.open(reviewId);
     let release,entered,dirty=false,checks=0,applications=0;

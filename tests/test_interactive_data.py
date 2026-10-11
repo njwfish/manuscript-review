@@ -4,12 +4,57 @@ from unittest.mock import patch
 from test_review import ReviewFixture
 from manuscript_review.comparison import compare, enrich_snapshot, build_snapshot, git
 from manuscript_review.library import Library
-from manuscript_review.server import review_payload
+from manuscript_review.documents import review_payload
 from manuscript_review.storage import ReviewStore, atomic_json, read_json
 from manuscript_review.render_latex import RENDER_VERSION
 
 
 class InteractiveDataTests(ReviewFixture):
+    def test_interactive_reads_do_not_copy_unselected_source_and_cannot_mutate_cache(self):
+        class Unselected(str):
+            def __deepcopy__(self, memo):
+                raise AssertionError('An interactive read copied unselected source.')
+        record = self.session.store.read()
+        extra = enrich_snapshot({'files': [compare('generated.json', None, 'Generated data.')]})['files'][0]
+        record['snapshot']['files'].append(extra)
+        self.session.store.commit(record)
+        cached = self.session.store.cached[1]['snapshot']['files'][-1]
+        cached['after'] = Unselected(cached['after'])
+        cached['pieces'] = [Unselected('Large immutable source')]
+        cached['edits'][0]['new'] = Unselected(cached['edits'][0]['new'])
+        for key in ('after', 'segments', 'grouped_segments'):
+            cached['hunks'][0][key] = Unselected('Large immutable source')
+        data = self.session.view(interactive=True, file='main.tex')
+        self.assertFalse(data['files'][-1]['loaded'])
+        data['files'][0]['after'] = 'Local caller mutation.'
+        self.assertNotEqual(self.session.view(interactive=True)['files'][0]['after'], data['files'][0]['after'])
+        self.session.editor('main.tex', 'An exact native buffer.')
+        self.session.status()
+        self.assertEqual(self.session.summary()['revision'], record['revision'])
+
+    def test_sidebar_counts_pending_choices_and_distinct_unresolved_threads(self):
+        record = self.session.store.read()
+        edits = [edit['id'] for file in record['snapshot']['files'] for edit in file['edits']]
+        record['decisions'] = dict.fromkeys(edits, 'pending')
+        record['decisions'][edits[0]] = 'accept'
+        record['comments'][edits[0]] = 'Current feedback'
+        record['history'] = [dict(id='first', origin_id='thread', comment='Initial', author='user'),
+                             dict(id='follow', origin_id='thread', comment='Follow-up', author='user')]
+        record['resolved'] = ['thread']
+        self.session.store.commit(record)
+        summary = self.session.summary()
+        self.assertEqual(summary['progress'], {'done': 1, 'total': len(edits), 'complete': False})
+        self.assertEqual(summary['unresolved'], 1)
+        self.assertNotIn('files', summary)
+        self.assertNotIn('history', summary)
+
+    def test_identical_source_maps_skip_alignment(self):
+        from manuscript_review.anchors import SourceMap, SourceSpan
+        with patch('manuscript_review.anchors.TOKEN') as token:
+            token.findall.side_effect = AssertionError('Identical text must not be tokenized.')
+            mapping = SourceMap('Text α😀.\n' * 2000, 'Text α😀.\n' * 2000)
+            self.assertEqual(mapping.project(SourceSpan(4, 7)), SourceSpan(4, 7))
+
     def test_large_unselected_files_retain_edit_identity_without_transferring_source(self):
         data = self.session.view()
         large = enrich_snapshot({'files': [compare('generated.json', None, 'x' * 100_000)]})['files'][0]
@@ -46,7 +91,7 @@ class InteractiveDataTests(ReviewFixture):
         directory = library.reviews / record['metadata']['id']
         directory.mkdir()
         atomic_json(directory / 'review.json', record)
-        with patch.object(ReviewStore, 'read', wraps=None, side_effect=lambda: copy.deepcopy(record)) as read:
+        with patch.object(ReviewStore, 'read', wraps=None, side_effect=lambda select=None: copy.deepcopy(select(record) if select else record)) as read:
             first = library.listing()
             first[0]['skipped'].append('Local caller mutation')
             second = library.listing()

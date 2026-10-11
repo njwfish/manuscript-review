@@ -8,6 +8,8 @@ const identifier = /^[a-f0-9]{24}$/;
 const scopes = new Set(['round', 'baseline', 'manuscript']);
 const libraryWrites = new Set(['/inspect', '/source', '/agent-models', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
 const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/authoring', '/delivery', '/agents', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain', '/agent-request', '/agent']);
+const reviewReads = new Set(['/editor', '/delivery', '/agents', '/agent-request']);
+const libraryReads = new Set(['/inspect', '/source', '/agent-models']);
 
 function localURL(value) {
     if (typeof value !== 'string' || !/^http:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*\/$/.test(value)) {
@@ -20,7 +22,7 @@ function localURL(value) {
 
 function reviewRoute(path, writing) {
     if (writing) return reviewWrites.has(path);
-    if (path === '/feedback.json' || path === '/status') return true;
+    if (path === '/feedback.json' || path === '/status' || path === '/summary') return true;
     if (/^\/data\?scope=(?:round|baseline|manuscript)&file=[^#]*$/.test(path)) return true;
     if (/^\/previews\?scope=(?:round|baseline|manuscript)$/.test(path)) return true;
     if (/^\/(?:data|selected\.patch)(?:\?scope=(?:round|baseline|manuscript))?$/.test(path)) return true;
@@ -37,7 +39,7 @@ function publicData(value) {
 /** The caller must establish workspace trust before starting this local service. */
 export function createRuntime({extensionPath, python = 'python3', home = '', output}) {
     let child, exited, starting, libraryURL, libraryToken, reviewToken, selected;
-    let stopped = false, stopping, queue = Promise.resolve();
+    let stopped = false, stopping, queue = Promise.resolve(), selectionEpoch = 0;
     const controller = new AbortController();
     const log = text => output?.appendLine(text);
     const serialized = operation => {
@@ -45,6 +47,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         queue = result.catch(() => {});
         return result;
     };
+    const reading = async operation => {await queue;return operation();};
 
     async function send(url, path, token, body, timeout = 30_000) {
         if (stopped) throw new Error('The manuscript service has stopped.');
@@ -177,14 +180,15 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
             throw new Error('This library operation is unavailable in VS Code.');
         }
         await start();
-        return serialized(async () => publicData(await send(libraryURL, path, libraryToken, body)));
+        return (writing && !libraryReads.has(path) ? serialized : reading)(async () => publicData(await send(libraryURL, path, libraryToken, body)));
     }
 
     function updateReview(value) {
-        if (Number.isInteger(value?.revision)) selected = {...selected, revision: value.revision};
-        if (typeof value?.workspace === 'string') selected = {...selected, workspace: value.workspace};
-        if (typeof value?.workspace_version === 'string') selected = {...selected, workspace_version: value.workspace_version};
-        if (typeof value?.feedback_path === 'string') selected = {...selected, feedback_path: value.feedback_path};
+        if (!Number.isInteger(value?.revision) || value.revision >= selected.revision) {
+            if (Number.isInteger(value?.revision)) selected = {...selected, revision: value.revision};
+            for (const key of ['workspace', 'workspace_version', 'feedback_path'])
+                if (typeof value?.[key] === 'string') selected = {...selected, [key]: value[key]};
+        }
         if (typeof value?.token === 'string' && value.token) reviewToken = value.token;
         if (value?.data) updateReview(value.data);
         return publicData(value);
@@ -202,6 +206,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
                 throw new Error('The manuscript service returned an invalid review.');
             }
             selected = {id, url, repo: value.repo, revision: value.revision};
+            selectionEpoch++;
             return updateReview(value);
         });
     }
@@ -210,14 +215,16 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         if (!reviewRoute(path, body !== undefined)) throw new Error('This review operation is unavailable in VS Code.');
         if (body !== undefined && (!body || typeof body !== 'object' || Array.isArray(body))) throw new Error('A request needs an object.');
         if (path === '/apply' && typeof checkSource !== 'function') throw new Error('Apply requires a source editor check.');
-        const expectedReview=selected?.id;
+        const expectedReview=selected?.id,epoch=selectionEpoch;
         await start();
-        return serialized(async () => {
+        return (body !== undefined && !reviewReads.has(path) ? serialized : reading)(async () => {
             if (!selected) throw new Error('Open a manuscript review first.');
-            if(selected.id!==expectedReview)throw new Error('The manuscript review changed. Return to the original review before continuing.');
+            if(selected.id!==expectedReview || epoch!==selectionEpoch)throw new Error('The manuscript review changed. Return to the original review before continuing.');
             const requestBody = body === undefined ? undefined : {revision: selected.revision, ...body};
             if (path === '/apply') checkSource();
-            return updateReview(await send(selected.url, path, reviewToken, requestBody));
+            const value = await send(selected.url, path, reviewToken, requestBody);
+            if(selected?.id!==expectedReview || epoch!==selectionEpoch)throw new Error('The manuscript review changed. Return to the original review before continuing.');
+            return updateReview(value);
         });
     }
 
