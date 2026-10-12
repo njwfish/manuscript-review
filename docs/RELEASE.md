@@ -1,4 +1,4 @@
-Manuscript Review 0.17.0 includes VS Code extension 0.3.1 and the standalone macOS app.
+Manuscript Review 0.17.1 includes VS Code extension 0.3.2 and the standalone macOS app.
 
 The editing model now gives saved source, the proposal, selected wording and the
 comparison base distinct ownership. In agent comparisons, Edit chooses Your draft
@@ -13,6 +13,8 @@ Dirty files wait without blocking delivery to independent clean files.
 
 Rebasing preserves selected wording exactly; an ambiguous alignment retains the
 saved draft and prior choices. Author insertions beside agent words survive rejection.
+Adjacent author and undelivered agent edits merge without treating shared endpoints
+as a conflict. Different insertions at the same position retain both versions for review.
 Interrupted delivery requires its origin to be confirmed before capture resumes;
 recorded save origins are preserved, and cancelled recovery retains the saved queue.
 
