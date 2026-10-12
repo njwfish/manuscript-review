@@ -62,8 +62,9 @@ export function activate(context){
  }
  async function showAgentChanges(){
   if(!await ensureReview())return;
-  const epoch=comparisonEpoch,entry=sourceFile(runtime.review,vscode.window.activeTextEditor?.document);
+  const epoch=comparisonEpoch,reviewId=runtime.review.id,entry=sourceFile(runtime.review,vscode.window.activeTextEditor?.document);
   await sourceEdits.flush();await panel.flush();
+  if(runtime.review?.id!==reviewId)throw new Error('The review changed. Choose Agent changes from its original review.');
   await runtime.request('/authoring',{entry});if(epoch===comparisonEpoch)setComparison(undefined);
   await context.workspaceState.update('highlightsEnabled',true);decorations.setEnabled(true);
   await delivery.refresh();await refreshSource();

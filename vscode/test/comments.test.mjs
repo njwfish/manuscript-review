@@ -141,6 +141,19 @@ test('a delayed projection cannot publish an earlier comparison after the review
  assert.equal(f.created.length,1);f.comments.dispose();
 });
 
+test('a newer lazy file response refreshes the comparison before publishing source',async()=>{
+ const f=fixture();f.data.files=[{path:'main.tex',loaded:false,edits:[],hunks:[]}];
+ const data=f.runtime.data;let reads=0;
+ f.runtime.data=async(...args)=>{
+  if(++reads===2){f.data.revision++;f.data.files[0].loaded=true;}
+  return data(...args);
+ };
+ await f.comments.refresh();
+ assert.equal(reads,3);assert.equal(f.projections.length,1);
+ assert.equal(f.projections[0].data.revision,2);assert.equal(f.created.length,1);
+ f.comments.dispose();
+});
+
 test('comments on removed source remain navigable beside comments on working files',async()=>{
  const f=fixture([source('archived','main.tex'),source('working','other.tex')]);
  f.documents[0].uri={scheme:'manuscript-review-source',authority:'review',path:'/main.tex',fsPath:'/main.tex',toString:()=> 'manuscript-review-source://review/main.tex?version=pinned'};

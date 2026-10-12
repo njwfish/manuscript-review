@@ -156,6 +156,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
         if(fileFor(document)){
           if(data.files.find(item=>item.path===file)?.loaded===false){
             const full=await runtime.data('round',file);
+            if(!current())return;
             const replacement=full.files.find(item=>item.path===file);
             if(full.id!==data.id||full.revision!==data.revision||full.proposed!==data.proposed||!replacement)return;
             const index=data.files.findIndex(item=>item.path===file);data.files[index]=replacement;

@@ -574,6 +574,14 @@ test('a new sidebar choice survives a source dispatch still in flight',async t=>
  assert.equal(f.calls.some(call=>call.kind==='decorate'),false);
 });
 
+test('Agent changes cannot convert a different review selected during the pending flush',async t=>{
+ const options={},f=await fixture(t,options);await f.command('open');
+ options.onFlush=()=>f.runtime.open('b'.repeat(24));
+ await f.command('agentChanges');
+ assert.equal(f.calls.some(call=>call.kind==='request'&&call.route==='/authoring'),false);
+ assert.match(f.errors[0],/review changed/i);
+});
+
 test('repeated sends may run independently after each background handoff',async t=>{
  const f=await fixture(t);await f.command('open');
  await f.commentsCallbacks.onAgent('first');await f.commentsCallbacks.onAgent('second');
