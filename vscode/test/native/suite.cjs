@@ -1,0 +1,50 @@
+const vscode=require('vscode'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),{execFileSync}=require('node:child_process');
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(predicate){for(let i=0;i<300;i++){if(await predicate())return;await delay(30);}throw new Error('Native workflow timed out.');}
+exports.run=async()=>{
+ const state=await vscode.extensions.getExtension('review-test.native-workflow').activate();
+ const {fixture,document,editor}=state;
+ const engine=(script,...args)=>JSON.parse(execFileSync(fixture.python,['-c',script,fixture.home,fixture.review,...args],{cwd:fixture.package+'/dist/runtime',encoding:'utf8'}));
+ const record=async()=>JSON.parse(await fs.readFile(fixture.home+'/reviews/'+fixture.review+'/review.json','utf8'));
+ await until(()=>state.runtime?.review?.id===fixture.review);await state.comments.refresh();
+ assert.equal(document.getText(),fixture.text);
+ // Dispatch is detached, saves the native thread, and preserves dirty source.
+ editor.selection=new vscode.Selection(document.positionAt(0),document.positionAt(24));
+ const thread=await state.comments.annotate(editor);
+ const began=performance.now();
+ assert.equal(await vscode.commands.executeCommand('manuscriptReview.sendComment',{thread,text:'Keep this surgical.'}),true);
+ const dispatchMs=performance.now()-began;
+ assert.equal(document.getText(),fixture.text);assert.equal(document.isDirty,false);
+ // Set authoring through the existing explicit workflow, then emulate a completed CLI task.
+ assert.equal((await record()).metadata.authoring,true);
+ const original=(await record()).snapshot.base;
+ const task=engine("import sys,json;from manuscript_review.library import Library;print(json.dumps(Library(sys.argv[1]).begin(sys.argv[2],parallel=True)))");
+ const target=task.workspace+'/main.tex';await fs.writeFile(target,fixture.text.replace('measured','observed'));
+ engine("import sys,json;from manuscript_review.library import Library;print(json.dumps(Library(sys.argv[1]).finish_parallel(sys.argv[2],sys.argv[3],sys.argv[4])))",task.starting_version,task.workspace);
+ await until(()=>document.getText().includes('observed')&&!document.isDirty);
+ await until(async()=> (await record()).metadata.workspace_version!==(await record()).snapshot.base);
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ await vscode.commands.executeCommand('manuscriptReview.refresh'); // Exercises live webview readiness and flush across reload.
+ await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ let at=document.getText().indexOf('observed');
+ await editor.edit(builder=>builder.replace(new vscode.Range(document.positionAt(at),document.positionAt(at+8)),'recorded'));
+ await document.save();
+ await until(async()=> (await record()).snapshot.files.some(file=>file.edits.some(edit=>edit.new==='recorded')));
+ assert.equal((await record()).snapshot.base,original);
+ assert.equal(document.getText(),fixture.text.replace('measured','recorded'));
+ await state.comments.refresh();
+ at=document.getText().indexOf('recorded');editor.selection=new vscode.Selection(document.positionAt(at),document.positionAt(at));
+ let lenses;await until(async()=>{lenses=await vscode.commands.executeCommand('vscode.executeCodeLensProvider',document.uri);return lenses?.some(lens=>lens.command?.command==='manuscriptReview.decideSource');});
+ const reject=lenses.find(lens=>lens.command?.command==='manuscriptReview.decideSource'&&lens.command.arguments.at(-1)==='reject');
+ await vscode.commands.executeCommand(reject.command.command,...reject.command.arguments);
+ await until(()=>document.getText()===fixture.text&&!document.isDirty);
+ assert.equal((await record()).snapshot.base,original);
+ assert.equal((await record()).history.find(entry=>entry.comment==='Keep this surgical.').comment,'Keep this surgical.');
+ await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ await vscode.commands.executeCommand('undo');await document.save();
+ await until(()=>document.getText().includes('recorded')&&!document.isDirty);
+ assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:fixture.repo,encoding:'utf8'}).trim(),fixture.head);
+ assert.equal(execFileSync('git',['diff','--cached','--name-only'],{cwd:fixture.repo,encoding:'utf8'}).trim(),'');
+ await state.actual.deactivate();
+ await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,focusedWebviewReload:true,sourceAndGitPreserved:true}));
+};

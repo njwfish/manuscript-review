@@ -11,7 +11,7 @@ import {build} from 'esbuild';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const bundle=build({entryPoints:[path.join(root,'src/extension.mjs')],bundle:true,write:false,platform:'node',format:'cjs',
   plugins:[{name:'test-adapters',setup(builder){
-    builder.onResolve({filter:/^\.\/(runtime|comments|panel|decorations|agent|python|viewer-server|dispatch|sidebar)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
+    builder.onResolve({filter:/^\.\/(runtime|comments|panel|decorations|native-review|agent|python|viewer-server|dispatch|sidebar)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
   }}],external:['vscode']}).then(result=>result.outputFiles[0].text);
 const nativeRequire=createRequire(import.meta.url);
 const reviewId='a'.repeat(24);
@@ -63,22 +63,23 @@ async function fixture(t,options={}) {
       onDidChangeVisibleTextEditors:event('visible-change'),onDidChangeActiveTextEditor:event('active-change'),onDidChangeTextEditorSelection:event('selection-change')},
     extensions:{getExtension(id){calls.push({kind:'extension',id});return options.workshop===false?undefined:{async activate(){calls.push({kind:'activate-workshop'});}};}}};
   let selected,panelCallbacks,commentsCallbacks,preparedRepo;
-  const runtime={get review(){return selected?{...selected}:undefined;},
+  const runtime={async start(){},get review(){return selected?{...selected}:undefined;},
     async library(route,body){calls.push({kind:'library',route,body});if(route==='/import')return {review:reviewId};if(route==='/source')return {review:body.id,file:body.file,source:'b'.repeat(40),text:'Saved review source.'};return route==='/inspect'
       ?{repo,base:'1'.repeat(40),head:'2'.repeat(40),entries:options.entries||['main.tex'],...options.inspect}: {reviews:typeof options.reviews==='function'?options.reviews(repo):options.reviews||[]};},
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
-    async open(id){calls.push({kind:'open',id});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record};return {files:options.files??[{edits:[{id:'edit'}]}]};},
+    async open(id,selectionOptions={}){await selectionOptions.beforeSelect?.();calls.push({kind:'open',id});calls.push({kind:'request',route:'/workspace',body:{}});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record,workspace:options.workspace||preparedRepo||repo,workspace_version:'2'.repeat(40)};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:{},comments:{},history:[],resolved:[],drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/authoring')return {revision:2};if(route==='/agent-request')return {discussion:body.id};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/authoring')return {revision:2};if(route==='/agent-request')return {discussion:body.id};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
-  const panel={get visible(){return Boolean(options.panelVisible);},setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
+  const panel={get visible(){return Boolean(options.panelVisible);},setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},select(){},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
     async refresh(options){calls.push({kind:'panel-refresh',options});},changed(){calls.push({kind:'panel-change'});},dispose(){calls.push({kind:'dispose-panel'});}};
   const comments={setEnabled(enabled){calls.push({kind:'comments-enabled',enabled});},setAgent(label){calls.push({kind:'comment-agent',label});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){await commentsCallbacks.onSource(editor.document);calls.push({kind:'annotate',editor});},
     async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
   const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
   let sidebarCallbacks;
   const adapters={
+    'test-native-review':{createNativeReview(){return {selection:()=>options.sourceSelection,update(){},clear(){},refresh(){},dispose(){}};}},
     'test-sidebar':{createSidebar(_vscode,_context,callbacks){sidebarCallbacks=callbacks;return {async refresh(){calls.push({kind:'sidebar-refresh'});},async show(){calls.push({kind:'sidebar-show'});},dispose(){}};},sidebarState:(...values)=>values},
     'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
@@ -87,7 +88,7 @@ async function fixture(t,options={}) {
     'test-runtime':{createRuntime(configuration){calls.push({kind:'create-runtime',configuration});return runtime;}},
     'test-panel':{createPanel(_vscode,_context,_runtime,callbacks){panelCallbacks=callbacks;return panel;}},
     'test-comments':{sourceFile,sourceDocument,createComments(_vscode,_runtime,callbacks){commentsCallbacks=callbacks;return comments;}},
-    'test-decorations':{createDecorations(){return {setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
+    'test-decorations':{createDecorations(){return {setRemovals(){},setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
   };
   const preferences=new Map([['commentAgent',options.agent],...(options.commentsEnabled===undefined?[]:[['commentsEnabled',options.commentsEnabled]])]);
   const module={exports:{}},context={globalState:{get:(key,fallback)=>preferences.has(key)?preferences.get(key):fallback,async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
@@ -134,7 +135,7 @@ test('opening a new manuscript uses its active root and leaves source unchanged'
   assert.equal(f.calls.find(call=>call.kind==='create-runtime').configuration.extensionPath,path.join('/test/extension','dist'));
   assert.equal(f.contexts.get('manuscriptReview.active'),true);
   assert.equal(await readFile(f.source,'utf8'),'A manuscript sentence.\n');
-  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace']);
+  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace','/summary','/delivery']);
 });
 
 test('choosing among multiple root documents forwards the selected entry',async t=>{
@@ -233,7 +234,7 @@ test('a native Save captures the same review and refreshes without revealing sou
  f.doc.text='Author saved wording.';f.doc.version++;
  await f.events['document-save'](f.doc);
  const request=f.calls.find(call=>call.kind==='request'&&call.route==='/capture');
- assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,source:'2'.repeat(40)});
+ assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,source:'2'.repeat(40),intent:'proposal'});
  assert.equal(f.calls.filter(call=>call.kind==='show-source'||call.kind==='show-review').length,shown);
  assert.equal(f.calls.some(call=>call.kind==='prepare'&&call.route==='/update'),false);
  assert.equal(f.runtime.review.id,reviewId);assert.deepEqual(f.errors,[]);
@@ -297,7 +298,7 @@ test('source navigation refuses symlinks leaving the manuscript repository',asyn
   const external=path.join(path.dirname(f.repo),'outside.tex');await writeFile(external,'Outside text.');
   await symlink(external,path.join(f.repo,'escape.tex'));
   await assert.rejects(f.panelCallbacks.onSource({file:'escape.tex'}),/outside this manuscript/);
-  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace']);
+  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace','/summary','/delivery']);
 });
 
 test('reviewing saved changes refuses unsaved manuscript buffers',async t=>{
@@ -488,6 +489,12 @@ test('the toolbar follows its source resource in another editor group and reuses
   assert.equal(f.calls.filter(call=>call.kind==='library'&&call.route==='/inspect').at(-1).body.repo,path.dirname(other));
 });
 
+test('opening focused review follows the displayed source selection',async t=>{
+ const selection={file:'main.tex',target:{id:'cursor-edit',kind:'edit'},source:true};
+ const f=await fixture(t,{sourceSelection:selection});await f.command('open');
+ assert.deepEqual(f.calls.find(call=>call.kind==='show-review').entry,selection);
+});
+
 test('cancelling the toolbar round picker preserves the existing review without opening it for another manuscript',async t=>{
   const f=await fixture(t);await f.command('open');const shown=f.calls.filter(call=>call.kind==='show-review').length;
   const other=path.join(f.repo,'../another'),library=f.runtime.library;
@@ -522,14 +529,14 @@ test('concurrent startup shares one interpreter discovery and the same executabl
 });
 
 
-test('source comment dispatch enters authoring even with the focused review visible',async t=>{
+test('source comment dispatch preserves the comparison when Review changes is enabled',async t=>{
  const f=await fixture(t,{agent:'claude',panelVisible:true});await f.command('open');f.doc.isDirty=true;
  const before=f.vscode.window.activeTextEditor;
  assert.equal(await f.commentsCallbacks.onAgent('saved-comment',undefined,f.doc.uri),true);
  const request=f.calls.find(call=>call.kind==='request'&&call.route==='/agent');
  assert.equal(request.body.id,'saved-comment');assert.equal(request.body.revision,f.runtime.review.revision);
  assert.equal(request.body.agent,'claude');assert.equal(f.doc.isDirty,true);
- assert.equal(request.body.authoring,true);
+ assert.equal(request.body.authoring,false);
  assert.equal(f.calls.some(call=>call.kind==='request'&&['/agent-request','/authoring'].includes(call.route)),false);
  assert.ok(f.calls.findIndex(call=>call.kind==='flush')<f.calls.indexOf(request));
  assert.equal(f.vscode.window.activeTextEditor,before);assert.equal(f.calls.some(call=>call.kind==='open-agent'||call.kind==='show-source'),false);
@@ -629,7 +636,7 @@ test('native save-and-send flushes focused drafts before saving the comment and 
  assert.ok(flush<save&&save<refresh&&refresh<f.calls.findIndex(call=>call.kind==='request'&&call.route==='/agent'));
  assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/agent').body.id,'new-comment');
  assert.equal(f.calls.some(call=>call.kind==='panel-refresh'),false);
- assert.equal(f.calls[flush].options.lock,true);assert.ok(f.calls.findIndex(call=>call.kind==='unlock')>refresh);
+ assert.equal(f.calls[flush].options.lock,true);assert.ok(f.calls.findLastIndex(call=>call.kind==='unlock')>refresh);
 });
 
 test('a failed native comment save releases the pane and never opens an agent',async t=>{
@@ -639,7 +646,7 @@ test('a failed native comment save releases the pane and never opens an agent',a
 });
 
 test('an overlapping native send cannot unlock the first comment save',async t=>{
- const f=await fixture(t,{pick:items=>items[0]});await f.command('open');
+ const f=await fixture(t,{pick:items=>items[0]});await f.command('open');f.calls.length=0;
  let release,entered;const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
  const first=f.commentsCallbacks.onAgent(undefined,async()=>{entered();await gate;return 'first-comment';});await began;
  await assert.rejects(f.commentsCallbacks.onAgent(undefined,async()=> 'second-comment'),/comment is still being sent/);

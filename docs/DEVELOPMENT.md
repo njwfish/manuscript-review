@@ -62,3 +62,15 @@ The engine version also supplies the app metadata. Open the built app with a sep
 ## Existing review libraries
 
 The runtime reads one current record format. If an older installation needs a format upgrade, quit the app and use the explicit migration command documented in [Installation](INSTALL.md#upgrade-an-existing-library). Earlier retired formats have matching scripts in `migrations/`. These scripts validate the library and retain byte-exact originals. They do not run automatically. Release notes identify any required migration.
+
+## Native workflow checks
+
+`npm run test:native --prefix vscode` runs the extension in an isolated VS Code
+profile against a synthetic Git repository and review library. It exercises native
+comments, detached dispatch, proposal delivery, focused-page reload, manual refinement,
+inline decisions and Undo. It never opens an existing author review. CI runs it on
+Linux and macOS using Microsoft's `@vscode/test-electron` runner.
+
+Set `MR_TEST_CODE` to a VS Code executable to use an installed build, and
+`MR_TEST_PYTHON` to a Python interpreter with the engine installed. Failed fixtures
+remain at the printed temporary path for diagnosis; successful fixtures are removed.

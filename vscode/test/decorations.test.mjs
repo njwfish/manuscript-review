@@ -45,7 +45,7 @@ test('uses exact projected UTF-16 spans in every visible split without decoratin
 
 test('focused review fades context symmetrically and entering the source restores every line',()=>{
  const text=Array.from({length:15},(_,i)=>`Line ${i}`).join('\n'),f=fixture(text);
- const from=text.indexOf('Line 7');f.projection.ranges=[{id:'edit',from,to:from+6}];
+ f.data.files[0].edits[0].new='Line 7';const from=text.indexOf('Line 7');f.projection.ranges=[{id:'edit',from,to:from+6}];
  f.decorations.update(f.projection,f.data);f.decorations.focus('main.tex','edit');
  for(const editor of [f.first,f.split]){
   assert.equal(editor.decorations.get(f.types[3]).length,4);
@@ -69,6 +69,7 @@ test('a multiline change keeps every changed line clear and malformed focus span
 
 test('hover retains exact original/proposed LaTeX as untrusted monospace code',()=>{
   const f=fixture();f.data.files[0].edits[0]={id:'edit',old:'Old \\alpha + x\n```',new:'New \\beta + y\n[link](command:run)'};
+  f.doc.text='🙂 '+f.data.files[0].edits[0].new;f.projection.text=f.doc.text;f.projection.ranges[0].to=f.doc.text.length;
   f.decorations.update(f.projection,f.data);
   const hover=f.first.decorations.get(f.types[0])[0].hoverMessage;
   assert.equal(hover.isTrusted,false);
@@ -81,7 +82,7 @@ test('hover retains exact original/proposed LaTeX as untrusted monospace code',(
 
 test('rejected edits replace prior changed highlighting while retaining their exact hover',()=>{
   const f=fixture();f.decorations.update(f.projection,f.data);
-  f.projection.ranges[0].rejected=true;f.decorations.update(f.projection,f.data);
+  f.doc.text='🙂 Old words.';f.projection.text=f.doc.text;f.projection.ranges[0].rejected=true;f.decorations.update(f.projection,f.data);
   assert.deepEqual(f.first.decorations.get(f.types[0]),[]);
   assert.equal(f.first.decorations.get(f.types[1]).length,1);
   assert.equal(f.types[1].options.backgroundColor.id,'diffEditor.removedTextBackground');
@@ -142,4 +143,19 @@ test('a projection for a closed document does not decorate a reopened instance w
   f.decorations.update(f.projection,f.data);
   assert.equal(f.first.decorations.size,0);assert.equal(f.split.decorations.size,0);
   f.decorations.dispose();
+});
+
+test('Show removals renders original wording as transient strikethrough and toggles without changing source',()=>{
+ const f=fixture();f.decorations.update(f.projection,f.data);
+ const before=f.first.decorations.get(f.types[0])[0].renderOptions.before;
+ assert.equal(before.contentText,'Old words');assert.equal(before.textDecoration,'line-through');
+ f.decorations.setRemovals(false);assert.equal(f.first.decorations.get(f.types[0])[0].renderOptions,undefined);
+ f.decorations.setRemovals(true);assert.equal(f.first.decorations.get(f.types[0])[0].renderOptions.before.contentText,'Old words');
+ assert.equal(f.doc.getText(),'🙂 New words.');f.decorations.dispose();
+});
+
+test('a projection onto another saved wording never paints it as the displayed proposal',()=>{
+ const f=fixture('🙂 My wording.');f.projection.ranges[0].to=13;
+ f.decorations.update(f.projection,f.data);assert.equal(f.first.decorations.get(f.types[0]).length,0);
+ f.decorations.dispose();
 });

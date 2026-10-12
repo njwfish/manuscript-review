@@ -1,4 +1,5 @@
 """A persistent library of independent manuscript review snapshots."""
+from contextlib import nullcontext
 import argparse
 import hashlib
 import json
@@ -163,7 +164,9 @@ class Library:
         if pinned != starting:
             raise ValueError('The starting version belongs to a different review.')
         proposed, _ = working_snapshot(workspace, parent=starting)
-        result = session.merge_proposal(starting, proposed)
+        tree = git(repo, 'rev-parse', proposed + '^{tree}').decode().strip()
+        publication = hashlib.sha256(json.dumps([starting, tree]).encode()).hexdigest()
+        result = session.merge_proposal(starting, proposed, publication)
         return {'status': 'ready', 'review': identifier, 'path': str(session.store.path), **result}
 
     def repository_job(self, operation, *arguments):
@@ -322,20 +325,19 @@ class Library:
                     'proposal_label': request.get('proposed_label', 'Working copy' if proposed_ref == 'working' else proposed_ref) + f' ({proposed[:7]})',
                     'created': snapshot['created'], 'preview_status': 'queued' if entry else 'none',
                     'previous': previous_id, 'previous_revision': saved['revision'] if saved else None}
-                if saved:
-                    with previous_store.transaction():
-                        if previous_store.read()['revision'] != saved['revision']:
-                            raise ValueError('The earlier review changed while preparing this round. Try again.')
-                record = new_record(snapshot, metadata, choices, comments, history, baseline=baseline)
-                if proposed_ref == 'working' or request.get('manuscript'):
-                    record['metadata'].update(workspace=workspace, workspace_version=proposed)
-                if saved:
-                    record['resolved'] = saved['resolved'].copy()
-                    if 'commentAgent' in saved['ui']:
-                        record['ui']['commentAgent'] = saved['ui']['commentAgent']
-                if request.get('manuscript'):
-                    record['ui']['scope'] = 'manuscript'
-                atomic_json(directory / 'review.json', record)
+                with previous_store.transaction() if saved else nullcontext():
+                    if saved and previous_store.read()['revision'] != saved['revision']:
+                        raise ValueError('The earlier review changed while preparing this round. Try again.')
+                    record = new_record(snapshot, metadata, choices, comments, history, baseline=baseline)
+                    if proposed_ref == 'working' or request.get('manuscript'):
+                        record['metadata'].update(workspace=workspace, workspace_version=proposed)
+                    if saved:
+                        record['resolved'] = saved['resolved'].copy()
+                        if 'commentAgent' in saved['ui']:
+                            record['ui']['commentAgent'] = saved['ui']['commentAgent']
+                    if request.get('manuscript'):
+                        record['ui']['scope'] = 'manuscript'
+                    atomic_json(directory / 'review.json', record)
                 self.jobs[job] = self.prepared_result(identifier)
         except Exception as error:
             message = error.stderr.decode(errors='replace').strip() if isinstance(error, subprocess.CalledProcessError) and isinstance(error.stderr, bytes) else str(error)

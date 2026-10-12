@@ -1,0 +1,46 @@
+import {runTests} from '@vscode/test-electron';
+import {build} from 'esbuild';
+import {execFileSync} from 'node:child_process';
+import {cp,mkdir,mkdtemp,readFile,writeFile,rm,realpath} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const app=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
+const root=await realpath(await mkdtemp(path.join(tmpdir(),'mr-native-')));
+const python=process.env.MR_TEST_PYTHON||path.join(app,'.venv/bin/python');
+const repo=path.join(root,'paper'),home=path.join(root,'library'),fixture=path.join(root,'extension');
+await mkdir(repo);await mkdir(fixture);await mkdir(path.join(root,'bin'));
+const git=(...args)=>execFileSync('git',args,{cwd:repo,encoding:'utf8'}).trim();
+git('init','-q');git('config','user.name','Review Test');git('config','user.email','test@localhost');
+const text='We score measured leaves.\n\nWe retain the explanation.\n';
+await writeFile(path.join(repo,'main.tex'),text);git('add','.');git('commit','-qm','Starting draft');
+const head=git('rev-parse','HEAD');
+const review=execFileSync(python,['-c',`import sys;from manuscript_review.library import Library
+library=Library(sys.argv[1]);library.prepare({'repo':sys.argv[2],'manuscript':True,'base':'working','proposed':'working'},'test');print(library.jobs['test']['review'])`,home,repo],{cwd:app,encoding:'utf8'}).trim();
+await writeFile(path.join(root,'bin/codex'),'#!/bin/sh\ncat >/dev/null\n',{mode:0o755});
+await writeFile(path.join(fixture,'fixture.json'),JSON.stringify({root,repo,home,review,python,package:path.join(app,'vscode'),head,text}));
+await writeFile(path.join(fixture,'package.json'),JSON.stringify({name:'native-workflow',publisher:'review-test',version:'0.0.1',engines:{vscode:'^1.114.0'},main:'extension.cjs',activationEvents:['*'],contributes:{configuration:{properties:{'manuscriptReview.libraryDirectory':{type:'string'},'manuscriptReview.pythonPath':{type:'string'}}}}}));
+await cp(path.join(app,'vscode/test/native/extension.cjs'),path.join(fixture,'extension.cjs'));
+await cp(path.join(app,'vscode/test/native/suite.cjs'),path.join(fixture,'suite.cjs'));
+const source=path.join(app,'vscode/src');
+// Observe existing owners without adding test hooks to the product API.
+await build({entryPoints:[path.join(source,'extension.mjs')],bundle:true,platform:'node',target:'node22',format:'cjs',external:['vscode'],outfile:path.join(fixture,'actual.cjs'),plugins:[{
+ name:'native-test-observation',setup(builder){
+  builder.onResolve({filter:/^\.\/(runtime|comments|decorations)\.mjs$/},args=>args.importer===path.join(source,'extension.mjs')?{path:args.path.slice(2),namespace:'observe'}:undefined);
+  builder.onLoad({filter:/.*/,namespace:'observe'},args=>{
+   const name={ 'runtime.mjs':'createRuntime','comments.mjs':'createComments','decorations.mjs':'createDecorations'}[args.path];
+   const extra=args.path==='comments.mjs'?'export {sourceFile,sourceDocument} from '+JSON.stringify(path.join(source,args.path))+';':'';
+   return {contents:`import {${name} as original} from ${JSON.stringify(path.join(source,args.path))};${extra}
+    export function ${name}(...args){const owner=original(...args);globalThis.nativeReviewTest[${JSON.stringify(args.path)}]=owner;return owner;}`,resolveDir:source,loader:'js'};
+  });
+ }}]});
+console.log('Native fixture: '+root);
+try{
+ await runTests({extensionDevelopmentPath:fixture,extensionTestsPath:path.join(fixture,'suite.cjs'),
+  ...(process.env.MR_TEST_CODE?{vscodeExecutablePath:process.env.MR_TEST_CODE}:{}),version:'stable',
+  launchArgs:[repo,'--disable-workspace-trust','--disable-extensions','--skip-welcome','--skip-release-notes','--user-data-dir',path.join(root,'profile'),'--extensions-dir',path.join(root,'extensions')],
+  extensionTestsEnv:{MR_NATIVE_FIXTURE:root}});
+ const result=JSON.parse(await readFile(path.join(root,'passed.json'),'utf8'));console.log(JSON.stringify(result,null,2));
+ await rm(root,{recursive:true,force:true});
+}catch(error){console.error('Native fixture retained at '+root);throw error;}

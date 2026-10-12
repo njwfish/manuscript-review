@@ -33,7 +33,8 @@ async function fixture(t) {
                     reveal() { this.revealed = true; },
                     onDidDispose(listener) { closed = listener; },
                     dispose() { if (!this.disposed) { this.disposed = true; closed(); } },
-                    receive(message) { return receive(message); },
+                    receive(message) { return receive({instance:html.match(/data-review-instance="([^"]+)"/)[1],...message}); },
+                    get instance(){return html.match(/data-review-instance="([^"]+)"/)[1];},
                     webview: {
                         cspSource: 'https://resources.invalid',
                         asWebviewUri(uri) { return {toString: () => `https://resources.invalid/${encodeURIComponent(uri.fsPath)}`}; },
@@ -79,10 +80,10 @@ test('selection waits for readiness and only bundled client and viewer files are
     assert.match(p.webview.html, /body class="vscode-review wide"/);
     assert.match(p.webview.html, new RegExp(encodeURIComponent(join(f.assets, 'app.js'))));
     await p.receive({type: 'review-ready'});
-    assert.deepEqual(p.messages, [{type: 'review-select', file: 'main.tex', target: 'edit-1'}]);
+    assert.deepEqual(p.messages, [{type: 'review-select', instance:p.instance, file: 'main.tex', target: 'edit-1'}]);
     p.messages.length = 0;
     await p.receive({type: 'review-request', id: 'viewer', action: 'viewer', path: '/etc/passwd'});
-    assert.deepEqual(p.messages[0], {type: 'review-response', id: 'viewer', ok: true,
+    assert.deepEqual(p.messages[0], {type: 'review-response', instance:p.instance, id: 'viewer', ok: true,
         data: 'http://127.0.0.1:23456/viewer.html'});
 });
 
@@ -100,7 +101,7 @@ test('Apply uses the guarded host callback while round actions use existing nati
 test('flush waits for readiness and an exact acknowledgement before refresh replaces the page', async t => {
     const f = await fixture(t); await f.panel.show(); const p = f.panels[0];
     const refresh = f.panel.refresh(); assert.equal(p.replacements, 1); assert.deepEqual(p.messages, []);
-    await p.receive({type: 'review-ready'}); await Promise.resolve();
+    await p.receive({type: 'review-ready'}); await new Promise(resolve=>setImmediate(resolve));
     const command = p.messages.find(message => message.type === 'review-command');
     assert.equal(command.action, 'flush');
     await p.receive({type: 'review-flushed', id: 'wrong', ok: true});
@@ -115,7 +116,7 @@ test('a second target requested before readiness replaces the pending selection'
     const showing = f.panel.show({file: 'second.tex', target: {id: 'second'}});
     assert.deepEqual(p.messages, []);
     await p.receive({type: 'review-ready'}); await showing;
-    assert.deepEqual(p.messages, [{type: 'review-select', file: 'second.tex', target: 'second'}]);
+    assert.deepEqual(p.messages, [{type: 'review-select', instance:p.instance, file: 'second.tex', target: 'second'}]);
     assert.equal(p.replacements, 1);
 });
 
@@ -131,12 +132,12 @@ test('failed flush, readiness errors, and timeouts preserve the existing page', 
     t.mock.timers.enable({apis: ['setTimeout']});
     const f = await fixture(t), p = await f.open();
     const refresh = f.panel.refresh(), failed = assert.rejects(refresh, /Keep my unsaved comment/);
-    await Promise.resolve();
+    await new Promise(resolve=>setImmediate(resolve));
     const command = p.messages.at(-1);
     await p.receive({type: 'review-flushed', id: command.id, ok: false, error: 'Keep my unsaved comment'});
     await failed; assert.equal(p.replacements, 1);
     const missing = f.panel.flush(), timedOut = assert.rejects(missing, /did not finish saving/);
-    await Promise.resolve(); t.mock.timers.tick(30_000); await timedOut;
+    await new Promise(resolve=>setImmediate(resolve)); t.mock.timers.tick(30_000); await timedOut;
     assert.equal(p.replacements, 1);
     p.dispose(); await f.panel.show(); const next = f.panels.at(-1);
     const loading = f.panel.flush(), loadingFailed = assert.rejects(loading, /Source could not load/);
@@ -147,8 +148,8 @@ test('failed flush, readiness errors, and timeouts preserve the existing page', 
 
 test('closing a panel rejects its outstanding save and ignores its delayed messages', async t => {
     const f = await fixture(t), p = await f.open();
-    const saving = f.panel.flush(), closed = assert.rejects(saving, /focused review closed/);
-    await Promise.resolve(); const command = p.messages.at(-1); p.dispose(); await closed;
+    const saving = f.panel.flush(), closed = assert.rejects(saving, /focused review (closed|changed)/);
+    await new Promise(resolve=>setImmediate(resolve)); const command = p.messages.at(-1); p.dispose(); await closed;
     const next = await f.open();
     await p.receive({type: 'review-flushed', id: command.id, ok: true});
     await p.receive({type: 'review-request', id: 'closed-write', action: 'copy', text: 'Old panel'});
@@ -216,7 +217,7 @@ test('a flush queued for a closed panel never sends a command to a new unready p
     p.dispose(); const next = await f.open();
     t.mock.timers.tick(30_000); const error = await flushing;
     assert.equal(next.messages.some(message => message.type === 'review-command'), false);
-    assert.match(error?.message || '', /focused review closed/);
+    assert.match(error?.message || '', /focused review (closed|changed)/);
 });
 
 test('cancelled exports write nothing and accepted exports preserve exact bytes', async t => {
@@ -233,10 +234,10 @@ test('cancelled exports write nothing and accepted exports preserve exact bytes'
 
 test('PDF iframe messages cannot impersonate responses from the extension host', async () => {
     let receive; const messages = [];
-    const bridge = createBridge({postMessage: message => messages.push(message)}, handler => { receive = handler; }, 'https://host.invalid');
+    const bridge = createBridge({postMessage: message => messages.push(message)}, handler => { receive = handler; }, 'https://host.invalid','page');
     const request = bridge('asset', {path: '/assets/page.pdf'});
-    receive({origin:'https://assets.invalid',source: {iframe: true}, data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Forged'}});
-    receive({origin:'https://host.invalid',source: {parentFrame:true}, data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Trusted'}});
+    receive({origin:'https://assets.invalid',source: {iframe: true}, data: {type: 'review-response',instance:'page', id: messages[0].id, ok: true, data: 'Forged'}});
+    receive({origin:'https://host.invalid',source: {parentFrame:true}, data: {type: 'review-response',instance:'page', id: messages[0].id, ok: true, data: 'Trusted'}});
     assert.equal(await request, 'Trusted');
 });
 
@@ -287,5 +288,40 @@ test('refresh after a preflushed native save loads the new record without writin
  p.messages.length=0;f.runtime.review.revision=2;
  await f.panel.refresh({flushed:true});
  assert.equal(p.replacements,2);assert.deepEqual(p.messages,[]);assert.match(p.webview.html,/data-review-focus="false"/);assert.equal(p.revealed,undefined);
- await p.receive({type:'review-ready'});f.panel.unlock(lock);assert.equal(p.messages.at(-1).action,'unlock');assert.equal(p.messages.at(-1).id,request.id);
+ await p.receive({type:'review-ready'});f.panel.unlock(lock);assert.deepEqual(p.messages,[]);
+});
+
+test('an old page response or readiness cannot satisfy the reloaded page',async t=>{
+ const f=await fixture(t),p=await f.open();
+ await f.establish(p);
+ const slow=deferred();f.runtime.asset=()=>slow.promise;
+ const old=p.instance,asset=p.receive({type:'review-request',instance:old,id:'1',action:'asset',path:'/assets/old.svg'});
+ await f.panel.refresh({flushed:true});assert.notEqual(p.instance,old);
+ await p.receive({type:'review-ready',instance:old});
+ const flushing=f.panel.flush();await new Promise(resolve=>setImmediate(resolve));assert.equal(p.messages.some(message=>message.type==='review-command'),false);
+ slow.resolve({bytes:Buffer.from('<svg/>'),mime:'image/svg+xml'});await asset;
+ assert.equal(p.messages.some(message=>message.type==='review-response'&&message.id==='1'),false);
+ await p.receive({type:'review-ready'});await new Promise(resolve=>setImmediate(resolve));
+ const command=p.messages.find(message=>message.type==='review-command');assert.equal(command.instance,p.instance);
+ await p.receive({type:'review-flushed',id:command.id,instance:old,ok:true});
+ assert.equal(p.messages.at(-1),command);
+ await p.receive({type:'review-flushed',id:command.id,ok:true});await flushing;
+});
+
+test('native focus queued without a panel cannot carry into a different review',async t=>{
+ const f=await fixture(t);f.panel.select({file:'old.tex',target:{id:'old-edit'}});f.panel.dispose();
+ f.runtime.review.id='different';const p=await f.open();assert.deepEqual(p.messages,[]);
+});
+
+test('a native Save waits for the selection lock and then obtains its own flush lock',async t=>{
+ const f=await fixture(t),p=await f.open();
+ const selecting=f.panel.flush({lock:true});await new Promise(resolve=>setImmediate(resolve));
+ const first=p.messages.at(-1);await p.receive({type:'review-flushed',id:first.id,ok:true});const lock=await selecting;
+ const saving=f.panel.flush({lock:true});await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(p.messages.filter(message=>message.action==='flush').length,1);
+ f.panel.unlock('another-owner');await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(p.messages.filter(message=>message.action==='flush').length,1);
+ f.panel.unlock(lock);await new Promise(resolve=>setImmediate(resolve));
+ const second=p.messages.at(-1);assert.notEqual(second.id,lock);assert.equal(second.action,'flush');
+ await p.receive({type:'review-flushed',id:second.id,ok:true});f.panel.unlock(await saving);
 });

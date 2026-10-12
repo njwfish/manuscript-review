@@ -250,6 +250,26 @@ class ReviewTests(ReviewFixture):
         self.assertEqual((self.repo / 'main.tex').read_text(), 'External')
         self.assertTrue(self.session.store.journal.exists())
 
+    def test_recovery_retains_a_save_arriving_between_file_writes(self):
+        from manuscript_review import storage
+        record = self.session.store.read()
+        record['revision'] += 1
+        other = self.repo / 'empty.txt'
+        other.write_text('First source')
+        atomic_json(self.session.store.journal, {'record': record, 'files': [
+            {'path': 'empty.txt', 'before': 'First source', 'after': 'First proposal'},
+            {'path': 'main.tex', 'before': self.file()['after'], 'after': 'Second proposal'}]})
+        atomic = storage.atomic_bytes
+        def write(path, content):
+            atomic(path, content)
+            if path.resolve() == other.resolve():
+                (self.repo / 'main.tex').write_text('Author saved concurrently')
+        with patch('manuscript_review.storage.atomic_bytes', side_effect=write):
+            with self.assertRaisesRegex(ValueError, 'interrupted save'):
+                self.session.store.recover()
+        self.assertEqual((self.repo / 'main.tex').read_text(), 'Author saved concurrently')
+        self.assertTrue(self.session.store.journal.exists())
+
     def test_recovery_refuses_new_staged_changes_and_keeps_the_journal(self):
         r = self.session.store.read()
         atomic_json(self.session.store.journal, {'record': r, 'files': [{'path': 'main.tex', 'before': self.file()['after'], 'after': 'Recovered source'}]})

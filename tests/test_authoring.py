@@ -21,7 +21,7 @@ class AuthoringTests(ReviewFixture):
     def capture(self, text, editing=None):
         (self.repo / 'main.tex').write_text(text)
         record = self.session.store.read()
-        return self.session.capture_file(self.request(file='main.tex', text=text, source=record['metadata']['workspace_version'],
+        return self.session.capture_file(self.request(file='main.tex', text=text, source=record['metadata']['workspace_version'], intent='author',
                                                       **({'editing': editing} if editing else {})))
 
     def propose(self, old, new, task=None):
@@ -157,3 +157,72 @@ class AuthoringTests(ReviewFixture):
         self.assertIsNone(self.file()['after'])
         self.assertIsNone(read_blob(self.repo, self.session.store.read()['result'], 'main.tex'))
         self.assertEqual((self.repo / 'main.tex').read_text(), authored)
+
+    def test_review_refinement_keeps_the_author_base_and_reconstructs_the_saved_proposal(self):
+        self.session.authoring(self.request())
+        self.propose('measured', 'observed')
+        plan = self.session.delivery(self.request())
+        self.capture(plan['files'][0]['after'], editing=plan['source'])
+        before = self.session.store.read()
+        text = (self.repo / 'main.tex').read_text().replace('observed', 'recorded')
+        (self.repo / 'main.tex').write_text(text)
+        self.session.capture_file(self.request(file='main.tex', text=text,
+            source=before['metadata']['workspace_version'], intent='proposal'))
+        record = self.session.store.read()
+        self.assertEqual(record['snapshot']['base'], before['snapshot']['base'])
+        self.assertEqual(record['baseline'], before['baseline'])
+        self.assertEqual(read_blob(self.repo, record['result'], 'main.tex'), text)
+        self.assertIn('recorded', read_blob(self.repo, record['snapshot']['proposed'], 'main.tex'))
+        self.assertTrue(self.file()['edits'])
+
+    def test_republishing_after_rejection_preserves_all_author_decisions_and_comments(self):
+        self.session.authoring(self.request())
+        task = self.library.begin(self.identifier, parallel=True)
+        self.propose('measured', 'observed', task)
+        edit = self.file()['edits'][0]
+        self.session.update('save', self.request(decisions={edit['id']: 'reject'}, comments={edit['id']: 'Keep measured.'}))
+        before = self.session.store.path.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'already incorporated'):
+            self.library.finish_parallel(self.identifier, task['starting_version'], task['workspace'])
+        self.assertEqual(self.session.store.path.read_bytes(), before)
+
+    def test_rejecting_an_overlap_through_save_unblocks_later_disjoint_delivery(self):
+        self.session.authoring(self.request())
+        self.propose('measured', 'observed')
+        self.capture((self.repo / 'main.tex').read_text().replace('measured', 'recorded'))
+        self.session.update('save', self.request(decisions={edit['id']: 'reject' for edit in self.file()['edits']}))
+        self.assertEqual(self.session.store.read()['metadata']['delivery_conflicts'], [])
+        self.propose('explanation', 'derivation')
+        plan = self.session.delivery(self.request())
+        self.assertEqual(len(plan['files']), 1)
+        self.assertIn('recorded', plan['files'][0]['after'])
+        self.assertIn('derivation', plan['files'][0]['after'])
+
+    def test_identical_parallel_task_cannot_restore_a_later_rejection(self):
+        self.session.authoring(self.request())
+        first = self.library.begin(self.identifier, parallel=True)
+        second = self.library.begin(self.identifier, parallel=True)
+        self.propose('measured', 'observed', first)
+        with self.assertRaisesRegex(ValueError, 'already incorporated'):
+            self.propose('measured', 'observed', second)
+        edit = self.file()['edits'][0]
+        self.session.update('save', self.request(decisions={edit['id']: 'reject'}, comments={edit['id']: 'Keep measured.'}))
+        before = self.session.store.path.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'already incorporated'):
+            self.library.finish_parallel(self.identifier, second['starting_version'], second['workspace'])
+        self.assertEqual(self.session.store.path.read_bytes(), before)
+
+    def test_proposal_refinement_resolves_a_conflict_before_the_next_agent_result(self):
+        self.session.authoring(self.request())
+        self.propose('measured', 'observed')
+        self.capture((self.repo / 'main.tex').read_text().replace('measured', 'recorded'))
+        before = self.session.store.read()
+        text = (self.repo / 'main.tex').read_text().replace('recorded', 'chosen')
+        (self.repo / 'main.tex').write_text(text)
+        self.session.capture_file(self.request(file='main.tex', text=text,
+            source=before['metadata']['workspace_version'], intent='proposal'))
+        self.assertEqual(self.session.store.read()['metadata']['delivery_conflicts'], [])
+        self.propose('explanation', 'derivation')
+        plan = self.session.delivery(self.request())
+        self.assertIn('chosen', plan['files'][0]['after'])
+        self.assertIn('derivation', plan['files'][0]['after'])

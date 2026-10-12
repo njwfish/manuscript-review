@@ -24,4 +24,8 @@ jobs:
       - run: skills/manuscript-review/scripts/review-agent --version
       - run: npm ci --prefix vscode --no-audit --no-fund
       - run: npm test --prefix vscode
+      - run: xvfb-run -a npm run test:native --prefix vscode
+        if: runner.os == 'Linux'
+      - run: npm run test:native --prefix vscode
+        if: runner.os == 'macOS'
       - run: npm run package --prefix vscode

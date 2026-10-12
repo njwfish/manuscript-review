@@ -2,6 +2,7 @@
 import fcntl
 import copy
 import json
+import re
 import os
 import secrets
 import tempfile
@@ -126,6 +127,9 @@ def validate_record(record):
     metadata = record['metadata']
     if 'authoring' in metadata and not isinstance(metadata['authoring'], bool):
         raise ValueError('Invalid authoring comparison.')
+    publications = metadata.get('publications', [])
+    if not isinstance(publications, list) or any(not isinstance(item, str) or not re.fullmatch(r'[a-f0-9]{64}', item) for item in publications) or len(set(publications)) != len(publications):
+        raise ValueError('Proposal publications must be distinct content identities.')
     conflicts = metadata.get('delivery_conflicts', [])
     if not isinstance(conflicts, list) or any(not isinstance(path, str) for path in conflicts) or len(set(conflicts)) != len(conflicts):
         raise ValueError('Conflicting delivery files must be distinct source paths.')
@@ -247,13 +251,23 @@ class ReviewStore:
             current = destination.read_bytes().decode() if destination.exists() else None
             if current not in (item['before'], item['after']):
                 raise ValueError(f'{item["path"]} changed during an interrupted save. The draft is retained in {self.journal}.')
-            plan.append((destination, item['after']))
-        for destination, content in plan:
+            plan.append((destination, item))
+        for destination, item in plan:
+            current = destination.read_bytes().decode() if destination.exists() else None
+            if destination.is_symlink() or not destination.resolve().is_relative_to(repo) or current not in (item['before'], item['after']):
+                raise ValueError(f'{item["path"]} changed during an interrupted save. The draft is retained in {self.journal}.')
+            content = item['after']
+            if current == content:
+                continue
             if content is None:
                 destination.unlink(missing_ok=True)
                 sync_directory(destination.parent)
             else:
                 atomic_bytes(destination, content.encode())
+        for destination, item in plan:
+            current = destination.read_bytes().decode() if destination.exists() else None
+            if current != item['after']:
+                raise ValueError(f'{item["path"]} changed during an interrupted save. The draft is retained in {self.journal}.')
         atomic_json(self.path, transaction['record'])
         self.journal.unlink()
         sync_directory(self.directory)
