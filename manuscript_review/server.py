@@ -6,6 +6,7 @@ from pathlib import Path
 from .http import LocalHandler
 from .session import ReviewSession
 from .storage import StaleReview
+from .authoring import RebaseConflict
 
 
 def create_server(directory, port=0, library_url=None, review_context=None, *, store=None):
@@ -70,7 +71,7 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
             if not self.trusted() or self.headers.get('X-Review-Token') != token:
                 return self.response({'error': 'Unexpected origin or review token.'}, status=403)
             try:
-                request = self.read_request()
+                request = self.read_request(16_000_000 if self.path == '/capture' else 2_000_000)
                 if self.path == '/editor':
                     result = session.editor(request['file'], request['text'], request.get('point'), request.get('version'))
                 elif self.path == '/workspace':
@@ -109,6 +110,8 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                 self.response(result)
             except StaleReview as error:
                 self.response({'error': str(error), 'stale': True}, status=409)
+            except RebaseConflict as error:
+                self.response({'error': str(error), **({'capture': error.capture} if hasattr(error, 'capture') else {})}, status=409)
             except (ValueError, KeyError, UnicodeError) as error:
                 self.response({'error': str(error)}, status=409)
             except Exception as error:

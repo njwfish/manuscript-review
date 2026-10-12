@@ -69,7 +69,7 @@ async function fixture(t,options={}) {
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id,selectionOptions={}){await selectionOptions.beforeSelect?.();calls.push({kind:'open',id});calls.push({kind:'request',route:'/workspace',body:{}});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record,workspace:options.workspace||preparedRepo||repo,workspace_version:'2'.repeat(40)};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:{},comments:{},history:[],resolved:[],drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2};if(route==='/authoring')return {revision:2};if(route==='/agent-request')return {discussion:body.id};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent-request')return {discussion:body.id};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const panel={get visible(){return Boolean(options.panelVisible);},setAgent(label){calls.push({kind:'panel-agent',label});},async flush(flushOptions){calls.push({kind:'flush',options:flushOptions});await options.onFlush?.(doc);return flushOptions?.lock?'lock':undefined;},unlock(id){if(id)calls.push({kind:'unlock',id});},select(){},async show(entry){calls.push({kind:'show-review',entry});options.onPanelShow?.(vscode);},
@@ -234,7 +234,8 @@ test('a native Save captures the same review and refreshes without revealing sou
  f.doc.text='Author saved wording.';f.doc.version++;
  await f.events['document-save'](f.doc);
  const request=f.calls.find(call=>call.kind==='request'&&call.route==='/capture');
- assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,source:'2'.repeat(40),intent:'proposal'});
+ const id=request.body.saves[0].id;
+ assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,source:'2'.repeat(40),cursor:null,saves:[{id,text:f.doc.text,intent:'proposal'}]});
  assert.equal(f.calls.filter(call=>call.kind==='show-source'||call.kind==='show-review').length,shown);
  assert.equal(f.calls.some(call=>call.kind==='prepare'&&call.route==='/update'),false);
  assert.equal(f.runtime.review.id,reviewId);assert.deepEqual(f.errors,[]);
@@ -610,6 +611,14 @@ test('review highlights switch off independently of comments and remain off acro
  assert.equal(f.calls.filter(call=>call.kind==='comments-enabled').at(-1).enabled,true);
  await f.command('refresh');assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,false);
  await f.command('toggleHighlights');assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,true);
+});
+
+test('showing highlights does not convert subsequent drafting into proposal refinement',async t=>{
+ const f=await fixture(t,{files:[]});await f.command('open');
+ await f.command('toggleHighlights');
+ f.doc.isDirty=true;f.doc.text='New author wording.';f.events['document-change']({document:f.doc});
+ f.doc.isDirty=false;await f.events['document-save'](f.doc);
+ assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/capture').body.saves[0].intent,'author');
 });
 
 test('a comment sent while navigation waits cannot move silently into another round',async t=>{

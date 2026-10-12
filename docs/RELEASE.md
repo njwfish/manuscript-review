@@ -1,16 +1,22 @@
-Manuscript Review 0.16.0 includes VS Code extension 0.3.0 and the standalone macOS app.
+Manuscript Review 0.17.0 includes VS Code extension 0.3.1 and the standalone macOS app.
 
-Review mode keeps the comparison base fixed while manual edits refine the proposal.
-Ordinary drafting with review off updates the author side of agent comparisons.
-Show removals displays original wording as transient strikethrough in the native editor.
-Accept and Reject appear beside the change under the cursor; source selection follows
-through to an open focused comparison or PDF. Focused word review shows full passages.
+The editing model now gives saved source, the proposal, selected wording and the
+comparison base distinct ownership. In agent comparisons, Edit chooses Your draft
+or Proposal. Review highlights controls display independently; automatic delivery
+reveals changes without changing the meaning of your next edit. Opening focused
+review selects Proposal. Commit comparisons retain their fixed From version.
 
-Review switching drains saved input before transferring ownership. Focused page reloads
-isolate messages and locks. A stopped service recovers through Open or Refresh. Agent
-publication retries preserve later decisions, and source recovery rechecks each file.
-Routine source capture and sidebar updates use small metadata reads; repetitive word
-alignment has a bounded fallback. CI now runs the actual VS Code editing workflow.
+Native Saves retain their order and editing intent through delayed capture and
+extension restarts. Lost acknowledgements replay only uncaptured saves. Standalone
+source writes transfer ownership, so a stale native retry cannot cross a later Apply.
+Dirty files wait without blocking delivery to independent clean files.
 
+Rebasing preserves selected wording exactly; an ambiguous alignment retains the
+saved draft and prior choices. Author insertions beside agent words survive rejection.
+Interrupted delivery requires its origin to be confirmed before capture resumes;
+recorded save origins are preserved, and cancelled recovery retains the saved queue.
+
+The documented editing model and regression tests cover mixed save intents,
+parallel agents, delivery, rejection, Undo, failed Saves and restart recovery.
 Saved discussion, decisions, original baselines and earlier comparisons are retained.
-See the README for installation, review controls, and the bundled agent skill.
+See docs/EDITING.md and the VS Code guide for source versions and editing controls.

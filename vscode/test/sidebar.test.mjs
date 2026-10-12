@@ -20,6 +20,14 @@ test('pending comparison choices stay distinguishable from the open review',()=>
  assert.equal(sidebarState(undefined,undefined,true,'Codex').folder,undefined);
 });
 
+test('editing policy is visible and independent of highlight visibility in agent comparisons',()=>{
+ const draft=sidebarState(setup,{...data,authoring:true},true,'Codex',true,'CLI default',true,'author');
+ assert.equal(draft.editing,'author');assert.equal(draft.highlights,true);assert.equal(draft.authoring,true);
+ const proposal=sidebarState(setup,{...data,authoring:true},true,'Codex',false,'CLI default',true,'proposal');
+ assert.equal(proposal.editing,'proposal');assert.equal(proposal.highlights,false);
+ assert.equal(sidebarState(setup,data,true,'Codex',true,'CLI default',true,'author').editing,'proposal');
+});
+
 function fixture({load=async()=>sidebarState(setup,data,true,'Codex'),onAction=async()=>{}}={}){
  const handlers={},posts=[],actions=[],errors=[];let provider,disposed=false;
  const disposable=()=>({dispose(){}});

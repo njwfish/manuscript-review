@@ -14,7 +14,7 @@ await mkdir(repo);await mkdir(fixture);await mkdir(path.join(root,'bin'));
 const git=(...args)=>execFileSync('git',args,{cwd:repo,encoding:'utf8'}).trim();
 git('init','-q');git('config','user.name','Review Test');git('config','user.email','test@localhost');
 const text='We score measured leaves.\n\nWe retain the explanation.\n';
-await writeFile(path.join(repo,'main.tex'),text);git('add','.');git('commit','-qm','Starting draft');
+await writeFile(path.join(repo,'main.tex'),text);await writeFile(path.join(repo,'second.tex'),'We retain additional context.\n');git('add','.');git('commit','-qm','Starting draft');
 const head=git('rev-parse','HEAD');
 const review=execFileSync(python,['-c',`import sys;from manuscript_review.library import Library
 library=Library(sys.argv[1]);library.prepare({'repo':sys.argv[2],'manuscript':True,'base':'working','proposed':'working'},'test');print(library.jobs['test']['review'])`,home,repo],{cwd:app,encoding:'utf8'}).trim();

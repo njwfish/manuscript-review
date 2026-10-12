@@ -21,7 +21,7 @@ class AuthoringTests(ReviewFixture):
     def capture(self, text, editing=None):
         (self.repo / 'main.tex').write_text(text)
         record = self.session.store.read()
-        return self.session.capture_file(self.request(file='main.tex', text=text, source=record['metadata']['workspace_version'], intent='author',
+        return self.session.capture_file(self.capture_request(file='main.tex', text=text, source=record['metadata']['workspace_version'], intent='author',
                                                       **({'editing': editing} if editing else {})))
 
     def propose(self, old, new, task=None):
@@ -166,7 +166,7 @@ class AuthoringTests(ReviewFixture):
         before = self.session.store.read()
         text = (self.repo / 'main.tex').read_text().replace('observed', 'recorded')
         (self.repo / 'main.tex').write_text(text)
-        self.session.capture_file(self.request(file='main.tex', text=text,
+        self.session.capture_file(self.capture_request(file='main.tex', text=text,
             source=before['metadata']['workspace_version'], intent='proposal'))
         record = self.session.store.read()
         self.assertEqual(record['snapshot']['base'], before['snapshot']['base'])
@@ -219,7 +219,7 @@ class AuthoringTests(ReviewFixture):
         before = self.session.store.read()
         text = (self.repo / 'main.tex').read_text().replace('recorded', 'chosen')
         (self.repo / 'main.tex').write_text(text)
-        self.session.capture_file(self.request(file='main.tex', text=text,
+        self.session.capture_file(self.capture_request(file='main.tex', text=text,
             source=before['metadata']['workspace_version'], intent='proposal'))
         self.assertEqual(self.session.store.read()['metadata']['delivery_conflicts'], [])
         self.propose('explanation', 'derivation')

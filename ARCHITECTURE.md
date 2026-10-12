@@ -55,13 +55,15 @@ Agents can also create a discussion entry directly against a passage or edit. Ex
 
 ## Source changes
 
+[Editing model](docs/EDITING.md) defines the source versions, transitions, save ownership, and delivery rules. `source_editing.py` is the pure saved-edit planner; `ReviewSession.capture_save` applies its plan.
+
 `editing.py` projects decisions onto source. The Python service and the small, pure `review_model.js` client module implement the same selection rule, checked against shared fixtures. Undecided edits keep proposed wording; rejected edits keep the round’s starting wording. A missing file is distinct from an empty file.
 
 `documents.py` derives the supported text files from the selected Git version. **Manuscript** presents this inventory through the existing editor, including unchanged files; the round comparison remains canonical. Opening a new manuscript pins the working version as both comparison endpoints, creating no artificial edits. Opening an existing repository resumes its latest saved record.
 
 The file is the editing unit; passages and edits remain the review units; discussions can attach to them or any source selection. The editor starts from selected wording and retains a draft against a pinned source version. Saving compares that source with the edited file, expands manual changes that touch an existing replacement, and maps those intervals back to the proposal. If a manual change merges neighboring edits, their selected wording travels into the merged replacement. The updated proposal remains separate from unrelated rejected wording. New manual changes are accepted; unaffected decisions survive, and affected notes become discussion. The selected result must reproduce the editor text exactly before any manuscript write.
 
-Source segments locate manual intervals in the validated working projection, including repeated text and choices applied earlier. Saving writes only those intervals. Unedited working text retains its exact contents even when the current review selects different wording. Applying the review writes the full selected result explicitly. Every source save creates a pinned Git version and refreshes the comparison against the round’s fixed starting draft; typeset previews follow that version.
+Source segments locate manual intervals in the validated working projection, including repeated text and choices applied earlier. Saving writes only those intervals. Unedited working text retains its exact contents even when the current review selects different wording. Applying the review writes the full selected result explicitly. Every captured source save pins its version and refreshes the comparison according to its editing intent; typeset previews follow the current proposal.
 
 CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights. The small adapter in `frontend/editor.js` connects document changes to the existing review client. It owns no review persistence or manuscript writes. The bundle and dependency licenses are checked in; `npm run build` regenerates them without adding a runtime network dependency.
 
@@ -110,9 +112,9 @@ establish a new baseline. The focused view displays the actual pinned endpoints 
 its current comparison scope. Source drafts from the shared library can open as
 untitled editor copies or be explicitly discarded; opening a copy leaves its saved
 record and the working file intact. New editor drafts use VS Code's own buffer and
-recovery behavior. Native saves in Review mode refine the proposal against its fixed base; ordinary
+recovery behavior. Native saves with Edit set to Proposal refine the proposal against its fixed base; ordinary
 drafting in authoring updates the author base. `source-edits.mjs` pins this intent
-on the first dirty change and captures the exact saved text. `native-review.mjs`
+on the first dirty change and persists ordered saved points. Capture cursors acknowledge each file’s prefix without replaying committed saves. `native-review.mjs`
 owns current-edit CodeLens controls and selection, while `delivery.mjs` owns every
 native WorkspaceEdit, provenance stage, Save and Undo boundary. Explicit decisions
 use that same delivery path; external revision
@@ -261,7 +263,7 @@ Run `python3 -m unittest discover -s tests -v` from this directory. Tests cover 
 
 ## Source authoring
 
-Sending a native source comment with Review mode off, or selecting **Agent changes**,
+Sending a native source comment with Edit set to Your draft, or selecting **Agent changes**,
 uses the existing review for one author-versus-agent comparison. `authoring.py` moves
 the comparison base to captured author wording and carries ordinary drafting saves
 into that base. Review-mode refinements keep the base fixed. The original baseline and archived records retain earlier comparisons,

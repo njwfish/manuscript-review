@@ -37,7 +37,7 @@ class ParallelProposalTests(ReviewFixture):
         author = self.repo / 'main.tex'
         author.write_text(author.read_text().replace('expand', 'extend'))
         r = self.session.store.read()
-        self.session.capture_file(self.request(file='main.tex', text=author.read_text(), source=r['metadata']['workspace_version']))
+        self.session.capture_file(self.capture_request(file='main.tex', text=author.read_text(), source=r['metadata']['workspace_version']))
         authored = author.read_bytes()
         self.finish(first)
         result = self.finish(second)
@@ -127,7 +127,7 @@ class ParallelProposalTests(ReviewFixture):
         author = self.repo / 'main.tex'
         author.write_text(author.read_text().replace('E=2', 'E=3'))
         record = self.session.store.read()
-        self.session.capture_file(self.request(file='main.tex', text=author.read_text(), source=record['metadata']['workspace_version']))
+        self.session.capture_file(self.capture_request(file='main.tex', text=author.read_text(), source=record['metadata']['workspace_version']))
         record = self.session.store.read()
         selected = selected_content(self.file(), record['decisions'])
         self.assertIn('observed', selected)

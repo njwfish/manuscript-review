@@ -2,6 +2,7 @@ import copy
 import json
 import tempfile
 import unittest
+import secrets
 from pathlib import Path
 from unittest.mock import patch
 from manuscript_review.comparison import build_snapshot, compare, enrich_snapshot, git, make_patch
@@ -52,6 +53,13 @@ class ReviewFixture(unittest.TestCase):
     def request(self, **values):
         r = self.session.store.read()
         return {'revision': r['revision'], 'decisions': r['decisions'], 'comments': r['comments'], **values}
+
+    def capture_request(self, *, file, text, source, intent='proposal', editing=None, **values):
+        point = {'id': secrets.token_hex(16), 'text': text, 'intent': intent}
+        if editing:
+            point['editing'] = editing
+        cursor = self.session.store.read()['metadata'].get('source_cursors', {}).get(file)
+        return self.request(file=file, text=text, source=source, cursor=cursor, saves=[point], **values)
 
     def file_request(self, passage_id, text):
         record = self.session.store.read()
