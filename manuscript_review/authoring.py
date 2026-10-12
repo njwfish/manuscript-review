@@ -6,6 +6,7 @@ from .history import build_history
 from .file_editing import replace_ranges, merge_spans
 from .versions import selected_version
 from .editing import project_source, projection_blocks, selected_content
+from .merging import changes_overlap
 
 
 class RebaseConflict(ValueError):
@@ -21,7 +22,7 @@ def merge_saved(before, current, saved):
         if tag == 'equal':
             continue
         span, text = SourceSpan(a, b), saved[c:d]
-        overlaps = [(other, value) for other, value in changes if span.overlaps(other)]
+        overlaps = [(other, value) for other, value in changes if changes_overlap(span, other)]
         if overlaps:
             conflict |= overlaps != [(span, text)]
             continue
@@ -40,9 +41,7 @@ def authored_text(before, baseline, saved):
             continue
         span = SourceSpan(a, b)
         for change, lo, hi, _, _ in mapping.blocks:
-            if span.start == span.end and lo != hi and span.start in (lo, hi):
-                continue
-            if change != 'equal' and span.overlaps(SourceSpan(lo, hi)):
+            if change != 'equal' and changes_overlap(span, SourceSpan(lo, hi)):
                 span = SourceSpan(min(span.start, lo), max(span.end, hi))
         spans.append(span)
     replacements = []

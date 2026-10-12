@@ -114,6 +114,20 @@ class ParallelProposalTests(ReviewFixture):
         self.assertTrue(all(edit['id'] not in record['decisions'] for edit in added['edits']))
         self.assertFalse((self.repo / 'note.txt').exists())
 
+    def test_parallel_insertions_at_one_position_refuse_the_second_proposal_atomically(self):
+        tasks = [self.library.begin(self.identifier, parallel=True) for _ in range(2)]
+        for task, wording in zip(tasks, ('new measured', 'other measured')):
+            source = Path(task['workspace']) / 'main.tex'
+            source.write_text(source.read_text().replace('measured', wording))
+        self.finish(tasks[0])
+        record = self.session.store.path.read_bytes()
+        author = (self.repo / 'main.tex').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'overlaps newer manuscript edits'):
+            self.finish(tasks[1])
+        self.assertEqual(self.session.store.path.read_bytes(), record)
+        self.assertEqual((self.repo / 'main.tex').read_bytes(), author)
+        self.assertIn('other measured', (Path(tasks[1]['workspace']) / 'main.tex').read_text())
+
     def test_native_save_after_agent_result_preserves_both_changes_and_rejected_wording(self):
         equation = next(edit for edit in self.file()['edits'] if edit['new'] == '1')
         decisions = {edit['id']: 'accept' for file in self.session.snapshot['files'] for edit in file['edits']}

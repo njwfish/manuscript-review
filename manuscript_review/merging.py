@@ -3,6 +3,17 @@ from .anchors import SourceMap, SourceSpan
 from .file_editing import replace_ranges
 
 
+def changes_overlap(first, second):
+    """Adjacent insertions and replacements do not contest each other's text."""
+    if first.start == first.end:
+        if second.start == second.end:
+            return first.start == second.start
+        return second.start < first.start < second.end
+    if second.start == second.end:
+        return first.start < second.start < first.end
+    return first.overlaps(second)
+
+
 def merge_text(base, current, incoming):
     if current == incoming or incoming == base:
         return current
@@ -17,7 +28,7 @@ def merge_text(base, current, incoming):
         if tag == 'equal':
             continue
         span, text = SourceSpan(a, b), incoming[c:d]
-        overlaps = [(other, value) for other, value in changed if span.overlaps(other)]
+        overlaps = [(other, value) for other, value in changed if changes_overlap(span, other)]
         if overlaps:
             if overlaps == [(span, text)]:
                 continue

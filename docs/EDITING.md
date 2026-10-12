@@ -56,6 +56,10 @@ Ordinary author drafting updates only the author's delta, rather than incorporat
 all delivered agent words into the base. If an undelivered agent revision contests
 that delta, both versions remain available and delivery pauses for that file.
 Rejecting or explicitly reconciling the contested wording releases the pause.
+An insertion beside a replacement is adjacent, not contested. Two different
+insertions at the same point contest each other. Source anchors may include shared
+endpoints when grouping one conceptual edit; concurrent content changes use these
+stricter overlap rules.
 
 In VS Code, **Edit** selects **Your draft** or **Proposal** in an agent comparison.
 Opening focused review selects Proposal. **Review highlights** controls display;

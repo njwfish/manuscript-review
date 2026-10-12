@@ -143,6 +143,73 @@ class EditingModelTests(ReviewFixture):
                     case.tearDown()
                     case.doCleanups()
 
+    def test_author_and_undelivered_agent_edits_merge_when_their_intervals_are_adjacent(self):
+        cases = [('observed', 'new measured', 'new observed'),
+                 ('observed', 'measured,', 'observed,'),
+                 ('new measured', 'recorded', 'new recorded'),
+                 ('measured,', 'recorded', 'recorded,')]
+        for new_agent, new_author, combined in cases:
+            with self.subTest(agent=new_agent, author=new_author):
+                case = EditingModelTests(self._testMethodName)
+                case.setUp()
+                try:
+                    task = case.library.begin(case.identifier, parallel=True)
+                    path = Path(task['workspace']) / 'main.tex'
+                    path.write_text(path.read_text().replace('measured', new_agent))
+                    case.library.finish_parallel(case.identifier, task['starting_version'], task['workspace'])
+                    authored = case.initial.replace('measured', new_author)
+                    case.capture([case.point(authored, 'author')])
+                    proposal = case.initial.replace('measured', combined)
+                    case.assert_sources(authored, proposal, saved=authored)
+                    case.assertFalse(case.session.store.read()['metadata'].get('delivery_conflicts'))
+                    case.assertEqual(case.session.store.read()['decisions'], {})
+                    case.deliver()
+                    case.session.update('save', case.request(decisions={edit['id']: 'reject' for edit in case.file()['edits']}))
+                    case.deliver()
+                    case.assert_sources(authored, proposal, selected=authored)
+                    case.session.update('apply', case.request(decisions={edit['id']: 'accept' for edit in case.file()['edits']}))
+                    case.assert_sources(authored, proposal)
+                finally:
+                    case.tearDown()
+                    case.doCleanups()
+
+    def test_different_insertions_at_the_same_point_keep_both_versions_for_review(self):
+        task = self.library.begin(self.identifier, parallel=True)
+        proposal = self.initial.replace('measured', 'new measured')
+        (Path(task['workspace']) / 'main.tex').write_text(proposal)
+        self.library.finish_parallel(self.identifier, task['starting_version'], task['workspace'])
+        authored = self.initial.replace('measured', 'other measured')
+        self.capture([self.point(authored, 'author')])
+        self.assert_sources(authored, proposal, saved=authored)
+        self.assertEqual(self.session.store.read()['metadata']['delivery_conflicts'], ['main.tex'])
+        self.assertEqual(self.session.delivery(self.request())['files'], [])
+        self.session.update('apply', self.request(decisions={edit['id']: 'reject' for edit in self.file()['edits']}))
+        self.assert_sources(authored, proposal, selected=authored)
+        self.assertEqual(self.session.store.read()['metadata']['delivery_conflicts'], [])
+
+    def test_adjacent_parallel_proposals_merge_in_either_completion_order(self):
+        for first, second, combined in [('observed', 'new measured', 'new observed'),
+                                        ('observed', 'measured,', 'observed,'),
+                                        ('new measured', 'recorded', 'new recorded'),
+                                        ('measured,', 'recorded', 'recorded,')]:
+            for order in ((first, second), (second, first)):
+                with self.subTest(order=order):
+                    case = EditingModelTests(self._testMethodName)
+                    case.setUp()
+                    try:
+                        tasks = [case.library.begin(case.identifier, parallel=True) for _ in order]
+                        for task, wording in zip(tasks, order):
+                            (Path(task['workspace']) / 'main.tex').write_text(case.initial.replace('measured', wording))
+                            case.library.finish_parallel(case.identifier, task['starting_version'], task['workspace'])
+                        proposal = case.initial.replace('measured', combined)
+                        case.assert_sources(case.initial, proposal, saved=case.initial)
+                        case.assertEqual(case.session.store.read()['decisions'], {})
+                        case.session.update('apply', case.request(decisions={edit['id']: 'reject' for edit in case.file()['edits']}))
+                        case.assert_sources(case.initial, proposal, selected=case.initial)
+                    finally:
+                        case.tearDown()
+                        case.doCleanups()
+
     def assert_sources(self, author, proposal, selected=None, saved=None):
         record = self.session.store.read()
         self.assertEqual(read_blob(self.repo, record['snapshot']['base'], 'main.tex'), author)
