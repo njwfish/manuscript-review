@@ -1,15 +1,15 @@
-Manuscript Review 0.15.2 includes VS Code extension 0.2.2 and the standalone macOS app.
+Manuscript Review 0.15.3 includes VS Code extension 0.2.3 and the standalone macOS app.
 
-Native Send displays the saved comment immediately and prepares the agent task in one
-service request. Source and sidebar refreshes continue in the background. The selected
-CLI runs independently of the editor.
+Sending a comment from the native source editor selects **Your saved draft → Agent
+changes**, including when a focused review tab is open. Sending from a focused review
+discussion keeps its chosen comparison. Tab visibility controls delivery, without
+changing which versions the comment's task uses.
 
-Comments reuse an existing pinned source when its wording matches the captured text.
-Unsaved text and comments on deleted files retain exact source checkpoints. Mutable
-review state reuses the serialized comparison within the same atomic JSON record;
-comments, drafts, decisions and navigation avoid copying unchanged source. Entering
-authoring and loading a comparison also avoid redundant copies.
+Choosing another pair in the sidebar clears the previous source highlights until that
+comparison is opened. Source dispatch clears earlier staged choices and refreshes the
+sidebar with the actual author-versus-agent versions. New choices made during the
+handoff stay staged.
 
-Saved discussions, decisions, baselines, native buffers and source Undo are preserved.
+Saved discussions, decisions, original baselines and earlier comparisons are retained.
 
 See the README for installation, review controls, and the bundled agent skill.

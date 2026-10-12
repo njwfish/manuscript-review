@@ -49,6 +49,7 @@ rounds by manuscript.
 **Compare versions** opens this sidebar. Click **From**, **To**, or **PDF** to change
 a field, then choose **Review changes** to open that pair. The current review and its
 decisions stay intact while you choose another comparison.
+Source highlights clear until you open the chosen comparison.
 Version pickers group review drafts, branches and tags, and commits; search by name,
 message, date, or hash. Escape closes a picker without changing the other fields. The initial manuscript folder comes from the active source file.
 The folder name also lets you choose another workspace folder or local directory.
@@ -159,7 +160,7 @@ For source changes, the agent starts a separate proposal checkout with
 `begin --parallel`, follows the manuscript's Git workflow and build checks, then
 publishes with `finish --workspace`. Clean changes join the current comparison as
 undecided edits, preserving your choices, drafts, discussion, and other agent results.
-Sending from native source outside focused review starts one **Your saved draft →
+Sending from native source starts one **Your saved draft →
 Agent changes** comparison. Clean results join saved source through native undoable
 edits. Dirty buffers wait for your next Save. Your own saves update the author side,
 so the diff contains agent changes; the original baseline and archived comparisons
