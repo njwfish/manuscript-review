@@ -5,7 +5,11 @@ from .feedback import feedback_report
 from .history import build_history
 from .file_editing import replace_ranges, merge_spans
 from .versions import selected_version
-from .editing import project_source
+from .editing import project_source, projection_blocks, selected_content
+
+
+class RebaseConflict(ValueError):
+    """Selected wording cannot be represented against the new author base."""
 
 
 def merge_saved(before, current, saved):
@@ -36,12 +40,17 @@ def authored_text(before, baseline, saved):
             continue
         span = SourceSpan(a, b)
         for change, lo, hi, _, _ in mapping.blocks:
+            if span.start == span.end and lo != hi and span.start in (lo, hi):
+                continue
             if change != 'equal' and span.overlaps(SourceSpan(lo, hi)):
                 span = SourceSpan(min(span.start, lo), max(span.end, hi))
         spans.append(span)
     replacements = []
     for span in merge_spans(spans):
         target, source = mapping.project(span), saved_mapping.project(span)
+        for tag, a, b, c, d in saved_mapping.blocks:
+            if tag != 'equal' and span.overlaps(SourceSpan(a, b)):
+                source = SourceSpan(min(source.start, c), max(source.end, d))
         replacements.append((target.start, target.end, saved[source.start:source.end]))
     return replace_ranges(baseline, replacements)
 
@@ -56,6 +65,30 @@ def rebase(record, base, directory, proposed=None):
                for file in old['files'] for edit in file['edits'] if edit['id'] in previous['decisions']}
     record['decisions'] = {edit['id']: choices[key] for file in snapshot['files'] for edit in file['edits']
                            if (key := (file['path'], tuple(edit['proposal_span']), edit['old'], edit['new'])) in choices}
+    if not proposed:
+        previous_files = {file['path']: file for file in old['files']}
+        for file in snapshot['files']:
+            previous_file = previous_files.get(file['path'])
+            if previous_file is None:
+                continue
+            selected = selected_content(previous_file, previous['decisions'])
+            if selected_content(file, record['decisions']) == selected:
+                continue
+            # A rebase changes rejection's base, never the selected manuscript.
+            try:
+                blocks = projection_blocks(file, selected or '')
+            except ValueError:
+                raise RebaseConflict('Rebasing cannot preserve your selected wording unambiguously. Your saved draft and review are retained.') from None
+            groups = {edit['id']: edit for edit in file['edits']}
+            for _, _, start, end, identifier in blocks:
+                if not identifier:
+                    continue
+                if (selected or '')[start:end] == groups[identifier]['old']:
+                    record['decisions'][identifier] = 'reject'
+                elif record['decisions'].get(identifier) == 'reject':
+                    record['decisions'].pop(identifier)
+            if selected_content(file, record['decisions']) != selected:
+                raise RebaseConflict('Rebasing would change your selected wording. Your saved draft and review are retained.')
     if proposed:
         selected = set()
         for file in old['files']:

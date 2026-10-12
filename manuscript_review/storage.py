@@ -127,6 +127,9 @@ def validate_record(record):
     metadata = record['metadata']
     if 'authoring' in metadata and not isinstance(metadata['authoring'], bool):
         raise ValueError('Invalid authoring comparison.')
+    cursors = metadata.get('source_cursors', {})
+    if not isinstance(cursors, dict) or any(not isinstance(path, str) or not isinstance(cursor, str) or not re.fullmatch(r'[a-f0-9]{32}', cursor) for path, cursor in cursors.items()):
+        raise ValueError('Source capture cursors must identify saved buffer transitions.')
     publications = metadata.get('publications', [])
     if not isinstance(publications, list) or any(not isinstance(item, str) or not re.fullmatch(r'[a-f0-9]{64}', item) for item in publications) or len(set(publications)) != len(publications):
         raise ValueError('Proposal publications must be distinct content identities.')

@@ -25,6 +25,7 @@ export function activate(context){
  function setComparison(value){comparison=value;comparisonEpoch++;if(value?.pending){decorations.clear();nativeReview.clear();}}
  const commentsEnabled=()=>context.globalState.get('commentsEnabled',true);
  const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',false);
+ const editingIntent=()=>context.workspaceState.get('editingIntent','author');
  const removalsEnabled=()=>context.workspaceState.get('removalsEnabled',true);
  decorations.setRemovals(removalsEnabled());
  decorations.setEnabled(highlightsEnabled());
@@ -50,6 +51,13 @@ export function activate(context){
   await context.globalState.update('commentModels',{...context.globalState.get('commentModels',{}),[agent.id]:model});
   await sidebar.refresh();
  }
+ async function chooseEditing(){
+  const choice=await vscode.window.showQuickPick([
+   {label:'Your draft',intent:'author',description:'Your saves update the author side; agent changes remain reviewable'},
+   {label:'Proposal',intent:'proposal',description:'Your saves refine proposed wording; From stays fixed'}
+  ],{title:'Edit manuscript',placeHolder:editingIntent()==='author'?'Your draft':'Proposal'});
+  if(choice)await context.workspaceState.update('editingIntent',choice.intent);
+ }
  async function openAgentSession(){
   if(!await ensureReview())return;
   const {runs}=await runtime.request('/agents',{});
@@ -71,6 +79,7 @@ export function activate(context){
   await sourceEdits.flush();await panel.flush();
   if(runtime.review?.id!==reviewId)throw new Error('The review changed. Choose Agent changes from its original review.');
   await runtime.request('/authoring',{entry});if(epoch===comparisonEpoch)setComparison(undefined);
+  await context.workspaceState.update('editingIntent','proposal');
   await context.workspaceState.update('highlightsEnabled',true);decorations.setEnabled(true);
   await delivery.refresh();await refreshSource();
  }
@@ -113,8 +122,16 @@ export function activate(context){
    const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.workspace||runtime.review.repo),setup,sourceDrafts,chooseAgent,editingFolder};
    panel=createPanel(vscode,context,runtime,{viewer,onSource:openSource,onFocus:(file,edit)=>decorations.focus(file,edit),onAgent:sendToAgent,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
     agentLabel:()=>selectedAgent().label,onHidden:()=>{if(!opening&&!disposed)void delivery?.refresh().catch(fail);},onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
-   sourceEdits=createSourceEdits(runtime,{state:context.workspaceState,reviewing:highlightsEnabled,flushPanel:options=>panel.flush(options),unlockPanel:id=>panel.unlock(id),refreshPanel:()=>panel.changed(),refreshComments:refreshSource});
-   delivery=createDelivery(vscode,runtime,{sourceEdits,openDocument:sources.open,reviewing:()=>panel.visible,
+   sourceEdits=createSourceEdits(runtime,{state:context.workspaceState,intent:editingIntent,flushPanel:options=>panel.flush(options),unlockPanel:id=>panel.unlock(id),refreshPanel:()=>panel.changed(),refreshComments:refreshSource,
+    recoverDelivery:async({file})=>{
+     const applied='Agent changes were applied',authored='They were not applied';
+     const choice=await vscode.window.showWarningMessage('Confirm the interrupted delivery to '+file,{modal:true,detail:'The editor closed before recording whether agent changes reached this buffer. Did they reach it before your saved edits?'},applied,authored);
+     return choice===applied?true:choice===authored?false:undefined;
+    },resolveCapture:async({file})=>{
+     const action='Review as proposal';
+     return await vscode.window.showWarningMessage('Review this saved edit against the existing base?',{modal:true,detail:'Advancing the author base would lose a previous wording choice. Your file is saved. Review this edit as a proposal refinement, keeping the author base fixed, or cancel to retain it for later.'},action)===action;
+    }});
+   delivery=createDelivery(vscode,runtime,{sourceEdits,openDocument:sources.open,paused:()=>panel.visible,
     onConflict:()=>showAgentHighlights('Saved your wording; overlapping agent changes await review.'),
     onDelivered:()=>showAgentHighlights('Agent changes joined your saved draft.')});
    void prepareTools().catch(error=>output.appendLine('Agent tools: '+error.message));
@@ -161,7 +178,7 @@ export function activate(context){
   let lock;
   try{
    const review=await runtime.open(id,{beforeSelect:async()=>{panel.unlock(lock);lock=undefined;await delivery.flush();await sourceEdits.flush();lock=await panel.flush({lock:true});},canSelect:()=>!sourceEdits.pending&&!delivery.pending});
-   panel.dispose();decorations.clear();nativeReview.clear();setComparison(setup);watchRecord();
+   panel.dispose();decorations.clear();nativeReview.clear();setComparison(setup);await sourceEdits.flush();watchRecord();
    if(!review.files.some(file=>file.edits.length)){await context.workspaceState.update('highlightsEnabled',false);decorations.setEnabled(false);nativeReview.refresh();}
    await refreshSource();
    await vscode.commands.executeCommand('setContext','manuscriptReview.active',true);updateSourceContext();
@@ -217,6 +234,7 @@ export function activate(context){
   return Boolean(runtime?.review);
  }
  async function showReview(entry){
+  await context.workspaceState.update('editingIntent','proposal');
   await context.workspaceState.update('highlightsEnabled',true);decorations.setEnabled(true);
   const source=vscode.window.activeTextEditor?.document;
   if(!sourceFile(runtime.review,source)&&runtime.review.workspace){
@@ -253,7 +271,7 @@ export function activate(context){
   await prepareTools();
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   const result=await runtime.request('/agent',{revision:runtime.review.revision,id:identifier,
-   authoring:Boolean(sourceUri)&&!highlightsEnabled(),entry:sourceFile(runtime.review,sourceUri?{uri:sourceUri}:vscode.window.activeTextEditor?.document),
+   authoring:Boolean(sourceUri)&&editingIntent()==='author',entry:sourceFile(runtime.review,sourceUri?{uri:sourceUri}:vscode.window.activeTextEditor?.document),
    launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id,...(agent.model?{model:agent.model}:{})});
   if(sourceUri){if(epoch===comparisonEpoch)setComparison(undefined);refreshComments();}
   panel.changed();
@@ -344,7 +362,7 @@ export function activate(context){
    else{await currentComparison();data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.request('/summary'):undefined;}
    if(epoch!==comparisonEpoch)return loadSidebar();
    if(data&&!comparison.pending)comparison=reviewComparison(comparison,data);
-   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default',removalsEnabled());
+   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default',removalsEnabled(),editingIntent());
   }catch(error){if(!opening)await discardUnopenedRuntime();throw error;}
  }
  function checkSidebar(expected){
@@ -358,6 +376,7 @@ export function activate(context){
  async function sidebarAction(action,expected){
   if(!['comments','agent','model','sessions','agentChanges','repository','highlights','removals'].includes(action))checkSidebar(expected);
   const actions={
+   editing:chooseEditing,
    removals:async()=>{const value=!removalsEnabled();await context.workspaceState.update('removalsEnabled',value);decorations.setRemovals(value);},
    highlights:async()=>{const enabled=!highlightsEnabled();await context.workspaceState.update('highlightsEnabled',enabled);decorations.setEnabled(enabled);nativeReview.refresh();if(enabled){await delivery?.refresh({force:true});await comments.refresh();}},
    comments:async()=>{const enabled=!commentsEnabled();await context.globalState.update('commentsEnabled',enabled);comments.setEnabled(enabled);updateSourceContext();if(enabled)await restoreSourceReview(vscode.window.activeTextEditor?.document);},

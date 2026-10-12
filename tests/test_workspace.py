@@ -19,7 +19,7 @@ class WorkspaceTests(ReviewFixture):
 
     def capture(self, workspace, text, file='main.tex'):
         (workspace / file).write_text(text)
-        return self.session.capture_file(self.request(file=file, text=text,
+        return self.session.capture_file(self.capture_request(file=file, text=text,
                    source=self.session.store.read()['metadata']['workspace_version']))
 
     def test_matching_b_uses_the_checkout_and_a_stays_fixed_across_saves(self):
@@ -232,7 +232,7 @@ class WorkspaceTests(ReviewFixture):
         before = self.session.store.path.read_bytes()
         for file in ('../outside.tex', str(outside), 'link.tex'):
             with self.subTest(file=file), self.assertRaises(ValueError):
-                self.session.capture_file(self.request(file=file, text='Outside source', source=self.session.store.read()['metadata']['workspace_version']))
+                self.session.capture_file(self.capture_request(file=file, text='Outside source', source=self.session.store.read()['metadata']['workspace_version']))
         self.assertEqual(self.session.store.path.read_bytes(), before)
         self.assertEqual(outside.read_text(), 'Outside source')
 
@@ -247,7 +247,7 @@ class WorkspaceTests(ReviewFixture):
             checkout = post('/workspace', self.request())
             path = Path(checkout['workspace']) / 'main.tex'
             text = path.read_text().replace('measured leaves', 'chosen leaves');path.write_text(text)
-            result = post('/capture', self.request(file='main.tex', text=text, source=checkout['workspace_version']))
+            result = post('/capture', self.capture_request(file='main.tex', text=text, source=checkout['workspace_version']))
             self.assertEqual(result['data']['base'], self.base)
             self.assertEqual(result['data']['workspace'], checkout['workspace'])
             self.assertEqual(self.session.report()['workspace'], checkout['workspace'])
@@ -258,11 +258,11 @@ class WorkspaceTests(ReviewFixture):
         workspace = self.bind()
         text = (workspace / 'main.tex').read_text()
         before = self.session.store.path.read_bytes()
-        self.session.capture_file(self.request(file='main.tex', text=text, source=self.session.store.read()['metadata']['workspace_version']))
+        self.session.capture_file(self.capture_request(file='main.tex', text=text, source=self.session.store.read()['metadata']['workspace_version']))
         self.assertEqual(self.session.store.path.read_bytes(), before)
         for changes in ({'revision': -1}, {'source': self.base}, {'text': 'Not saved to disk.'}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
-                request = self.request(file='main.tex', text=text,
+                request = self.capture_request(file='main.tex', text=text,
                        source=self.session.store.read()['metadata']['workspace_version'])
                 request.update(changes)
                 self.session.capture_file(request)

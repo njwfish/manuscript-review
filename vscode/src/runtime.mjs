@@ -76,6 +76,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
             const error = new Error(value.error || `The manuscript service refused this request (${response.status}).`);
             error.status = response.status;
             error.stale = Boolean(value.stale);
+            if(value.capture)error.capture=value.capture;
             throw error;
         }
         return value;
@@ -203,6 +204,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
             if (Number.isInteger(value?.revision)) selected = {...selected, revision: value.revision};
             for (const key of ['workspace', 'workspace_version', 'feedback_path'])
                 if (typeof value?.[key] === 'string') selected = {...selected, [key]: value[key]};
+            if (value?.source_cursors) selected = {...selected, source_cursors: value.source_cursors};
         }
         if (typeof value?.token === 'string' && value.token) reviewToken = value.token;
         if (value?.data) updateReview(value.data);

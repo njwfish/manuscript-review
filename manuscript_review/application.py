@@ -1,5 +1,6 @@
 """Validate working files before committing a review and its source writes together."""
 import hashlib
+import secrets
 from pathlib import Path
 from .comparison import git, read_blob
 from .editing import selected_content, projection_blocks, mapped_range
@@ -58,6 +59,9 @@ def commit_sources(store, previous, record, changes):
     if plan:
         store.archive(previous)
     if 'workspace' in record['metadata']:
+        for path, before, after in changes:
+            if before != after:
+                record['metadata'].setdefault('source_cursors', {})[path] = secrets.token_hex(16)
         record['metadata']['workspace_version'] = source_version(
             record['snapshot']['repo'], previous['metadata']['workspace_version'],
             {path: after for path, _, after in changes},

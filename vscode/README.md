@@ -104,9 +104,9 @@ editor. Existing comments remain accessible there. Opening saved source never
 restores a deleted file; an already open source buffer retains your unsaved text.
 
 Saving a native source edit refreshes the current comparison automatically. With
-**Review mode** on, **From** stays at A and **To** becomes B plus your refinements.
-With it off, ordinary drafting becomes the author side of an agent comparison.
-The intent is pinned when typing starts, so toggling the mode before Save cannot
+**Edit: Proposal**, **From** stays at A and **To** becomes B plus your refinements.
+With **Edit: Your draft**, ordinary drafting becomes the author side of an agent comparison.
+The intent is pinned when typing starts, so changing that choice before Save cannot
 reclassify an edit. New manual edits are accepted;
 unaffected choices remain, and comments on revised edits move into discussion.
 The original baseline stays fixed. Parallel agent revisions join the current proposal
@@ -185,7 +185,12 @@ retained with **Reload review** available. **This round** shows the current comp
 rounds. An explicitly requested separate revision pass can still create a new round.
 
 **Review highlights** in the sidebar turns diff highlighting and surrounding dimming
-off or on, independently of **Source comments**. Existing comments remain available.
+off or on, independently of editing intent and **Source comments**. Automatic delivery
+reveals changes without changing **Edit**. Opening focused review selects **Proposal**.
+Existing comments remain available.
+
+The source versions, Save transitions and recovery rules are documented in
+[Editing model](../docs/EDITING.md).
 
 ## Build
 

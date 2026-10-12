@@ -2,10 +2,10 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {commentThreads,reviewProgress} from '../../manuscript_review/review_model.js';
 
-export function sidebarState(comparison,data,commentsEnabled,agent,highlights=true,model='CLI default',removals=true){
+export function sidebarState(comparison,data,commentsEnabled,agent,highlights=true,model='CLI default',removals=true,intent='author'){
  const progress=data?.progress||(data?reviewProgress(data.files,data.decisions):undefined);
  const unresolved=data?.unresolved??(data?commentThreads(data,data.comments).filter(thread=>!thread.resolved).length:0);
- return {commentsEnabled,agent,highlights,model,removals,folder:comparison?.info.workspace||comparison?.info.repo,
+ return {commentsEnabled,agent,highlights,model,removals,editing:data?.authoring?intent:'proposal',authoring:Boolean(data?.authoring),folder:comparison?.info.workspace||comparison?.info.repo,
   from:comparison?.base.label,to:comparison?.proposed.label,entry:comparison?.entry||'Source only',
   fromVersion:comparison?.base.revision,toVersion:comparison?.proposed.revision,
   active:Boolean(data),review:data?.id,revision:data?.revision,pending:Boolean(comparison?.pending),
@@ -33,7 +33,8 @@ button,input{font:inherit}button{cursor:pointer;color:inherit;border:0;border-ra
  <span>To</span><button id="to" class="version" aria-label="To" data-action="proposed"></button>
  <span>PDF</span><button id="entry" class="version" aria-label="PDF" data-action="entry"></button>
 </div><div class="actions"><button id="review" class="primary" data-action="review">Compare</button><button class="secondary" data-action="agentChanges" title="Compare your saved draft to accumulated agent changes">Agent changes</button><button id="apply" class="secondary" data-action="apply" hidden>Apply review</button></div><p id="progress" class="progress" hidden></p></div>
-<div class="comments"><label class="toggle"><input id="highlights" type="checkbox" checked title="On: edits refine the proposal and keep From fixed. Off: saved drafting becomes the author side of agent comparisons.">Review changes</label>
+<div class="comments"><div id="editing-row" class="versions" hidden><span>Edit</span><button id="editing" class="version" data-action="editing"></button></div>
+ <label class="toggle"><input id="highlights" type="checkbox" checked>Review highlights</label>
  <label class="toggle"><input id="removals" type="checkbox" checked>Show removals</label>
  <label class="toggle"><input id="comments" type="checkbox" checked>Source comments</label>
  <div id="discussion" class="discussion" hidden><span id="unresolved"></span><div><button data-action="previous" aria-label="Previous comment">Previous</button><button data-action="next" aria-label="Next comment">Next</button></div></div>
@@ -44,7 +45,7 @@ button,input{font:inherit}button{cursor:pointer;color:inherit;border:0;border-ra
 
 export function createSidebar(vscode,context,{load,onAction,onError}){
  let view,generation=0,disposed=false,busy=false;
- const actions=new Set(['repository','base','proposed','entry','review','apply','previous','next','agent','model','sessions','agentChanges','comments','highlights','removals']);
+ const actions=new Set(['repository','base','proposed','entry','review','apply','previous','next','agent','model','sessions','agentChanges','comments','highlights','removals','editing']);
  const subscriptions=[vscode.window.registerWebviewViewProvider('manuscriptReview.start',{
   resolveWebviewView(next){
    view=next;next.webview.options={enableScripts:true,localResourceRoots:[vscode.Uri.file(path.join(context.extensionPath,'dist'))]};

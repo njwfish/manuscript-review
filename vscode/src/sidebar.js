@@ -15,6 +15,9 @@ function render(){
  element('comments').checked=state.commentsEnabled!==false;
  element('highlights').checked=state.highlights!==false;
  element('removals').checked=state.removals!==false;
+ element('editing-row').hidden=!state.active||!state.authoring;
+ element('editing').textContent=state.editing==='author'?'Your draft':'Proposal';
+ element('editing').title=state.editing==='author'?'Saves advance your draft and preserve pending agent changes':'Saves refine the proposal and keep From fixed';
  element('discussion').hidden=!state.active;
  element('unresolved').textContent=`${state.unresolved||0} unresolved`;
  element('agent-label').textContent=state.agent||'Codex';element('agent').title='Choose the agent for comment requests';
