@@ -78,7 +78,7 @@ folder is opened. Turn **Source comments** off in the sidebar to hide new-commen
 controls; saved threads and replies remain.
 
 Select source text and run **Comment on selection** (⌘/Ctrl+Shift+M), or use the editor
-context menu or the comment gutter. With no selection, the comment covers the current line. Responses and
+context menu or the comment button in the editor title. With no selection, the comment covers the current line. Responses and
 follow-ups stay together in VS Code's Comments view. **Resolve comment** closes a thread;
 **Reopen comment** returns it to the queue. Resolved threads collapse and retain their
 messages across revisions. **Previous comment** and **Next comment** (⌘/Ctrl+Alt+[ / ])

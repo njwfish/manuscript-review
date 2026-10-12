@@ -64,20 +64,20 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   }
 
   function makeThread(document,range) {
-    const thread=controller.createCommentThread(document.uri,displayRange(document,range),[]);
+    const thread=controller.createCommentThread(document.uri,markerRange(document,range),[]);
     thread.contextValue='manuscriptReview';
     thread.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
     return thread;
   }
 
-  function displayRange(document,range) {
+  function markerRange(document,range) {
     if(!range)return range;
-    const text=document.getText(),lineEnd=text.indexOf('\n',document.offsetAt(range.end));
-    if(lineEnd<0)return range;
-    const nextEnd=text.indexOf('\n',lineEnd+1);
-    if(text.slice(lineEnd+1,nextEnd<0?text.length:nextEnd).trim())return range;
+    const lastLine=range.end.character===0&&range.end.line>range.start.line?range.end.line-1:range.end.line;
+    let point=lastLine<range.end.line?document.lineAt(lastLine).range.end:range.end;
     // Native whole-line icons repeat on wrapped rows. Paragraph breaks do not wrap.
-    return new vscode.Range(range.start,document.positionAt(lineEnd+1));
+    if(lastLine+1<document.lineCount&&document.lineAt(lastLine+1).isEmptyOrWhitespace)point=document.lineAt(lastLine+1).range.start;
+    else if(range.start.line>0&&document.lineAt(range.start.line-1).isEmptyOrWhitespace)point=document.lineAt(range.start.line-1).range.start;
+    return new vscode.Range(point,point);
   }
 
   function suspendThread(state) {
@@ -182,7 +182,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       }
       Object.assign(state,{entry,origin,key,data,projection,range,reviewId:review.id});
       resumeThread(state);
-      state.thread.range=displayRange(projection.document,range);
+      state.thread.range=markerRange(projection.document,range);
       state.thread.canReply=!entry.current;
       commentsFor(state,groups.get(origin));
       present.add(key);
@@ -320,15 +320,16 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     if(document.getText()!==text)return false;
     const editor=await vscode.window.showTextDocument(document,{preserveFocus:false});
     if(runtime.review?.id!==id||runtime.review.revision!==revision||document.version!==version||document.getText()!==text)return false;
-    editor.selection=new vscode.Selection(state.range.start,state.range.end);
+    editor.selection=new vscode.Selection(state.range.start,state.range.start);
     editor.revealRange(state.range,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
     state.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Expanded;
     activeThread=state.key;
     return true;
   }
 
-  const rangeProvider={provideCommentingRanges:document=>canComment(document)
-    ? [new vscode.Range(document.positionAt(0),document.positionAt(document.getText().length))] : []};
+  // Source annotations use the selection action. Native commenting ranges draw a
+  // persistent gutter stripe even when every comment is collapsed.
+  const rangeProvider={provideCommentingRanges:()=>[]};
   function setEnabled(enabled){controller.commentingRangeProvider=enabled?rangeProvider:undefined;}
   setEnabled(true);
   command('reply',async input=>Boolean(await reply(input)));command('editComment',editComment);command('saveComment',saveComment);command('cancelComment',cancelComment);

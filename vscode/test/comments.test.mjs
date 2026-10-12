@@ -18,10 +18,11 @@ const uri=file=>({scheme:'file',fsPath:file,toString:()=>`file://${file}`});
 
 function document(file,text) {
   return {uri:uri(`/manuscript/${file}`),version:1,isDirty:false,text,
+    get lineCount(){return this.text.split('\n').length;},
     getText(){return this.text;},
     positionAt(offset){const lines=this.text.slice(0,offset).split('\n');return new Position(lines.length-1,lines.at(-1).length);},
     offsetAt(position){return this.text.split('\n').slice(0,position.line).reduce((n,line)=>n+line.length+1,0)+position.character;},
-    lineAt(line){return {range:new Range(new Position(line,0),new Position(line,this.text.split('\n')[line].length))};},
+    lineAt(line){const text=this.text.split('\n')[line].replace(/\r$/,'');return {text,isEmptyOrWhitespace:!text.trim(),range:new Range(new Position(line,0),new Position(line,text.length))};},
     change(text){this.text=text;this.version++;this.isDirty=true;}};
 }
 
@@ -175,25 +176,26 @@ test('projects exact dirty-buffer UTF-16 spans and groups roots with responses a
   assert.equal(f.created.length,1);
   assert.equal(f.created[0].comments.length,3);
   assert.deepEqual(f.created[0].comments.map(comment=>comment.author.name),['Agent','Agent','You']);
-  assert.deepEqual(f.created[0].range.start,new Position(1,7));
+  assert.deepEqual(f.created[0].reviewState.range.start,new Position(1,7));
+  assert.deepEqual(f.created[0].range.start,f.created[0].range.end);
   assert.equal(f.requests[0].body.text,'🙂 Prefix\nBefore selected words.');
   assert.equal(f.documents[0].isDirty,true);
   assert.equal(f.requests.every(request=>request.route==='/editor'),true);
   f.comments.dispose();
 });
 
-test('paragraph comments use one marker at the following break while navigation and replies retain the exact selection',async()=>{
+test('paragraph comments use a point at the following break while navigation and replies retain the original quotation',async()=>{
   const text='🙂 '+ 'A long manuscript sentence. '.repeat(18)+'selected words.';
   const selected=text.slice(8,text.length-1),f=fixture([source('root','main.tex','Please clarify.',{before:selected})]);
   f.documents[0].change(text+'\r\n\r\nAnother paragraph.');
   await f.comments.refresh();
   const thread=f.created[0],range=thread.reviewState.range;
   assert.deepEqual(range,new Range(new Position(0,8),new Position(0,text.length-1)));
-  assert.deepEqual(thread.range,new Range(range.start,new Position(1,0)));
+  assert.deepEqual(thread.range,new Range(new Position(1,0),new Position(1,0)));
   thread.input='An unfinished reply';f.data.revision++;await f.comments.refresh();
   assert.equal(f.created.length,1);assert.equal(thread.input,'An unfinished reply');
   assert.equal(await f.comments.move(1),true);
-  assert.deepEqual(f.vscode.window.activeTextEditor.selection,new Selection(range.start,range.end));
+  assert.deepEqual(f.vscode.window.activeTextEditor.selection,new Selection(range.start,range.start));
   assert.deepEqual(f.vscode.window.activeTextEditor.revealed,range);
   await f.command('reply',{thread,text:'Follow up on those words.'});
   const write=f.requests.find(request=>request.route==='/note');
@@ -212,10 +214,54 @@ test('new native comments retain their selection while the marker sits on a para
   f.comments.dispose();
 });
 
+test('a final paragraph uses its preceding break without changing the saved quotation',async()=>{
+  const text='Previous paragraph.\n\n'+ 'A long manuscript sentence. '.repeat(18)+'selected words.';
+  const selected=text.slice(text.indexOf('A long'),text.length-1);
+  const f=fixture([source('root','main.tex','Please clarify.',{before:selected})]);
+  f.documents[0].change(text);await f.comments.refresh();
+  const thread=f.created[0],range=thread.reviewState.range;
+  assert.deepEqual(thread.range,new Range(new Position(1,0),new Position(1,0)));
+  await f.command('reply',{thread,text:'Keep this exact quotation.'});
+  const write=f.requests.find(request=>request.route==='/note');
+  assert.equal(write.body.text.slice(write.body.start,write.body.end),selected);
+  assert.equal(f.documents[0].getText(),text);
+  f.comments.dispose();
+});
+
+test('a blank first line remains a marker location for the final wrapped paragraph',async()=>{
+  for(const newline of ['\n','\r\n']){
+    const f=fixture([]);f.documents[0].change(newline+'A long manuscript sentence. '.repeat(18));
+    f.editor.selection=new Selection(new Position(1,3),new Position(1,100));
+    const thread=await f.comments.annotate(f.editor);
+    assert.deepEqual(thread.range,new Range(new Position(0,0),new Position(0,0)));
+    await f.command('reply',{thread,text:'Preserve the exact words.'});
+    const write=f.requests.find(request=>request.route==='/note');
+    assert.equal(write.body.text.slice(write.body.start,write.body.end),f.documents[0].getText().split(newline)[1].slice(3,100));
+    f.comments.dispose();
+  }
+});
+
+test('a selection ending at the next line start never places its marker beyond unselected source',async()=>{
+  for(const newline of ['\n','\r\n']){
+    const f=fixture([]);f.documents[0].change(['Selected paragraph.','Another paragraph.','',''].join(newline));
+    f.editor.selection=new Selection(new Position(0,0),new Position(1,0));
+    const thread=await f.comments.annotate(f.editor);
+    assert.deepEqual(thread.range,new Range(new Position(0,19),new Position(0,19)));
+    await f.command('reply',{thread,text:'This refers to the first paragraph.'});
+    const write=f.requests.find(request=>request.route==='/note');
+    assert.equal(write.body.text.slice(write.body.start,write.body.end),'Selected paragraph.'+newline);
+    f.comments.dispose();
+  }
+});
+
 test('markers do not extend into subsequent source text or beyond the document',async()=>{
   for(const ending of ['\nMore source immediately follows.','']){
     const f=fixture();f.documents[0].change('First selected words.'+ending);
-    await f.comments.refresh();assert.deepEqual(f.created[0].range,f.created[0].reviewState.range);
+    await f.comments.refresh();
+    const {thread,range}=f.created[0].reviewState;
+    assert.deepEqual(thread.range,new Range(range.end,range.end));
+    assert.equal(range.start.character,6);
+    assert.equal(range.end.character,20);
     f.comments.dispose();
   }
 });
@@ -534,26 +580,25 @@ test('native annotation with an empty selection captures the whole current line'
   const f=fixture([]);f.documents[0].change('🙂 Intro\nFull selected words here.\nLast');
   f.editor.selection=new Selection(new Position(1,5),new Position(1,5));
   const thread=await f.comments.annotate(f.editor);
-  assert.deepEqual(thread.range,new Range(new Position(1,0),new Position(1,25)));
+  assert.deepEqual(thread.range,new Range(new Position(1,25),new Position(1,25)));
   await f.command('reply',{thread,text:'Please revise this sentence.'});
   const write=f.requests.find(request=>request.route==='/note');
   assert.equal(write.body.text.slice(write.body.start,write.body.end),'Full selected words here.');
   f.comments.dispose();
 });
 
-test('native commenting is available on supported source before any review and toggles without losing threads',async()=>{
+test('source commenting keeps explicit actions available without painting the file gutter and toggles without losing threads',async()=>{
   const f=fixture(),provider=f.controller.commentingRangeProvider;
-  for(const suffix of ['tex','bib','md','txt','typ','rst'])assert.equal(provider.provideCommentingRanges(document(`file.${suffix}`,'Text')).length,1);
   const unsupported=document('code.js','Text');
   assert.deepEqual(provider.provideCommentingRanges(unsupported),[]);
-  assert.equal(provider.provideCommentingRanges({...unsupported,uri:uri('/elsewhere/file.tex')}).length,1);
+  assert.deepEqual(provider.provideCommentingRanges({...unsupported,uri:uri('/elsewhere/file.tex')}),[]);
   assert.deepEqual(provider.provideCommentingRanges({...unsupported,uri:{scheme:'untitled'}}),[]);
   await assert.rejects(f.comments.annotate({document:unsupported,selection:f.editor.selection}),/source file/);
   assert.equal(f.requests.length,0);
   await f.comments.refresh();
   const thread=f.created[0];thread.input='Unsubmitted reply';
   f.runtime.review=undefined;
-  assert.equal(provider.provideCommentingRanges(f.documents[0]).length,1);
+  assert.deepEqual(provider.provideCommentingRanges(f.documents[0]),[]);
   f.comments.setEnabled(false);assert.equal(f.controller.commentingRangeProvider,undefined);
   f.comments.setEnabled(true);assert.equal(f.controller.commentingRangeProvider,provider);
   assert.equal(thread.disposed,undefined);assert.equal(thread.input,'Unsubmitted reply');

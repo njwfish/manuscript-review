@@ -76,9 +76,13 @@ review tab. The controller reads the current runtime through a getter so failed 
 startup and review switches retain its native editors. The same
 `ReviewSession.editor` operation projects spans onto an exact external buffer without
 saving it; offsets use UTF-16 for both editors. VS Code owns source saves.
-Native threads use a following paragraph break for the displayed marker when
-available, avoiding repeated icons on wrapped source lines. The exact projected
-range remains separate for navigation and replies; saved source anchors are unchanged.
+Native threads display a point marker at an adjacent paragraph break when available,
+preferring the following break. The exact projected range remains separate for
+navigation and replies; saved source anchors are unchanged. Navigation places the
+caret at the original start without selecting the quoted passage. Native commenting
+ranges stay empty to avoid a persistent stripe down the file; source annotation uses
+the selection action, keyboard shortcut, and context menu. Without an adjacent break,
+VS Code can still repeat its native glyph on wrapped rows.
 `source-edits.mjs` flushes pending review choices, captures the latest saved file
 through `ReviewSession.capture_file`, and refreshes the same comparison without
 replacing the native buffer or taking focus. Unsaved typing remains in VS Code. Decisions and comments
