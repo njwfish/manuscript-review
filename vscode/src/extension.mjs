@@ -21,7 +21,7 @@ export function activate(context){
  const decorations=createDecorations(vscode);
  let runtime,panel,sourceEdits,delivery,watcher,timer,opening,navigation,agentTools,viewer,starting,disposing,comparison,disposed=false,sending=false;
  let comparisonEpoch=0,inspection;
- function setComparison(value){comparison=value;comparisonEpoch++;}
+ function setComparison(value){comparison=value;comparisonEpoch++;if(value?.pending)decorations.clear();}
  const commentsEnabled=()=>context.globalState.get('commentsEnabled',true);
  const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',true);
  decorations.setEnabled(highlightsEnabled());
@@ -61,8 +61,10 @@ export function activate(context){
   terminal.show();
  }
  async function showAgentChanges(){
-  if(!await ensureReview())return;await sourceEdits.flush();await panel.flush();
-  await runtime.request('/authoring',{entry:sourceFile(runtime.review,vscode.window.activeTextEditor?.document)});setComparison(undefined);
+  if(!await ensureReview())return;
+  const epoch=comparisonEpoch,entry=sourceFile(runtime.review,vscode.window.activeTextEditor?.document);
+  await sourceEdits.flush();await panel.flush();
+  await runtime.request('/authoring',{entry});if(epoch===comparisonEpoch)setComparison(undefined);
   await context.workspaceState.update('highlightsEnabled',true);decorations.setEnabled(true);
   await delivery.refresh();await refreshSource();
  }
@@ -71,7 +73,7 @@ export function activate(context){
  const comments=createComments(vscode,()=>runtime,{onSource:ensureCommentSource,canComment,
   openDocument:sources.open,
   onChange:async()=>{panel?.changed();await sidebar.refresh();},onReview:entry=>panel.show(entry),
-  onProjection:(projection,data)=>decorations.update(projection,data),onAgent:sendToAgent});
+  onProjection:(projection,data)=>{if(!comparison?.pending)decorations.update(projection,data);},onAgent:sendToAgent});
  comments.setAgent(selectedAgent().label);comments.setEnabled(commentsEnabled());
  const sidebar=createSidebar(vscode,context,{load:loadSidebar,onAction:sidebarAction,onError:error=>output.appendLine(error.stack||error.message)});
  subscriptions.push(sidebar);
@@ -209,7 +211,7 @@ export function activate(context){
   try{return await dispatchComment(identifier,saveComment,sourceUri);}finally{sending=false;}
  }
  async function dispatchComment(identifier,saveComment,sourceUri){
-  const reviewId=runtime?.review?.id;
+  const reviewId=runtime?.review?.id,epoch=comparisonEpoch;
   if(!reviewId)throw new Error('Open the comment’s review before sending it to an agent.');
   if(!await ensureReview())return;
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
@@ -230,8 +232,9 @@ export function activate(context){
   await prepareTools();
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   const result=await runtime.request('/agent',{revision:runtime.review.revision,id:identifier,
-   authoring:!panel.visible,entry:sourceFile(runtime.review,sourceUri?{uri:sourceUri}:vscode.window.activeTextEditor?.document),
+   authoring:Boolean(sourceUri),entry:sourceFile(runtime.review,sourceUri?{uri:sourceUri}:vscode.window.activeTextEditor?.document),
    launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id,...(agent.model?{model:agent.model}:{})});
+  if(sourceUri){if(epoch===comparisonEpoch)setComparison(undefined);refreshComments();}
   panel.changed();
   output.appendLine(result.message+' Output: '+result.log);
   vscode.window.setStatusBarMessage(result.message,4000);

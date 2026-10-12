@@ -46,7 +46,7 @@ function fixture(history=[source('root')]) {
       this.activeTextEditor=editor;return editor;}}};
   const data={id:'review',revision:1,base:'base',proposed:'proposal',history,resolved:[],comments:{},decisions:{},files:[]};
   let beforeProjection,failNote=false,noteNumber=0,changes=0;
-  const runtime={review:{id:'review',repo:'/manuscript',revision:1},async data(){return structuredClone(data);},
+  const runtime={review:{id:'review',repo:'/manuscript',revision:1},async data(){return {...structuredClone(data),id:runtime.review.id};},
     async request(route,body){
       requests.push({route,body});
       if(route==='/editor') {
@@ -120,6 +120,25 @@ test('overlapping typing refreshes coalesce and publish only the newest buffer',
  assert.equal(f.requests.length,3);
  assert.equal(f.projections.at(-1).projection.text,'Newest 9\nselected words.');
  assert.equal(f.created[0].range.start.line,1);f.comments.dispose();
+});
+
+test('a delayed projection cannot publish an earlier comparison after the review advances',async()=>{
+ const f=fixture();await f.comments.refresh();f.projections.length=0;
+ const thread=f.created[0];f.documents[0].change('Prefix selected words.');
+ let release,entered,held=false;
+ const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});
+ const request=f.runtime.request;
+ f.runtime.request=async(route,...args)=>{
+  const result=await request(route,...args);
+  if(route==='/editor'&&!held){held=true;entered();await gate;}
+  return result;
+ };
+ const refreshing=f.comments.refresh({sourceOnly:true});await began;
+ f.data.revision++;f.data.history[0].comment='Updated feedback.';
+ release();await refreshing;
+ assert.equal(f.projections.length,1);assert.equal(f.projections[0].data.revision,2);
+ assert.equal(thread.reviewState.data.revision,2);assert.equal(thread.comments[0].body,'Updated feedback.');
+ assert.equal(f.created.length,1);f.comments.dispose();
 });
 
 test('comments on removed source remain navigable beside comments on working files',async()=>{

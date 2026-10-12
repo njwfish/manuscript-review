@@ -92,7 +92,10 @@ agent workflow use the shared operations directly. Git comparisons show both end
 repository, and PDF entry in the review sidebar. `sidebar.mjs` owns the view lifecycle
 and derives display state; `comparison.mjs` owns staged version choices and request
 construction. A field opens one native picker, and preparing that pair is explicit.
-The open review remains intact while another pair is staged. An inspected checkpoint includes
+The open review remains intact while another pair is staged.
+Native source highlights clear while that pair is staged, so they cannot depict a
+different comparison from the sidebar controls.
+An inspected checkpoint includes
 its review ID and content revision; using it as the starting draft creates a checked
 follow-up round through the existing prepare operation. Other Git starting versions
 establish a new baseline. The focused view displays the actual pinned endpoints for
@@ -244,11 +247,15 @@ Run `python3 -m unittest discover -s tests -v` from this directory. Tests cover 
 
 ## Source authoring
 
-Sending a native source comment outside focused review, or selecting **Agent changes**,
+Sending a native source comment, or selecting **Agent changes**,
 uses the existing review for one author-versus-agent comparison. `authoring.py` moves
 the comparison base to captured author wording and carries subsequent manual saves
 into that base. The original baseline and archived records retain earlier comparisons,
 choices and discussion. Proposals still merge through the same session operations.
+The dispatch boundary uses the comment's source URI to distinguish native source
+comments from focused review discussions; tab visibility only pauses source delivery.
+A source dispatch clears earlier staged version choices before refreshing the sidebar;
+choices made during the handoff stay staged.
 
 `delivery.mjs` requests exact replacements from the session, checks every participating
 native buffer is saved and unchanged, then uses a native WorkspaceEdit and Save. It

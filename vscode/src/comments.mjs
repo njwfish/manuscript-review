@@ -141,7 +141,12 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       cachedData=await runtime.data('round',fileFor(vscode.window.activeTextEditor?.document));cachedRuntime=runtime;
     }
     const data=cachedData;
-    if(ticket!==generation||disposed||runtime.review?.id!==review.id)return;
+    const current=()=>{
+      if(ticket!==generation||disposed||getRuntime()!==runtime||runtime.review?.id!==data.id)return false;
+      if(runtime.review.revision!==data.revision){requested=needsData=true;return false;}
+      return true;
+    };
+    if(!current())return;
     const groups=new Map(discussionGroups([...data.history,...currentFeedback(data,data.comments)]).map(messages=>[messages[0].origin_id||messages[0].id,messages])),latest=commentThreads(data,data.comments);
     const projections=new Map(),present=new Set(),reviewed=new Set(data.files.map(file=>file.path));
     const visible=(vscode.window.visibleTextEditors||[]).map(editor=>fileFor(editor.document)).filter(file=>reviewed.has(file));
@@ -161,7 +166,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
         if(error.code==='SourceChanged')return;
         if(error.code!=='ENOENT'&&error.code!=='FileNotFound')throw error;
       }
-      if(ticket!==generation||disposed||runtime.review?.id!==review.id)return;
+      if(!current())return;
     }
     if([...projections.values()].some(projection=>projection.revision!==data.revision||projection.document.getText()!==projection.text))return;
     for(const projection of projections.values())onProjection?.(projection,data);
