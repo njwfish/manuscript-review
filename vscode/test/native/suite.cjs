@@ -11,6 +11,8 @@ exports.run=async()=>{
  // Dispatch is detached, saves the native thread, and preserves dirty source.
  editor.selection=new vscode.Selection(document.positionAt(0),document.positionAt(24));
  const thread=await state.comments.annotate(editor);
+ assert.equal(thread.range.isEmpty,true);
+ assert.equal(thread.range.start.line,1);
  const began=performance.now();
  assert.equal(await vscode.commands.executeCommand('manuscriptReview.sendComment',{thread,text:'Keep this surgical.'}),true);
  const dispatchMs=performance.now()-began;

@@ -6,7 +6,7 @@
     "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -63,7 +63,8 @@
       {
         "command": "manuscriptReview.comment",
         "title": "Comment on selection",
-        "category": "Manuscript Review"
+        "category": "Manuscript Review",
+        "icon": "$(comment)"
       },
       {
         "command": "manuscriptReview.previousComment",
@@ -103,7 +104,8 @@
       {
         "command": "manuscriptReview.viewCommentChange",
         "title": "View change",
-        "category": "Manuscript Review"
+        "category": "Manuscript Review",
+        "icon": "$(diff)"
       },
       {
         "command": "manuscriptReview.compare",
@@ -338,6 +340,11 @@
         }
       ],
       "editor/title": [
+        {
+          "command": "manuscriptReview.comment",
+          "when": "manuscriptReview.source && manuscriptReview.commentsEnabled && editorHasSelection && resourceScheme == file",
+          "group": "navigation@2"
+        },
         {
           "command": "manuscriptReview.review",
           "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/",
