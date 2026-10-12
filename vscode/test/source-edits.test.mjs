@@ -4,7 +4,7 @@ import {createSourceEdits} from '../src/source-edits.mjs';
 
 function fixture(options={}){
  const events=[],review={id:'review',repo:'/original',workspace:'/editing',workspace_version:'B'};
- const runtime={review,async data(){events.push('data');return {...this.review};},async request(route,body){events.push({route,body});await options.capture?.(body);}};
+ const runtime={review,async data(){events.push('data');return {...this.review};},async request(route,body){if(route==='/summary'){events.push('data');return {...this.review};}events.push({route,body});await options.capture?.(body);}};
  const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:false,version:1,text:'B edited',getText(){return this.text;}};
  const edits=createSourceEdits(runtime,{async flushPanel(value){events.push({flush:value});await options.flush?.();return 'lock';},
   unlockPanel(lock){events.push({unlock:lock});},async refreshPanel(value){events.push({refresh:value});},async refreshComments(){events.push('comments');}});
@@ -13,7 +13,7 @@ function fixture(options={}){
 
 test('native Save flushes pending author choices, captures B plus edits, and refreshes without taking focus',async()=>{
  const f=fixture();await f.edits.save(f.document);
- assert.deepEqual(f.events,[{flush:{lock:true}},'data',{route:'/capture',body:{file:'main.tex',text:'B edited',source:'B'}},
+ assert.deepEqual(f.events,[{flush:{lock:true}},'data',{route:'/capture',body:{file:'main.tex',text:'B edited',source:'B',intent:'proposal'}},
   {refresh:{flushed:true}},'comments',{unlock:'lock'}]);
  assert.equal(f.edits.pending,false);
 });
@@ -110,4 +110,36 @@ test('Undo after delivery before its first successful Save captures the undo aga
  await f.edits.save(f.document);
  assert.equal(f.events.find(event=>event.route).body.editing,'Applied agent source');
  assert.equal(f.events.find(event=>event.route).body.text,files[0].before);
+});
+
+test('the explicit edit intent is pinned when typing starts, even if Review changes is toggled before Save',async()=>{
+ let reviewing=true;
+ const review={id:'review',workspace:'/editing',revision:1,workspace_version:'B'},captures=[];
+ const runtime={review,async request(route,body){if(route==='/summary')return review;captures.push(body);}};
+ const edits=createSourceEdits(runtime,{reviewing:()=>reviewing,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,getText:()=> 'Refined proposal'};
+ edits.change(document);reviewing=false;document.isDirty=false;await edits.save(document);
+ assert.equal(captures[0].intent,'proposal');
+ document.isDirty=true;edits.change(document);reviewing=true;document.isDirty=false;await edits.save(document);
+ assert.equal(captures[1].intent,'author');
+});
+
+test('an unacknowledged Save survives a review switch and can be captured when its owner returns',async()=>{
+ let switchReview=true;
+ const f=fixture({flush(){if(switchReview)f.runtime.review={...f.runtime.review,id:'other'};}});
+ await assert.rejects(f.edits.save(f.document),/review changed/);
+ await f.edits.flush();assert.equal(f.events.some(event=>event.route),false);
+ switchReview=false;f.runtime.review.id='review';
+ await f.edits.flush();assert.equal(f.events.find(event=>event.route).body.text,'B edited');
+ assert.equal(f.edits.pending,false);
+});
+
+test('Undo to clean source ends the typing episode before a fresh drafting edit',async()=>{
+ let reviewing=true;const captures=[],review={id:'review',workspace:'/editing',workspace_version:'B'};
+ const runtime={review,async request(route,body){if(route==='/summary')return review;captures.push(body);}};
+ const edits=createSourceEdits(runtime,{reviewing:()=>reviewing,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,getText:()=> 'Fresh author wording'};
+ edits.change(document);document.isDirty=false;edits.change(document);
+ reviewing=false;document.isDirty=true;edits.change(document);document.isDirty=false;edits.change(document);
+ await edits.save(document);assert.equal(captures[0].intent,'author');
 });

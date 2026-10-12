@@ -1,19 +1,19 @@
 // The browser and VS Code use the same review client. Only transport and editor ownership differ.
 // VS Code forwards messages from its enclosing frame at the webview's origin.
-export function hostMessage(event,origin=globalThis.location?.origin){
- return typeof origin==='string'&&event.origin===origin&&![...frames.keys()].some(frame=>event.source===frame.contentWindow);
+export function hostMessage(event,origin=globalThis.location?.origin,instance=globalThis.document?.body?.dataset.reviewInstance){
+ return typeof origin==='string'&&event.origin===origin&&typeof instance==='string'&&event.data?.instance===instance&&![...frames.keys()].some(frame=>event.source===frame.contentWindow);
 }
-export function createBridge(api,subscribe,origin=globalThis.location?.origin){
+export function createBridge(api,subscribe,origin=globalThis.location?.origin,instance=globalThis.document?.body?.dataset.reviewInstance){
  const pending=new Map();let sequence=0;
  subscribe(event=>{
-  const message=event.data;if(!hostMessage(event,origin)||message?.type!=='review-response')return;
+  const message=event.data;if(!hostMessage(event,origin,instance)||message?.type!=='review-response')return;
   const request=pending.get(message.id);if(!request)return;
   clearTimeout(request.timer);pending.delete(message.id);
   if(message.ok)request.resolve(message.data);else request.reject(new Error(message.error||'The editor host could not complete this action.'));
  });
  return (action,values={})=>new Promise((resolve,reject)=>{
   const id=String(++sequence),timer=setTimeout(()=>{pending.delete(id);reject(new Error('The editor host did not respond.'));},30000);
-  pending.set(id,{resolve,reject,timer});api.postMessage({type:'review-request',id,action,...values});
+  pending.set(id,{resolve,reject,timer});api.postMessage({type:'review-request',id,action,...values,instance});
  });
 }
 const api=globalThis.acquireVsCodeApi?.();
@@ -47,7 +47,7 @@ export async function imageSource(image,path,version){
 }
 export function copyText(text){return call?call('copy',{text}):navigator.clipboard.writeText(text);}
 export function exportFile(path){return call('export',{path});}
-export function reviewReady(error){api?.postMessage({type:'review-ready',error});}
+export function reviewReady(error){api?.postMessage({type:'review-ready',error,instance:globalThis.document.body.dataset.reviewInstance});}
 
 const frames=new Map();
 function sendPDF(frame,values,data){frame.contentWindow.postMessage({type:'review-pdf',document:values.path,...(data?{data}:{}),marks:values.marks,color:values.color,active:true},new URL(frame.src).origin);}
@@ -86,4 +86,4 @@ if(api)globalThis.addEventListener('message',async event=>{
  }
 });
 
-if(api)globalThis.addEventListener('review-flushed',event=>api.postMessage({type:'review-flushed',...event.detail}));
+if(api)globalThis.addEventListener('review-flushed',event=>api.postMessage({type:'review-flushed',...event.detail,instance:globalThis.document.body.dataset.reviewInstance}));

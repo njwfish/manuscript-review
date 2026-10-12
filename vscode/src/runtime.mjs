@@ -9,7 +9,7 @@ const scopes = new Set(['round', 'baseline', 'manuscript']);
 const libraryWrites = new Set(['/inspect', '/source', '/agent-models', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
 const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/authoring', '/delivery', '/agents', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain', '/agent-request', '/agent']);
 const reviewReads = new Set(['/editor', '/delivery', '/agents', '/agent-request']);
-const libraryReads = new Set(['/inspect', '/source', '/agent-models']);
+const libraryReads = new Set(['/inspect', '/source', '/agent-models', '/open']);
 
 function localURL(value) {
     if (typeof value !== 'string' || !/^http:\/\/(?:127\.0\.0\.1|localhost):[1-9]\d*\/$/.test(value)) {
@@ -39,8 +39,8 @@ function publicData(value) {
 /** The caller must establish workspace trust before starting this local service. */
 export function createRuntime({extensionPath, python = 'python3', home = '', output}) {
     let child, exited, starting, libraryURL, libraryToken, reviewToken, selected;
-    let stopped = false, stopping, queue = Promise.resolve(), selectionEpoch = 0;
-    const controller = new AbortController();
+    let stopped = false, stopping, queue = Promise.resolve(), selectionEpoch = 0, serviceGeneration = 0, openIntent = 0;
+    let controller = new AbortController();
     const log = text => output?.appendLine(text);
     const serialized = operation => {
         const result = queue.then(operation);
@@ -51,6 +51,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
 
     async function send(url, path, token, body, timeout = 30_000) {
         if (stopped) throw new Error('The manuscript service has stopped.');
+        const generation = serviceGeneration;
         const headers = {};
         if (body !== undefined) {
             if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('A request needs an object.');
@@ -70,6 +71,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         }
         const value = response.headers.get('content-type')?.startsWith('application/json')
             ? await response.json() : await response.text();
+        if (generation !== serviceGeneration) throw new Error('The manuscript service restarted. Refresh before continuing.');
         if (!response.ok) {
             const error = new Error(value.error || `The manuscript service refused this request (${response.status}).`);
             error.status = response.status;
@@ -79,23 +81,23 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         return value;
     }
 
-    async function stop() {
-        stopped = true;
-        controller.abort();
-        if (!child?.pid) return;
+    async function stopProcess(processChild, completion) {
+        if (!processChild?.pid) return;
         const signal = name => {
             try {
-                if (process.platform === 'win32') child.kill(name);
-                else process.kill(-child.pid, name);
+                if (process.platform === 'win32') processChild.kill(name);
+                else process.kill(-processChild.pid, name);
             } catch (error) {
                 if (error.code !== 'ESRCH') log(`Cannot stop the manuscript service: ${error.message}`);
             }
         };
         signal('SIGTERM');
-        await Promise.race([exited, delay(2000, undefined, {ref: false})]);
+        await Promise.race([completion, delay(2000, undefined, {ref: false})]);
         signal('SIGKILL');
-        await exited;
+        await completion;
     }
+
+    async function stop(){stopped=true;controller.abort();await stopProcess(child,exited);}
 
     function dispose() {
         stopping ??= stop();
@@ -104,6 +106,8 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
 
     async function launch() {
         if (stopped) throw new Error('The manuscript service has stopped.');
+        controller = new AbortController();
+        const generation = ++serviceGeneration;
         const args = ['-m', 'manuscript_review', '--no-browser'];
         if (home) args.push('--home', home);
         child = spawn(python, args, {
@@ -114,15 +118,18 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
             child.once('error', resolve);
             child.once('exit', resolve);
         });
+        const processChild=child,completion=exited;
         const stdout = createInterface({input: child.stdout});
         const stderr = createInterface({input: child.stderr});
         stderr.on('line', log);
         exited.then(() => {
             stdout.close();
             stderr.close();
-            if (!stopped) {
-                log('The manuscript service stopped.');
-                void dispose();
+            if (!stopped && generation === serviceGeneration) {
+                log('The manuscript service stopped. Open or Refresh to restart it.');
+                controller.abort();
+                starting = undefined;libraryURL = libraryToken = reviewToken = undefined;
+                void stopProcess(processChild,completion);
             }
         });
         try {
@@ -161,16 +168,24 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
             const info = await send(libraryURL, '/library-data');
             if (typeof info.token !== 'string' || !info.token) throw new Error('The manuscript service did not provide a library token.');
             libraryToken = info.token;
+            if(selected){
+                const result = await send(libraryURL, '/open', libraryToken, {id:selected.id});
+                const url = localURL(result.url);
+                const value = await send(url, '/summary');
+                selected = {...selected, url};
+                updateReview(value);
+                if(!reviewToken){const data=await send(url, '/data?scope=round');updateReview(data);}
+            }
             return {...publicData(info), url: libraryURL};
         } catch (error) {
-            await dispose();
+            if(generation===serviceGeneration){controller.abort();child.kill();await exited;starting=undefined;}
             throw error;
         }
     }
 
     function start() {
         if (stopped) return Promise.reject(new Error('The manuscript service has stopped.'));
-        starting ??= launch();
+        if(!starting){const task=launch();starting=task;void task.catch(()=>{if(starting===task)starting=undefined;});}
         return starting;
     }
 
@@ -194,21 +209,35 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         return publicData(value);
     }
 
-    async function open(id) {
+    async function open(id, {beforeSelect=async()=>{},canSelect=()=>true}={}) {
         if (!identifier.test(id)) throw new Error('Choose a saved review.');
+        const intent=++openIntent;
         await start();
-        return serialized(async () => {
-            const result = await send(libraryURL, '/open', libraryToken, {id});
-            const url = localURL(result.url);
-            const value = await send(url, '/data?scope=round');
-            if (value.id !== id || typeof value.repo !== 'string' || !Number.isInteger(value.revision)
-                    || typeof value.token !== 'string' || !value.token) {
-                throw new Error('The manuscript service returned an invalid review.');
-            }
-            selected = {id, url, repo: value.repo, revision: value.revision};
-            selectionEpoch++;
-            return updateReview(value);
+        const epoch=selectionEpoch;
+        const result=await library('/open',{id});
+        const url=localURL(result.url);
+        let value=await send(url,'/data?scope=round');
+        if(value.id!==id||typeof value.repo!=='string'||!Number.isInteger(value.revision)||typeof value.token!=='string'||!value.token)
+            throw new Error('The manuscript service returned an invalid review.');
+        // Preparing another checkout never transfers ownership of current input.
+        await serialized(async()=>{
+            value=await send(url,'/data?scope=round');
+            const checkout=await send(url,'/workspace',value.token,{revision:value.revision});
+            if(selected?.id===id)updateReview({...value,...checkout});
         });
+        while(true){
+            await beforeSelect();
+            value=await send(url,'/data?scope=round');
+            const committed=await serialized(()=>{
+                if(intent!==openIntent||epoch!==selectionEpoch)throw new Error('The manuscript review changed while opening this comparison.');
+                if(!canSelect()||selected?.id===id&&selected.revision>value.revision)return false;
+                selected={id,url,repo:value.repo,revision:value.revision};reviewToken=value.token;
+                selectionEpoch++;
+                updateReview(value);
+                return true;
+            });
+            if(committed)return publicData(value);
+        }
     }
 
     async function request(path, body, checkSource) {

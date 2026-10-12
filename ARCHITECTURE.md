@@ -38,7 +38,7 @@ source or create a source version. Earlier rounds retain their status at that po
 | `ReviewSession` and `ReviewStore` | Author decisions, discussion status, validated writes and record transactions |
 | `history.py` and `feedback.py` | Anchored messages, responses and exports of thread identity and status |
 | `review_model.js` | Shared thread grouping and source selection rules |
-| Native comments and focused review | Rendering, navigation, filters and author actions through the session API |
+| Native comments, source decisions and focused review | Rendering, navigation, filters and author actions through the session API |
 | `dispatch.py` | One comment's canonical task and detached CLI handoff for both interfaces |
 | VS Code dispatch adapter | Flush saved input, choose provider, dispatch through the shared service |
 | `merging.py` and proposal operations | Merge disjoint source changes into one current proposal against its fixed base |
@@ -83,6 +83,14 @@ replacing the native buffer or taking focus. Unsaved typing remains in VS Code. 
 use the same record transactions as the standalone app. The extension host keeps service
 tokens private, pins queued operations to their intended review, and passes requests
 through `host.js` to the shared focused-review client. Navigation stays in webview state.
+Every focused page owns a UUID, request waiters, readiness and its flush lock. Replies
+and commands cannot cross a reload. Review selection prepares the target checkout
+without transferring input ownership, drains native delivery and saved source, locks
+focused input, then commits synchronously when no Save or delivery remains pending.
+Retries release that lock before draining again. Unexpected service exit replaces only
+the child service on explicit retry, retaining selection and pending captures; an
+interrupted mutation is never replayed automatically.
+
 Apply checks unsaved repository buffers immediately before sending its queued transaction;
 the review engine retains its source, revision, and Git checks. Comparing saved source
 checks buffers both before flushing the focused panel and before creating the new round.
@@ -102,7 +110,12 @@ establish a new baseline. The focused view displays the actual pinned endpoints 
 its current comparison scope. Source drafts from the shared library can open as
 untitled editor copies or be explicitly discarded; opening a copy leaves its saved
 record and the working file intact. New editor drafts use VS Code's own buffer and
-recovery behavior. Native author saves update the current proposal; external revision
+recovery behavior. Native saves in Review mode refine the proposal against its fixed base; ordinary
+drafting in authoring updates the author base. `source-edits.mjs` pins this intent
+on the first dirty change and captures the exact saved text. `native-review.mjs`
+owns current-edit CodeLens controls and selection, while `delivery.mjs` owns every
+native WorkspaceEdit, provenance stage, Save and Undo boundary. Explicit decisions
+use that same delivery path; external revision
 passes use the shared proposal operations to accumulate changes; separate rounds remain explicit.
 
 `source-documents.mjs` opens native files for both comment navigation and focused
@@ -142,7 +155,8 @@ This preserves rejected changes elsewhere. New groups remain undecided, the revi
 ID stays the same, and earlier source versions are archived. Explicit version reviews
 keep their base; source authoring carries saved author wording into its comparison base. Overlaps
 and unsupported binary changes are refused before committing the record; the proposal
-checkout remains available for reconciliation. Publishing never writes author source;
+checkout remains available for reconciliation. Publication identity pins the starting commit and captured tree; repeating an
+incorporated proposal preserves later author decisions. Publishing never writes author source;
 native authoring delivery and explicit Apply own those writes. The existing explicit begin/finish workflow creates a
 separate round when requested.
 
@@ -247,10 +261,10 @@ Run `python3 -m unittest discover -s tests -v` from this directory. Tests cover 
 
 ## Source authoring
 
-Sending a native source comment, or selecting **Agent changes**,
+Sending a native source comment with Review mode off, or selecting **Agent changes**,
 uses the existing review for one author-versus-agent comparison. `authoring.py` moves
-the comparison base to captured author wording and carries subsequent manual saves
-into that base. The original baseline and archived records retain earlier comparisons,
+the comparison base to captured author wording and carries ordinary drafting saves
+into that base. Review-mode refinements keep the base fixed. The original baseline and archived records retain earlier comparisons,
 choices and discussion. Proposals still merge through the same session operations.
 The dispatch boundary uses the comment's source URI to distinguish native source
 comments from focused review discussions; tab visibility only pauses source delivery.
@@ -259,7 +273,9 @@ choices made during the handoff stay staged.
 
 `delivery.mjs` requests exact replacements from the session, checks every participating
 native buffer is saved and unchanged, then uses a native WorkspaceEdit and Save. It
-never overwrites a dirty buffer or runs while focused review is visible. Delivery stages all source checkpoints before exposing edits and gates native
+never overwrites a dirty buffer. Automatic delivery pauses while focused review is
+visible and resumes when it closes; explicit source decisions and Open review use
+the same checked delivery operation. Delivery stages all source checkpoints before exposing edits and gates native
 capture until the workspace edit succeeds or rolls back. Source capture
 receives the delivered source checkpoint, distinguishing agent delivery from subsequent
 author edits; VS Code workspace storage retains that checkpoint until capture succeeds.

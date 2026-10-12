@@ -68,6 +68,45 @@ class LibraryTests(ReviewFixture):
         self.assertEqual(library.jobs['stale']['status'], 'error')
         self.assertIn('earlier review changed', library.jobs['stale']['error'])
 
+    def test_followup_publication_holds_the_parent_revision_until_the_child_is_saved(self):
+        from manuscript_review import library as module
+        library = Library(self.root / 'library')
+        library.prepare({'repo': str(self.repo), 'base': self.base, 'proposed': 'working'}, 'one')
+        identifier = library.jobs['one']['review']
+        parent = ReviewSession(library.directory(identifier))
+        saved = parent.store.read()
+        edit = saved['snapshot']['files'][0]['edits'][0]['id']
+        (self.repo / 'main.tex').write_text((self.repo / 'main.tex').read_text() + 'A follow-up sentence.\n')
+        started, done = threading.Event(), threading.Event()
+        failures = []
+        def write():
+            started.set()
+            try:
+                parent.update('save', {'revision': saved['revision'], 'decisions': saved['decisions'],
+                                       'comments': {edit: 'Written after publication.'}})
+            except Exception as error:
+                failures.append(error)
+            finally:
+                done.set()
+        writer = threading.Thread(target=write)
+        original = module.new_record
+        def construct(*args, **kwargs):
+            writer.start()
+            self.assertTrue(started.wait(2))
+            self.assertFalse(done.wait(.1), 'Parent writing crossed the child publication boundary.')
+            return original(*args, **kwargs)
+        with patch('manuscript_review.library.new_record', side_effect=construct):
+            library.prepare({'repo': str(self.repo), 'previous': identifier, 'expected_revision': saved['revision'],
+                             'proposed': 'working', 'require_changes': True}, 'two')
+        writer.join(3)
+        self.assertFalse(writer.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(library.jobs['two']['status'], 'ready')
+        self.assertEqual(parent.store.read()['comments'][edit], 'Written after publication.')
+        child = ReviewStore(library.directory(library.jobs['two']['review'])).read()
+        self.assertEqual(child['metadata']['previous_revision'], saved['revision'])
+        self.assertFalse(any(entry['comment'] == 'Written after publication.' for entry in child['history']))
+
     def test_git_comparison_retains_the_readable_proposal_label_and_pinned_version(self):
         library = Library(self.root / 'library')
         proposed = git(self.repo, 'rev-parse', 'HEAD').decode().strip()

@@ -38,6 +38,7 @@ export function comparisonState(vscode,info,entry){
 }
 
 export function reviewComparison(state,data){
+ state??={info:{repo:data.repo,workspace:data.workspace,entries:data.entry?[data.entry]:[]},choices:[]};
  const labels=comparisonContext(data);
  const checkpoint=state.choices.find(item=>item.revision===data.base&&item.review);
  const base={...checkpoint,revision:data.base,label:labels.from};

@@ -6,6 +6,7 @@ import {createSourceEdits} from './source-edits.mjs';
 import {createDelivery} from './delivery.mjs';
 import {createSourceDocuments,sourceScheme,snapshotVersion} from './source-documents.mjs';
 import {createPanel} from './panel.mjs';
+import {createNativeReview} from './native-review.mjs';
 import {createDecorations} from './decorations.mjs';
 import {createAgentTools} from './agent.mjs';
 import {resolvePython} from './python.mjs';
@@ -21,10 +22,14 @@ export function activate(context){
  const decorations=createDecorations(vscode);
  let runtime,panel,sourceEdits,delivery,watcher,timer,opening,navigation,agentTools,viewer,starting,disposing,comparison,disposed=false,sending=false;
  let comparisonEpoch=0,inspection;
- function setComparison(value){comparison=value;comparisonEpoch++;if(value?.pending)decorations.clear();}
+ function setComparison(value){comparison=value;comparisonEpoch++;if(value?.pending){decorations.clear();nativeReview.clear();}}
  const commentsEnabled=()=>context.globalState.get('commentsEnabled',true);
- const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',true);
+ const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',false);
+ const removalsEnabled=()=>context.workspaceState.get('removalsEnabled',true);
+ decorations.setRemovals(removalsEnabled());
  decorations.setEnabled(highlightsEnabled());
+ const nativeReview=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>highlightsEnabled()&&!comparison?.pending,
+  onChange:async()=>{panel?.changed();await refreshSource();},onFocus:(file,edit)=>panel?.select({file,target:{id:edit}}),onError:error=>void fail(error)});
  const canComment=document=>commentsEnabled()&&vscode.workspace.isTrusted&&sourceDocument(document);
  const selectedAgent=()=>{const agent=agents.find(agent=>agent.id===context.globalState.get('commentAgent'))||agents[0];return {...agent,model:context.globalState.get('commentModels',{})[agent.id]};};
  async function chooseAgent(){
@@ -70,11 +75,11 @@ export function activate(context){
   await delivery.refresh();await refreshSource();
  }
  const sources=createSourceDocuments(vscode,async()=>{await start();return runtime;});
- const subscriptions=[output,sources];
+ const subscriptions=[output,sources,nativeReview];
  const comments=createComments(vscode,()=>runtime,{onSource:ensureCommentSource,canComment,
   openDocument:sources.open,
-  onChange:async()=>{panel?.changed();await sidebar.refresh();},onReview:entry=>panel.show(entry),
-  onProjection:(projection,data)=>{if(!comparison?.pending)decorations.update(projection,data);},onAgent:sendToAgent});
+  onChange:async()=>{panel?.changed();await sidebar.refresh();},onReview:entry=>showReview(entry),
+  onProjection:(projection,data)=>{if(!comparison?.pending){decorations.update(projection,data);nativeReview.update(projection,data);}},onAgent:sendToAgent});
  comments.setAgent(selectedAgent().label);comments.setEnabled(commentsEnabled());
  const sidebar=createSidebar(vscode,context,{load:loadSidebar,onAction:sidebarAction,onError:error=>output.appendLine(error.stack||error.message)});
  subscriptions.push(sidebar);
@@ -95,7 +100,7 @@ export function activate(context){
  async function start(){
   if(disposed)throw new Error('Manuscript Review has closed.');
   if(!vscode.workspace.isTrusted)throw new Error('Trust this workspace before opening its manuscript review.');
-  if(runtime)return;
+  if(runtime){await runtime.start();return;}
   if(starting)return starting;
   starting=(async()=>{
    const config=vscode.workspace.getConfiguration('manuscriptReview');
@@ -107,8 +112,8 @@ export function activate(context){
    viewer=createViewer(path.join(context.extensionPath,'dist','viewer'));
    const actions={rounds:()=>chooseReview(runtime.review.repo),library:reviewLibrary,reviewSavedChanges,compare:()=>compareVersions(runtime.review.workspace||runtime.review.repo),setup,sourceDrafts,chooseAgent,editingFolder};
    panel=createPanel(vscode,context,runtime,{viewer,onSource:openSource,onFocus:(file,edit)=>decorations.focus(file,edit),onAgent:sendToAgent,onChange:refreshComments,onApply:applyReview,agentLauncher:agentTools.launcher,
-    agentLabel:()=>selectedAgent().label,onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
-   sourceEdits=createSourceEdits(runtime,{state:context.workspaceState,flushPanel:options=>panel.flush(options),unlockPanel:id=>panel.unlock(id),refreshPanel:()=>panel.changed(),refreshComments:refreshSource});
+    agentLabel:()=>selectedAgent().label,onHidden:()=>{if(!opening&&!disposed)void delivery?.refresh().catch(fail);},onCommand:name=>{if(!Object.hasOwn(actions,name))throw new Error('Unknown review command.');return actions[name]();}});
+   sourceEdits=createSourceEdits(runtime,{state:context.workspaceState,reviewing:highlightsEnabled,flushPanel:options=>panel.flush(options),unlockPanel:id=>panel.unlock(id),refreshPanel:()=>panel.changed(),refreshComments:refreshSource});
    delivery=createDelivery(vscode,runtime,{sourceEdits,openDocument:sources.open,reviewing:()=>panel.visible,
     onConflict:()=>showAgentHighlights('Saved your wording; overlapping agent changes await review.'),
     onDelivered:()=>showAgentHighlights('Agent changes joined your saved draft.')});
@@ -153,9 +158,15 @@ export function activate(context){
   return vscode.window.showQuickPick(info.entries,{title:'Choose the LaTeX document to render'});
  }
  async function selectRound(id,setup){
-  panel.dispose();decorations.clear();const review=await runtime.open(id);const checkout=await runtime.request('/workspace',{});Object.assign(review,checkout);setComparison(setup);watchRecord();await refreshSource();
-  await vscode.commands.executeCommand('setContext','manuscriptReview.active',true);updateSourceContext();
-  return review;
+  let lock;
+  try{
+   const review=await runtime.open(id,{beforeSelect:async()=>{panel.unlock(lock);lock=undefined;await delivery.flush();await sourceEdits.flush();lock=await panel.flush({lock:true});},canSelect:()=>!sourceEdits.pending&&!delivery.pending});
+   panel.dispose();decorations.clear();nativeReview.clear();setComparison(setup);watchRecord();
+   if(!review.files.some(file=>file.edits.length)){await context.workspaceState.update('highlightsEnabled',false);decorations.setEnabled(false);nativeReview.refresh();}
+   await refreshSource();
+   await vscode.commands.executeCommand('setContext','manuscriptReview.active',true);updateSourceContext();
+   return review;
+  }finally{panel.unlock(lock);}
  }
  async function restoreSourceReview(document){
   if(!vscode.workspace.isTrusted||!sourceDocument(document)||sourceFile(runtime?.review,document))return;
@@ -196,16 +207,25 @@ export function activate(context){
    id=(await prepareReview('/manuscript',{repo:info.repo,entry},'Opening manuscript')).review;
   }
   const review=await selectRound(id);
-  if(review.files.some(file=>file.edits.length))await panel.show();
+  if(review.files.some(file=>file.edits.length))await showReview();
   return review;
  }
  async function ensureReview(){
   if(opening)await opening;
-  if(runtime?.review)return true;
+  if(runtime?.review){await start();return true;}
   await chooseReview();
   return Boolean(runtime?.review);
  }
- async function focusReview(){if(await ensureReview())await panel.show();}
+ async function showReview(entry){
+  await context.workspaceState.update('highlightsEnabled',true);decorations.setEnabled(true);
+  const source=vscode.window.activeTextEditor?.document;
+  if(!sourceFile(runtime.review,source)&&runtime.review.workspace){
+   const data=await runtime.request('/summary');
+   if(data.entry)await openSource({file:data.entry});
+  }
+  await delivery.refresh({force:true});await refreshSource();await panel.show(entry||nativeReview.selection());
+ }
+ async function focusReview(){if(await ensureReview())await showReview();}
  async function sendToAgent(identifier,saveComment,sourceUri){
   if(sending)throw new Error('The previous comment is still being sent.');
   sending=true;
@@ -233,7 +253,7 @@ export function activate(context){
   await prepareTools();
   if(runtime.review.id!==reviewId)throw new Error('The review changed. Send the comment from its original round.');
   const result=await runtime.request('/agent',{revision:runtime.review.revision,id:identifier,
-   authoring:Boolean(sourceUri),entry:sourceFile(runtime.review,sourceUri?{uri:sourceUri}:vscode.window.activeTextEditor?.document),
+   authoring:Boolean(sourceUri)&&!highlightsEnabled(),entry:sourceFile(runtime.review,sourceUri?{uri:sourceUri}:vscode.window.activeTextEditor?.document),
    launcher:agentTools.launcher,skill:agentTools.skill,agent:agent.id,...(agent.model?{model:agent.model}:{})});
   if(sourceUri){if(epoch===comparisonEpoch)setComparison(undefined);refreshComments();}
   panel.changed();
@@ -288,7 +308,7 @@ export function activate(context){
   await panel.flush();
   requireSavedSource();
   const result=await prepareReview('/update',{id:runtime.review.id,expected_revision:runtime.review.revision,require_changes:true},'Comparing saved changes');
-  await selectRound(result.review);await panel.show();
+  await selectRound(result.review);await showReview();
  }
  async function inspectComparison(repo){
   await start();
@@ -306,6 +326,7 @@ export function activate(context){
  async function currentComparison(){
   if(comparison)return comparison;
   const epoch=comparisonEpoch;
+  if(runtime?.review){const id=runtime.review.id,data=await runtime.request('/summary');if(epoch!==comparisonEpoch||runtime.review?.id!==id)return currentComparison();return comparison=reviewComparison(undefined,data);}
   if(inspection?.epoch!==epoch)inspection={epoch,promise:inspectComparison(runtime?.review?.workspace||runtime?.review?.repo)};
   const pending=inspection;
   let next;
@@ -317,11 +338,13 @@ export function activate(context){
  async function loadSidebar(){
   if(!vscode.workspace.isTrusted)return sidebarState(undefined,undefined,commentsEnabled(),selectedAgent().label,highlightsEnabled());
   try{
-   await currentComparison();const epoch=comparisonEpoch;
-   const data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.request('/summary'):undefined;
+   const epoch=comparisonEpoch;
+   let data;
+   if(!comparison&&runtime?.review){data=await runtime.request('/summary');comparison=reviewComparison(undefined,data);}
+   else{await currentComparison();data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.request('/summary'):undefined;}
    if(epoch!==comparisonEpoch)return loadSidebar();
    if(data&&!comparison.pending)comparison=reviewComparison(comparison,data);
-   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default');
+   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default',removalsEnabled());
   }catch(error){if(!opening)await discardUnopenedRuntime();throw error;}
  }
  function checkSidebar(expected){
@@ -333,9 +356,10 @@ export function activate(context){
    if(expected?.review&&expected.review!==runtime?.review?.id)throw new Error('The review changed. Use the current sidebar controls.');
  }
  async function sidebarAction(action,expected){
-  if(!['comments','agent','model','sessions','agentChanges','repository','highlights'].includes(action))checkSidebar(expected);
+  if(!['comments','agent','model','sessions','agentChanges','repository','highlights','removals'].includes(action))checkSidebar(expected);
   const actions={
-   highlights:async()=>{const enabled=!highlightsEnabled();await context.workspaceState.update('highlightsEnabled',enabled);decorations.setEnabled(enabled);if(enabled)await comments.refresh();},
+   removals:async()=>{const value=!removalsEnabled();await context.workspaceState.update('removalsEnabled',value);decorations.setRemovals(value);},
+   highlights:async()=>{const enabled=!highlightsEnabled();await context.workspaceState.update('highlightsEnabled',enabled);decorations.setEnabled(enabled);nativeReview.refresh();if(enabled){await delivery?.refresh({force:true});await comments.refresh();}},
    comments:async()=>{const enabled=!commentsEnabled();await context.globalState.update('commentsEnabled',enabled);comments.setEnabled(enabled);updateSourceContext();if(enabled)await restoreSourceReview(vscode.window.activeTextEditor?.document);},
    agent:chooseAgent,model:chooseModel,sessions:openAgentSession,agentChanges:showAgentChanges,previous:()=>comments.move(-1),next:()=>comments.move(1),
    repository:async()=>{await start();const info=await chooseComparisonRepository();if(info)setComparison({...comparisonState(vscode,info),pending:true});},
@@ -364,11 +388,11 @@ export function activate(context){
   const current=comparison,epoch=comparisonEpoch;
   const check=()=>{checkSidebar(expected);if(epoch!==comparisonEpoch)throw new Error('The comparison changed. Use the current sidebar controls.');};
   const data=runtime?.review?await runtime.data('round'):undefined;
-  check();if(comparisonMatches(current,data)){await panel.show();return;}
+  check();if(comparisonMatches(current,data)){await showReview();return;}
   await prepareTools();await panel.flush();
   check();if([current.base.revision,current.proposed.revision].includes('working'))requireRepositorySaved(current.info.workspace||current.info.repo);
   const job=await prepareReview('/prepare',comparisonRequest(current),'Preparing comparison');
-  check();await selectRound(job.review);await panel.show();
+  check();await selectRound(job.review);await showReview();
  }
  async function chooseComparisonRepository(){
   const folders=vscode.workspace.workspaceFolders||[];
@@ -397,7 +421,7 @@ export function activate(context){
  function importReview(){return navigateReview(async()=>{
   await start();await prepareTools();await panel.flush();
   const files=await vscode.window.showOpenDialog({canSelectFolders:false,canSelectFiles:true,canSelectMany:false,openLabel:'Import review',filters:{'Review record':['json']}});if(!files)return;
-  const result=await runtime.library('/import',{source:files[0].fsPath});await selectRound(result.review);await panel.show();
+  const result=await runtime.library('/import',{source:files[0].fsPath});await selectRound(result.review);await showReview();
  });}
  async function setup(){
   await start();const info=await agentTools.setup({refresh:true});
@@ -445,10 +469,10 @@ export function activate(context){
  command('toggleHighlights',async()=>{await sidebarAction('highlights');await sidebar.refresh();});
  command('previousComment',()=>comments.move(-1));
  command('nextComment',()=>comments.move(1));
- subscriptions.push(vscode.window.registerUriHandler({handleUri:uri=>{const id=uri.path.match(/^\/review\/([a-f0-9]{24})$/)?.[1];if(!id)return;return navigateReview(async()=>{await start();await prepareTools();await panel.flush();await selectRound(id);await panel.show();}).catch(fail);}}));
+ subscriptions.push(vscode.window.registerUriHandler({handleUri:uri=>{const id=uri.path.match(/^\/review\/([a-f0-9]{24})$/)?.[1];if(!id)return;return navigateReview(async()=>{await start();await prepareTools();await panel.flush();await selectRound(id);await showReview();}).catch(fail);}}));
  command('livePDF',async()=>{if(!vscode.window.activeTextEditor)throw new Error('Select a location in the LaTeX source first.');const extension=vscode.extensions.getExtension('James-Yu.latex-workshop');if(!extension)throw new Error('Install LaTeX Workshop to use source-to-PDF navigation.');await extension.activate();await vscode.commands.executeCommand('latex-workshop.synctex');});
  subscriptions.push(vscode.workspace.onDidSaveTextDocument(document=>sourceEdits?.save(document).then(()=>delivery?.refresh()).catch(fail)));
- subscriptions.push(vscode.workspace.onDidChangeTextDocument(event=>{if(runtime?.review&&event.document.uri.scheme==='file')refreshComments({sourceOnly:true});}));
+ subscriptions.push(vscode.workspace.onDidChangeTextDocument(event=>{sourceEdits?.change(event.document);if(runtime?.review&&event.document.uri.scheme==='file')refreshComments({sourceOnly:true});}));
  subscriptions.push(vscode.window.onDidChangeVisibleTextEditors(()=>{if(runtime?.review)refreshComments();}));
  subscriptions.push(vscode.window.onDidChangeActiveTextEditor(editor=>{if(!comparison&&!runtime?.review)comparisonEpoch++;updateSourceContext();if(sourceFile(runtime?.review,editor?.document))decorations.reveal();void restoreSourceReview(editor?.document).catch(error=>output.appendLine(error.message));}));
  subscriptions.push(vscode.window.onDidChangeTextEditorSelection(event=>{if(sourceFile(runtime?.review,event.textEditor.document))decorations.reveal();}));

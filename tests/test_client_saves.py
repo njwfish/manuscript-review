@@ -170,14 +170,14 @@ const flush=app.slice(app.indexOf('window.flushReview='),app.indexOf("$('library
 const listener=app.slice(app.indexOf("if(embedded)window.addEventListener('message'"),app.lastIndexOf('ready();'));
 for(const fail of [false,true,'superseded']){
  let receive,release;const gate=new Promise(resolve=>{release=resolve;}),controls={inert:false},events=[],elements=new Map();
- const context={acquireVsCodeApi:()=>({}),hostMessage:event=>hostMessage(event,'vscode-webview://review'),setTimeout,clearTimeout,
+ const context={acquireVsCodeApi:()=>({}),hostMessage:event=>hostMessage(event,'vscode-webview://review','page'),setTimeout,clearTimeout,
   reviewProgress:()=>({total:0,complete:true}),CustomEvent:class{constructor(type,{detail}){Object.assign(this,{type,detail});}},
   window:{addEventListener:(_name,handler)=>{receive=handler;},dispatchEvent:event=>events.push(event)},
   document:{querySelectorAll:()=>[controls],body:{classList:{contains:()=>false,toggle(){}}},getElementById:id=>{
    if(!elements.has(id))elements.set(id,{className:'',textContent:'',querySelector:()=>null});return elements.get(id);}},
   request:async path=>{if(path==='/save')await gate;return {ok:!fail||path!=='/save',json:async()=>fail?{error:'Disk error'}:{revision:1}};}};
  vm.createContext(context);vm.runInContext(beginning+flush+listener+`data={revision:0,token:'test',scope:'round',files:[],history:[]};`,context);
- const message=data=>({origin:'vscode-webview://review',source:{parent:true},data});
+ const message=data=>({origin:'vscode-webview://review',source:{parent:true},data:{...data,instance:'page'}});
  const pending=receive(message({type:'review-command',action:'flush',lock:true,id:'save'}));
  assert.equal(controls.inert,true);assert.equal(vm.runInContext('Boolean(editing&&reviewLock)',context),true);
  if(fail==='superseded'){await receive(message({type:'review-command',action:'unlock',id:'save'}));vm.runInContext("reviewLock='new';setBusy(true);",context);}
@@ -267,14 +267,14 @@ const revision=app.slice(app.indexOf('async function showRevision'),app.indexOf(
 const listener=app.slice(app.indexOf("if(embedded)window.addEventListener('message'"),app.lastIndexOf('ready();'));
 for(const failed of [false,true]){
  let receive;const calls=[];
- const context={refreshExternal:async()=>false,embedded:true,hostMessage:event=>hostMessage(event,'vscode-webview://review'),window:{addEventListener(name,handler){receive=handler;}},calls,
+ const context={refreshExternal:async()=>false,embedded:true,hostMessage:event=>hostMessage(event,'vscode-webview://review','page'),window:{addEventListener(name,handler){receive=handler;}},calls,
   saveNotes:()=>calls.push('notes'),saveDrafts:()=>calls.push('drafts'),save:()=>calls.push('decisions'),
   switchScope:async(scope,file)=>{calls.push(['scope',scope,file]);vm.runInContext("data.scope='round';locations=[[0,0,0]]",context);},
   render:()=>calls.push('render'),openComment:passage=>calls.push(['comment',passage]),status:(text,error)=>calls.push(['status',text,error])};
  vm.createContext(context);vm.runInContext(`let data={scope:'baseline',files:[{path:'main.tex',hunks:[{id:'passage',edits:[{id:'edit'}]}]}]},
   saving=Promise.resolve(),saveFailed=${failed},draftChanges=new Map(),noteChanges=new Map(),fileEditor=null,
   locations=[],active=0,passage=0,edit=0,commentId;`+revision+listener,context);
- await receive({origin:'vscode-webview://review',source:{parent:true},data:{type:'review-select',file:'main.tex',target:'passage',kind:'passage',note:'discussion'}});
+ await receive({origin:'vscode-webview://review',source:{parent:true},data:{instance:'page',type:'review-select',file:'main.tex',target:'passage',kind:'passage',note:'discussion'}});
  assert.deepEqual(calls.slice(0,3),['notes','drafts','decisions']);
  if(failed){assert.equal(vm.runInContext('data.scope',context),'baseline');assert.match(calls.at(-1)[1],/save error/);}
  else{assert.deepEqual(calls[3],['scope','round','main.tex']);assert.equal(vm.runInContext('commentId',context),'discussion');assert.deepEqual(calls.at(-1),['comment',true]);}
@@ -450,11 +450,11 @@ assert.equal(requests.filter(([path])=>path==='/draft').at(-1)[1].draft.text,'Un
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8');
 const source=app.slice(app.indexOf('function loadSelectedFile'),app.indexOf('function focusSelection'));
-for(const change of ['none','file','round','version','typing','preview']){
+for(const change of ['none','file','round','version','typing','preview','native']){
  const original={path:'large.json',loaded:false,hunks:[{id:'passage',rendered:{}}]},other={path:'other.tex'},calls=[];
  let release;const gate=new Promise(resolve=>release=resolve);
  const context={data:{id:'review',scope:'round',base:'a',proposed:'b',files:[original,other],decisions:{edit:'reject'}},active:0,
-  document:{activeElement:{matches:()=>change==='typing',closest:()=>null}},currentFile:()=>context.data.files[context.active],render:()=>calls.push('render'),focusSelection:()=>calls.push('focus'),
+  document:{hasFocus:()=>change!=='native',activeElement:{matches:()=>change==='typing',closest:()=>null}},currentFile:()=>context.data.files[context.active],render:()=>calls.push('render'),focusSelection:()=>calls.push('focus'),
   request:async path=>{assert.equal(path,'/data?scope=round&file=large.json');await gate;return {ok:true,json:async()=>({id:'review',base:'a',proposed:'b',files:[{path:'large.json',after:'Exact source.',hunks:[{id:'passage',rendered:{}}]}]})};},
   $:()=>({replaceChildren:()=>calls.push('error')}),node(){},button(){}};
  vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('loadSelectedFile()',context);
@@ -464,8 +464,8 @@ for(const change of ['none','file','round','version','typing','preview']){
  if(change==='preview')original.hunks[0].rendered={after:{asset:'ready.svg'}};
  release();await pending;
  assert.equal(context.data.decisions.edit,'reject');assert.equal(Boolean(original.loading),false);
- if(['none','preview'].includes(change))assert.deepEqual(calls,['render','focus']);else assert.deepEqual(calls,change==='typing'?['render']:[]);
- if(['none','file','typing','preview'].includes(change))assert.equal(context.data.files[0].after,'Exact source.');else assert.equal(context.data.files[0],original);
+ if(['none','preview'].includes(change))assert.deepEqual(calls,['render','focus']);else assert.deepEqual(calls,['typing','native'].includes(change)?['render']:[]);
+ if(['none','file','typing','preview','native'].includes(change))assert.equal(context.data.files[0].after,'Exact source.');else assert.equal(context.data.files[0],original);
  if(change==='preview')assert.equal(context.data.files[0].hunks[0].rendered.after.asset,'ready.svg');
 }
 """

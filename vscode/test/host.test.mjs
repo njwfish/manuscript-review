@@ -6,7 +6,7 @@ let moduleNumber = 0;
 
 async function host(t, embedded = false) {
     const messages = [], listeners = new Map(), keys=[];
-    const body=new EventTarget();body.matches=()=>false;
+    const body=new EventTarget();body.matches=()=>false;body.dataset={reviewInstance:'page'};
     body.addEventListener('keydown',event=>{assert.equal(event.target.matches('textarea,input,select'),false);keys.push(event);});
     let state;
     const api = {
@@ -36,51 +36,51 @@ async function host(t, embedded = false) {
     const emit = (name, event) => Promise.all((listeners.get(name)||[]).map(listener => listener(event)));
     return {module, messages, api, emit, keys, body, state: () => state,
         reply: (message, data, ok = true) => emit('message', {
-            origin:'https://host.invalid',source:{parentFrame:true},data: {type: 'review-response', id: message.id, ok, ...(ok ? {data} : {error: data})},
+            origin:'https://host.invalid',source:{parentFrame:true},data: {type: 'review-response', instance:'page', id: message.id, ok, ...(ok ? {data} : {error: data})},
         })};
 }
 
 test('bridge pairs out-of-order responses and ignores unrelated and duplicate messages', async () => {
     const messages = []; let receive;
-    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid');
+    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid','page');
     const first = call('request', {path: '/data?scope=round'});
     const second = call('asset', {path: '/assets/page.svg'});
     assert.notEqual(messages[0].id, messages[1].id);
     assert.equal(messages[0].action, 'request'); assert.equal(messages[1].action, 'asset');
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: 'unknown', ok: true, data: 'Ignored'}});
-    receive({origin:'https://host.invalid',data: {type: 'review-changed', id: messages[0].id, ok: true, data: 'Ignored'}});
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: true, data: '<svg/>'}});
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: false, error: 'Duplicate'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: 'unknown', ok: true, data: 'Ignored'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-changed', instance:'page', id: messages[0].id, ok: true, data: 'Ignored'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[1].id, ok: true, data: '<svg/>'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[1].id, ok: false, error: 'Duplicate'}});
     assert.equal(await second, '<svg/>');
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[0].id, ok: true, data: {revision: 4}}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[0].id, ok: true, data: {revision: 4}}});
     assert.deepEqual(await first, {revision: 4});
 });
 
 test('bridge reports host errors without affecting another pending request', async () => {
     const messages = []; let receive;
-    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid');
+    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid','page');
     const failed = call('source', {file: 'missing.tex'});
     const failedCheck = assert.rejects(failed, /Missing source file/);
     const healthy = call('copy', {text: 'Exact 🧬 text'});
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[0].id, ok: false, error: 'Missing source file'}});
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: true}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[0].id, ok: false, error: 'Missing source file'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[1].id, ok: true}});
     await failedCheck; assert.equal(await healthy, undefined);
     const unspecified = call('request');
     const unspecifiedCheck = assert.rejects(unspecified, /could not complete this action/);
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[2].id, ok: false}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[2].id, ok: false}});
     await unspecifiedCheck;
 });
 
 test('bridge times out an unanswered request and accepts subsequent replies', async t => {
     t.mock.timers.enable({apis: ['setTimeout']});
     const messages = []; let receive;
-    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid');
+    const call = createBridge({postMessage: message => messages.push(message)}, listener => { receive = listener; }, 'https://host.invalid','page');
     const missing = call('request', {path: '/data'});
     const check = assert.rejects(missing, /did not respond/);
     t.mock.timers.tick(30_000); await check;
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[0].id, ok: true, data: 'Too late'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[0].id, ok: true, data: 'Too late'}});
     const next = call('request', {path: '/data'});
-    receive({origin:'https://host.invalid',data: {type: 'review-response', id: messages[1].id, ok: true, data: 'Current'}});
+    receive({origin:'https://host.invalid',data: {type: 'review-response', instance:'page', id: messages[1].id, ok: true, data: 'Current'}});
     assert.equal(await next, 'Current');
     t.mock.timers.tick(30_000);
 });
@@ -143,11 +143,11 @@ test('webview source, clipboard, export, and flush messages use the existing bri
     ]) {
         const pending = operation();
         const message = h.messages.at(-1);
-        assert.deepEqual(message, {type: 'review-request', id: message.id, action, ...values});
+        assert.deepEqual(message, {type: 'review-request', instance:'page', id: message.id, action, ...values});
         h.reply(message, 'Complete'); assert.equal(await pending, 'Complete');
     }
     h.emit('review-flushed', {detail: {id: 'flush-1', ok: false, error: 'Unsaved comment'}});
-    assert.deepEqual(h.messages.at(-1), {type: 'review-flushed', id: 'flush-1', ok: false, error: 'Unsaved comment'});
+    assert.deepEqual(h.messages.at(-1), {type: 'review-flushed', instance:'page', id: 'flush-1', ok: false, error: 'Unsaved comment'});
 });
 
 test('standalone transport, saved navigation, and image URLs stay unchanged', async t => {
@@ -170,9 +170,9 @@ test('PDF frames receive immutable bytes only after their own authenticated read
     const marks = [{page: 2, bounds: [0.1, 0.2, 0.3, 0.4]}, {page: 3, bounds: null}];
     const setup = h.module.pdfFrame(frame, {path: '/assets/source.pdf', marks, color: 'added'});
     h.reply(h.messages.at(-1), 'http://127.0.0.1:23456/viewer.html'); await setup;
-    assert.equal(new URL(frame.src).searchParams.get('parentOrigin'),'https://host.invalid');
+    assert.equal(new URL(frame.src).searchParams.get('parentOrigin'),'https://host.invalid','page');
     const forged=h.module.copyText('Keep this pending');
-    await h.emit('message',{origin:'http://127.0.0.1:23456',source:frame.contentWindow,data:{type:'review-response',id:h.messages.at(-1).id,ok:true,data:'Forged'}});
+    await h.emit('message',{origin:'http://127.0.0.1:23456',source:frame.contentWindow,data:{type:'review-response',instance:'page',id:h.messages.at(-1).id,ok:true,data:'Forged'}});
     h.reply(h.messages.at(-1),'Trusted');assert.equal(await forged,'Trusted');
     const count = h.messages.length;
     await h.emit('message', {data: {type: 'review-pdf-ready'}, source: {}, origin: 'http://127.0.0.1:23456'});

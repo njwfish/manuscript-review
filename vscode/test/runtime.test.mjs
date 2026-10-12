@@ -57,6 +57,8 @@ class Handler(BaseHTTPRequestHandler):
                 job['pending'] -= 1
                 return self.reply({'status': 'preparing'})
             return self.reply(job['result'])
+        if self.path == '/summary':
+            return self.reply({'id': opened, 'revision': revision})
         if self.path.startswith('/data'):
             return self.reply({'id': opened, 'token': 'review-secret', 'repo': str(home), 'revision': revision})
         if self.path.startswith('/editor'):
@@ -91,6 +93,8 @@ class Handler(BaseHTTPRequestHandler):
             result = {'status': 'error', 'error': 'Cannot prepare this manuscript.'} if body.get('repo') == 'fail' else {'status': 'ready', 'review': '${reviewId}'}
             jobs[name] = {'pending': 100000 if body.get('repo') == 'wait' else 1, 'result': result}
             return self.reply({'job': name})
+        if self.path == '/workspace':
+            return self.reply({'revision': revision})
         if self.path == '/editor':
             return self.reply({'revision': revision, 'source': 'b' * 40, 'text': body['text']})
         if body.get('revision') != revision:
@@ -180,11 +184,11 @@ test('queued operations cannot write an earlier review into a newly opened one',
     const opening = runtime.open(nextId);
     await began;
     const oldWrite = runtime.request('/save', {revision: 3, comments: {old: 'Keep this in its own round.'}});
-    const refused = assert.rejects(oldWrite, /review changed/);
-    release(); await opening; await refused;
+    const saved = oldWrite;
+    release(); await opening; assert.equal((await saved).revision,4);
     assert.equal(runtime.review.id, nextId);
-    assert.equal((await runtime.data()).revision, 3);
-    assert.equal((await runtime.request('/note', {comment: 'New round note.'})).revision, 4);
+    assert.equal((await runtime.data()).revision, 4);
+    assert.equal((await runtime.request('/note', {comment: 'New round note.'})).revision, 5);
 });
 
 test('a stalled source read does not block a save or regress the current revision',async t=>{
@@ -270,7 +274,7 @@ test('a missing Python executable reports the setup failure', async t => {
     const runtime = createRuntime({extensionPath: directory, python: join(directory, 'missing-python')});
     t.after(() => runtime.dispose());
     await assert.rejects(runtime.start(), /Cannot start Python/);
-    await assert.rejects(runtime.start(), /stopped/);
+    await assert.rejects(runtime.start(), /Cannot start Python/);
 });
 
 test('disposal terminates the backend and its child process group', async t => {
@@ -364,4 +368,29 @@ test('repository jobs and saved imports use the bundled library service',async t
     assert.deepEqual(await runtime.library('/import',{source:'review.json'}),{review:reviewId});
     await runtime.open(reviewId);
     assert.equal((await runtime.request('/draft',{revision:3,id:'main.tex',draft:null})).revision,4);
+});
+
+test('an exited selected service restarts on explicit Refresh while retaining its review owner',async t=>{
+ const {runtime,home}=await synthetic(t);await runtime.open(reviewId);
+ const old=Number(await readFile(join(home,'pid'),'utf8'));
+ process.kill(old,'SIGTERM');
+ for(let attempt=0;attempt<100;attempt++){try{process.kill(old,0);}catch{break;}await delay(10);}
+ await delay(20);await runtime.start();
+ assert.equal(runtime.review.id,reviewId);
+ assert.notEqual(Number(await readFile(join(home,'pid'),'utf8')),old);
+ assert.equal((await runtime.data()).id,reviewId);
+ await runtime.dispose();await assert.rejects(runtime.start(),/stopped/);
+});
+
+test('selection drains late source input before committing and retries an intake arriving during the final read',async t=>{
+ const {runtime}=await synthetic(t);await runtime.open(reviewId);
+ let pending=false,reads=0,captures=0;
+ const fetch=globalThis.fetch;t.mock.method(globalThis,'fetch',async(url,options)=>{
+  const response=await fetch(url,options);
+  if(String(url).includes('/data?')&&++reads===3)pending=true;
+  return response;
+ });
+ const next='b'.repeat(24);
+ await runtime.open(next,{beforeSelect:async()=>{if(pending){assert.equal(runtime.review.id,reviewId);await runtime.request('/note',{comment:'Late Save'});pending=false;captures++;}},canSelect:()=>!pending});
+ assert.equal(captures,1);assert.equal(runtime.review.id,next);
 });

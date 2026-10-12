@@ -47,7 +47,7 @@ rounds by manuscript.
 **Import saved review** imports a `review.json` through the shared record operations.
 
 **Compare versions** opens this sidebar. Click **From**, **To**, or **PDF** to change
-a field, then choose **Review changes** to open that pair. The current review and its
+a field, then choose **Compare** to open that pair and its proposal source. The current review and its
 decisions stay intact while you choose another comparison.
 Source highlights clear until you open the chosen comparison.
 Version pickers group review drafts, branches and tags, and commits; search by name,
@@ -87,19 +87,27 @@ threads. The Comments view also provides its native resolved/unresolved filter. 
 for saved threads. These shortcuts require source editor focus and can be remapped in Keyboard Shortcuts.
 
 Clicking proposed text in the focused review opens the source file at the change.
-Focused review shows the exact word changes with faded surrounding context. Click
-that context to expand the passage; click the source editor to restore the full file’s
-visibility for editing.
+Focused review shows exact word changes in their full passage. The native editor
+shows the same selected wording, with **Accept** and **Reject** beside the change
+under your cursor. Selecting a source change also selects it in an open focused
+comparison or PDF view.
+Opening focused review starts at the change under your cursor or the next change
+in that source file.
 Source remains a normal VS Code document with saving, undo, syntax highlighting, and
-LaTeX Workshop compilation. Change backgrounds and hovers show replacements against
-the exact current editor buffer.
+LaTeX Workshop compilation. Change backgrounds show replacements against the exact current editor buffer.
+**Show removals** adds the original wording as transient strikethrough beside its
+replacement; line breaks appear as spaces, and the hover retains exact source.
+These decorations never enter your file or Undo history.
 
 If a reviewed file has been removed or moved, its saved source opens in a read-only
 editor. Existing comments remain accessible there. Opening saved source never
 restores a deleted file; an already open source buffer retains your unsaved text.
 
-Saving a native source edit refreshes the current comparison automatically. **From**
-stays at A; **To** becomes B plus your local edits. New manual edits are accepted,
+Saving a native source edit refreshes the current comparison automatically. With
+**Review mode** on, **From** stays at A and **To** becomes B plus your refinements.
+With it off, ordinary drafting becomes the author side of an agent comparison.
+The intent is pinned when typing starts, so toggling the mode before Save cannot
+reclassify an edit. New manual edits are accepted;
 unaffected choices remain, and comments on revised edits move into discussion.
 The original baseline stays fixed. Parallel agent revisions join the current proposal
 through the bundled skill; **Compare saved changes** captures edits made outside this editor.

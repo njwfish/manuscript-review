@@ -1,15 +1,16 @@
-Manuscript Review 0.15.3 includes VS Code extension 0.2.3 and the standalone macOS app.
+Manuscript Review 0.16.0 includes VS Code extension 0.3.0 and the standalone macOS app.
 
-Sending a comment from the native source editor selects **Your saved draft → Agent
-changes**, including when a focused review tab is open. Sending from a focused review
-discussion keeps its chosen comparison. Tab visibility controls delivery, without
-changing which versions the comment's task uses.
+Review mode keeps the comparison base fixed while manual edits refine the proposal.
+Ordinary drafting with review off updates the author side of agent comparisons.
+Show removals displays original wording as transient strikethrough in the native editor.
+Accept and Reject appear beside the change under the cursor; source selection follows
+through to an open focused comparison or PDF. Focused word review shows full passages.
 
-Choosing another pair in the sidebar clears the previous source highlights until that
-comparison is opened. Source dispatch clears earlier staged choices and refreshes the
-sidebar with the actual author-versus-agent versions. New choices made during the
-handoff stay staged.
+Review switching drains saved input before transferring ownership. Focused page reloads
+isolate messages and locks. A stopped service recovers through Open or Refresh. Agent
+publication retries preserve later decisions, and source recovery rechecks each file.
+Routine source capture and sidebar updates use small metadata reads; repetitive word
+alignment has a bounded fallback. CI now runs the actual VS Code editing workflow.
 
-Saved discussions, decisions, original baselines and earlier comparisons are retained.
-
+Saved discussion, decisions, original baselines and earlier comparisons are retained.
 See the README for installation, review controls, and the bundled agent skill.

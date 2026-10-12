@@ -31,11 +31,6 @@ body.vscode-review{
 .vscode-review .passage-body.code{background:transparent;padding:0;border-radius:0}
 .vscode-review .active-edit{outline-width:1px;outline-offset:2px}
 .vscode-review .focused-source{padding-block:clamp(24px,8vh,72px)}
-.vscode-review .focus-context{cursor:pointer}
-.vscode-review .focus-context:focus-visible{outline-offset:4px}
-.vscode-review .focus-reading{line-height:1.85}
-.vscode-review .focus-reading .ellipsis{opacity:.3}
-.vscode-review .focus-return{margin-top:16px}
 .vscode-review .agent-choice{color:var(--muted);padding-inline:0}
 .vscode-review .agent-choice::after{content:'';display:inline-block;width:5px;height:5px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(45deg);vertical-align:3px;margin-left:8px}
 .vscode-review .contextbar{flex-wrap:wrap;row-gap:8px}
@@ -79,70 +74,92 @@ export function webviewHTML(html,webview,assets,vscode,viewerOrigin){
   .replace('src="/app.js"','src="'+uri('app.js')+'"');
 }
 
-export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAgent,onChange,onApply,onCommand,agentLauncher,agentLabel}){
- let panel,waiting=new Map(),loaded,resolveLoaded,rejectLoaded,selection,revision,pending=0,changedRevision,ready=false,viewerURL;
+export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAgent,onChange,onApply,onCommand,onHidden,agentLauncher,agentLabel}){
+ let panel,page,selection;
  const assets=path.join(context.extensionPath,'dist','runtime','manuscript_review');
-
+ const current=(origin,load)=>origin===panel&&load===page;
+ const post=(message)=>panel?.webview.postMessage({...message,instance:page.id});
  function changed(value=runtime.review.revision){
-  if(!panel||!Number.isInteger(value)||value<=(revision??-1))return;
-  if(pending||!ready){changedRevision=Math.max(value,changedRevision??-1);return;}
-  panel.webview.postMessage({type:'review-changed'});
+  if(!panel||!Number.isInteger(value)||value<=(page.revision??-1))return;
+  if(page.pending||!page.ready){page.changedRevision=Math.max(value,page.changedRevision??-1);return;}
+  post({type:'review-changed'});
  }
- function reconcile(){const value=changedRevision;changedRevision=undefined;if(value!==undefined)changed(value);}
- function select(){if(selection){const {file,target,id}=selection;panel?.webview.postMessage({type:'review-select',file,target:target.id,...(id?{note:id}:{}),...(target.kind?{kind:target.kind}:{})});selection=undefined;}}
- const acknowledge=(message)=>{const request=waiting.get(message.id);if(!request)return;clearTimeout(request.timer);waiting.delete(message.id);message.ok?request.resolve():request.reject(new Error(message.error));};
- async function flush({lock=false}={}){
-  const origin=panel;if(!origin)return;
-  await loaded;
-  if(origin!==panel)throw new Error('The focused review closed.');
-  const id=crypto.randomUUID();
-  try{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{waiting.delete(id);reject(new Error('The focused review did not finish saving.'));},30000);waiting.set(id,{resolve,reject,timer});origin.webview.postMessage({type:'review-command',action:'flush',id,...(lock?{lock:true}:{})});});}
-  catch(error){if(lock&&origin===panel)origin.webview.postMessage({type:'review-command',action:'unlock',id});throw error;}
-  return lock?id:undefined;
+ function reconcile(){const value=page.changedRevision;page.changedRevision=undefined;if(value!==undefined)changed(value);}
+ function select(){if(selection?.review!==runtime.review.id)selection=undefined;if(selection){const {file,target,id}=selection;post({type:'review-select',file,target:target.id,...(id?{note:id}:{}),...(selection.source?{source:true}:{}),...(target.kind?{kind:target.kind}:{})});selection=undefined;}}
+ function release(load,error){
+  load?.reject(error);load?.lock?.release();if(load)load.lock=undefined;
+  for(const request of load?.waiting.values()||[]){clearTimeout(request.timer);request.reject(error);}
+  load?.waiting.clear();
+ }
+ function unlock(id){
+  if(!id||page?.lock?.id!==id)return;
+  post({type:'review-command',action:'unlock',id});
+  const held=page.lock;page.lock=undefined;held.release();
+ }
+ function flush({lock=false}={}){
+  const origin=panel,load=page;if(!origin)return Promise.resolve();
+  const run=async()=>{
+   await load.loaded;
+   if(load.lock)await load.lock.gate;
+   if(!current(origin,load))throw new Error('The focused review changed.');
+   const id=crypto.randomUUID();
+   if(lock){const held={id};held.gate=new Promise(resolve=>held.release=resolve);load.lock=held;}
+   try{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{load.waiting.delete(id);reject(new Error('The focused review did not finish saving.'));},30000);load.waiting.set(id,{resolve,reject,timer});post({type:'review-command',action:'flush',id,...(lock?{lock:true}:{})});});}
+   catch(error){if(lock&&current(origin,load))unlock(id);throw error;}
+   return lock?id:undefined;
+  };
+  load.flushing=load.flushing.catch(()=>{}).then(run);
+  return load.flushing;
  }
  async function handle(origin,message){
-  if(origin!==panel)return;
-  if(message?.type==='review-ready'){
-   if(message.error)rejectLoaded(new Error(message.error));else{ready=true;resolveLoaded();select();reconcile();}return;
+  const load=page;
+  if(origin!==panel||message?.instance!==load.id)return;
+  if(message.type==='review-ready'){
+   if(message.error)load.reject(new Error(message.error));else{load.ready=true;load.resolve();select();reconcile();}return;
   }
-  if(message?.type==='review-flushed'){acknowledge(message);return;}
-  if(message?.type!=='review-request'||typeof message.id!=='string')return;
+  if(message.type==='review-flushed'){
+   const request=load.waiting.get(message.id);if(!request)return;clearTimeout(request.timer);load.waiting.delete(message.id);
+   message.ok?request.resolve():request.reject(new Error(message.error));return;
+  }
+  if(message.type!=='review-request'||typeof message.id!=='string')return;
   let result;
   try{
    const actions={
     request:async()=>{
-     pending++;
-     try{const data=await (message.path==='/apply'?onApply(message.body):runtime.request(message.path,message.body));if(message.path.startsWith('/data')){data.agent_launcher=agentLauncher;data.agent_label=agentLabel?.();data.interface='vscode';}if(origin===panel)revision=Math.max(revision??-1,data.data?.revision??data.revision??-1);if(message.body)onChange();return {status:200,data};}
+     load.pending++;
+     try{const data=await (message.path==='/apply'?onApply(message.body):runtime.request(message.path,message.body));if(message.path.startsWith('/data')){data.agent_launcher=agentLauncher;data.agent_label=agentLabel?.();data.interface='vscode';}if(current(origin,load))load.revision=Math.max(load.revision??-1,data.data?.revision??data.revision??-1);if(message.body)onChange();return {status:200,data};}
      catch(error){return {status:error.status||500,data:{error:error.message,stale:Boolean(error.stale)}};}
-     finally{if(!--pending)reconcile();}
+     finally{if(!--load.pending&&current(origin,load))reconcile();}
     },
     source:()=>onSource(message),
     focus:()=>onFocus?.(message.file,message.edit),
     agent:()=>{if(message.review!==runtime.review.id)throw new Error('The review changed. Send the comment from its original round.');return onAgent?.(message.comment);},
     command:()=>onCommand(message.name),
     asset:async()=>{const {bytes,mime}=await runtime.asset(message.path);return `data:${mime.split(';')[0]};base64,${bytes.toString('base64')}`;},
-    viewer:()=>viewerURL,
+    viewer:()=>load.viewerURL,
     copy:async()=>{if(typeof message.text!=='string')throw new Error('Invalid clipboard text.');await vscode.env.clipboard.writeText(message.text);},
     export:async()=>{const {bytes}=await runtime.download(message.path);const uri=await vscode.window.showSaveDialog({saveLabel:'Export',defaultUri:vscode.Uri.file(path.join(runtime.review.repo,message.path.startsWith('/feedback')?'manuscript-feedback.json':'manuscript-selected.patch'))});if(uri)await vscode.workspace.fs.writeFile(uri,bytes);}
    };
    if(!Object.hasOwn(actions,message.action))throw new Error('Unknown review action.');
-   result={type:'review-response',id:message.id,ok:true,data:await actions[message.action]()};
-  }catch(error){result={type:'review-response',id:message.id,ok:false,error:error.message};}
-  if(origin===panel)origin.webview.postMessage(result);
+   result={type:'review-response',instance:load.id,id:message.id,ok:true,data:await actions[message.action]()};
+  }catch(error){result={type:'review-response',instance:load.id,id:message.id,ok:false,error:error.message};}
+  if(current(origin,load))origin.webview.postMessage(result);
  }
  async function load(origin,focus=true){
-  loaded=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('The focused review did not load.')),30000);resolveLoaded=()=>{clearTimeout(timer);resolve();};rejectLoaded=error=>{clearTimeout(timer);reject(error);};});loaded.catch(()=>{});
-  revision=undefined;ready=false;
+  release(page,new Error('The focused review reloaded.'));
+  const next={id:crypto.randomUUID(),waiting:new Map(),pending:0,ready:false,flushing:Promise.resolve()};
+  next.loaded=new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('The focused review did not load.')),30000);next.resolve=()=>{clearTimeout(timer);resolve();};next.reject=error=>{clearTimeout(timer);reject(error);};});next.loaded.catch(()=>{});
+  page=next;
   const address=await vscode.env.asExternalUri(vscode.Uri.parse(await viewer.start()));
   const base=address.toString().replace(/\/?$/,'/');
-  viewerURL=new URL('viewer.html',base).href;
-  const viewerOrigin=new URL(viewerURL).origin;
-  // VS Code ignores identical HTML, so a refresh needs a new document identity.
-  origin.webview.html=webviewHTML(await readFile(path.join(assets,'index.html'),'utf8'),origin.webview,assets,vscode,viewerOrigin)
-   .replace('<body class="vscode-review wide">','<body class="vscode-review wide" data-review-instance="'+crypto.randomUUID()+'" data-review-focus="'+focus+'">');
+  next.viewerURL=new URL('viewer.html',base).href;
+  const html=await readFile(path.join(assets,'index.html'),'utf8');
+  if(!current(origin,next))return;
+  origin.webview.html=webviewHTML(html,origin.webview,assets,vscode,new URL(next.viewerURL).origin)
+   .replace('<body class="vscode-review wide">','<body class="vscode-review wide" data-review-instance="'+next.id+'" data-review-focus="'+focus+'">');
  }
  async function show(entry){
-  if(entry?.target)selection=entry;
+  if(entry?.target)selection={...entry,review:runtime.review.id};
   if(!panel){
    const source=[vscode.window.activeTextEditor,...(vscode.window.visibleTextEditors||[])].find(editor=>editor?.viewColumn&&sourceFile(runtime.review,editor.document));
    const column=source?source.viewColumn+1:vscode.ViewColumn.Beside;
@@ -150,14 +167,14 @@ export function createPanel(vscode,context,runtime,{viewer,onSource,onFocus,onAg
    panel.iconPath=vscode.Uri.file(path.join(context.extensionPath,'dist','review.svg'));
    const origin=panel;
    panel.webview.onDidReceiveMessage(message=>handle(origin,message));
-   panel.onDidDispose(()=>{if(panel!==origin)return;panel=undefined;rejectLoaded?.(new Error('The focused review closed.'));for(const request of waiting.values()){clearTimeout(request.timer);request.reject(new Error('The focused review closed.'));}waiting.clear();});
+   panel.onDidChangeViewState?.(()=>{if(origin===panel&&!origin.visible)onHidden?.();});
+   panel.onDidDispose(()=>{if(panel!==origin)return;panel=undefined;release(page,new Error('The focused review closed.'));page=undefined;onHidden?.();});
    await load(origin);
-  }else{panel.reveal();await loaded;select();}
+  }else{panel.reveal();await page.loaded;select();}
  }
- return {show,flush,get visible(){return Boolean(panel?.visible);},unlock:id=>{if(id)panel?.webview.postMessage({type:'review-command',action:'unlock',id});},
-  setAgent:label=>panel?.webview.postMessage({type:'review-agent',label}),
-  changed,
+ return {show,flush,select:entry=>{selection={...entry,review:runtime.review.id,source:true};if(page?.ready)select();},get visible(){return Boolean(panel?.visible);},unlock,
+  setAgent:label=>post({type:'review-agent',label}),changed,
   refresh:async({flushed=false}={})=>{if(!panel)return;if(!flushed)await flush();await load(panel,false);},
-  dispose:()=>{panel?.dispose();}
+  dispose:()=>{selection=undefined;panel?.dispose();}
  };
 }

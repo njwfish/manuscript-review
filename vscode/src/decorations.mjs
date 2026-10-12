@@ -12,7 +12,7 @@ export function createDecorations(vscode) {
     far:vscode.window.createTextEditorDecorationType({...fixed,opacity:'.2'})
   };
   const editors=new Map();
-  let disposed=false,focused,enabled=true;
+  let disposed=false,focused,enabled=true,removals=true;
 
   function paint(editor,groups) {
     for(const [kind,type] of Object.entries(types))editor.setDecorations(type,groups[kind]||[]);
@@ -20,6 +20,7 @@ export function createDecorations(vscode) {
 
   function update(projection,data) {
     if(disposed||!enabled)return false;
+    for(const editor of editors.keys())if(!vscode.window.visibleTextEditors.includes(editor))editors.delete(editor);
     const visible=vscode.window.visibleTextEditors.filter(editor=>editor.document===projection.document);
     if(!visible.length)return false;
     if(projection.revision!==data.revision||projection.document.getText()!==projection.text) {
@@ -49,6 +50,14 @@ export function createDecorations(vscode) {
       }
       const decoration={range:new vscode.Range(projection.document.positionAt(span.from),projection.document.positionAt(span.to)),
         hoverMessage:hover};
+      const shown=projection.text.slice(span.from,span.to);
+      if(shown!==(span.rejected?edit.old:edit.new))continue;
+      if(removals&&!span.rejected&&edit.old){
+        decoration.renderOptions={before:{contentText:edit.old.replace(/\s+/g,' '),
+          color:new vscode.ThemeColor('gitDecoration.deletedResourceForeground'),
+          backgroundColor:new vscode.ThemeColor('diffEditor.removedTextBackground'),
+          textDecoration:'line-through',margin:'0 .3em 0 0'}};
+      }
       groups[span.from===span.to?'point':span.rejected?'rejected':'changed'].push(decoration);
     }
     for(const editor of visible){paint(editor,groups);editors.set(editor,{projection,data});}
@@ -69,7 +78,7 @@ export function createDecorations(vscode) {
     clear();disposed=true;
     for(const type of Object.values(types))type.dispose();
   }
-  return {update,focus,reveal,clear,dispose,setEnabled(value){enabled=value;if(!enabled)clear();}};
+  return {update,focus,reveal,clear,dispose,setEnabled(value){enabled=value;if(!enabled)clear();},setRemovals(value){removals=value;repaint();}};
 }
 
 /** Keep the selected lines clear; fade nearby lines before the rest of the file. */

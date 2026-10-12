@@ -6,7 +6,7 @@ function fixture(options={}){
  let captured=false;const events=[],document={isDirty:false,isClosed:false,text:'Author words.',getText(){return this.text;},positionAt:offset=>offset,
   async save(){events.push('save');this.isDirty=false;return options.saved??true;}};
  const runtime={review:{id:'review'},async data(){return {authoring:true,revision:1,workspace:'/paper'};},
-  async request(){if(captured)return {source:'agent-version',files:[]};return {source:'agent-version',files:[{file:'main.tex',before:'Author words.',after:'Author clear words.',edits:[{from:7,to:7,text:'clear '}]}]};}};
+  async request(path){if(path==='/summary')return this.data();if(captured)return {source:'agent-version',files:[]};return {source:'agent-version',files:[{file:'main.tex',before:'Author words.',after:'Author clear words.',edits:[{from:7,to:7,text:'clear '}]}]};}};
  const vscode={Uri:{file:fsPath=>({scheme:'file',fsPath})},Range:class{constructor(start,end){Object.assign(this,{start,end});}},TextEdit:class{constructor(range,text){Object.assign(this,{range,text});}},WorkspaceEdit:class{set(uri,edits){this.edits=edits;}},
   workspace:{async openTextDocument(uri){events.push('open');document.uri=uri;await options.open?.(document,runtime);return document;},
    async applyEdit(edit){events.push('edit');for(const item of edit.edits)document.text=document.text.slice(0,item.range.start)+item.text+document.text.slice(item.range.end);document.isDirty=true;return true;}}};
