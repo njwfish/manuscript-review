@@ -299,14 +299,12 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <button id="more" class="icon" title="Review tools (M)" aria-label="Review tools (M)"><svg width="16" height="14" viewBox="0 0 16 14" fill="currentColor" aria-hidden="true"><circle cx="3" cy="7" r="1"/><circle cx="8" cy="7" r="1"/><circle cx="13" cy="7" r="1"/></svg></button>
  <button id="help" class="icon" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts (?)">?</button>
 </header>
-<button id="comparison-versions" class="quiet" hidden></button>
 <div id="review-notice" class="review-notice" hidden><span>This review changed elsewhere. Reload to continue.</span><button id="reload-review">Reload review</button></div>
 <section id="review-summary" class="review-summary" hidden><div><h2>Review complete</h2><p id="review-state"></p><p id="handoff-hint" class="muted"></p></div><div class="summary-actions"><button id="finish-review" class="primary">Apply review</button><button id="copy-request" class="quiet">Copy agent request</button></div></section>
 <dialog id="actions">
  <div class="dialog-head"><h2>Review tools</h2><button id="close-actions" class="quiet">Close</button></div>
  <div id="retained-drafts" class="dialog-section" hidden></div>
- <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button><button id="compare-saved" hidden>Compare saved changes</button><button id="editing-folder">Open editing folder</button></div>
- <div id="host-tools" class="dialog-section" hidden><div class="dialog-actions"><button id="compare-versions">Compare versions</button><button id="review-library">Library</button><button id="saved-drafts">Saved source drafts</button><button id="review-setup">Setup</button></div></div>
+ <div class="dialog-actions"><button id="next">Next undecided edit</button><button id="apply" class="primary">Apply review</button><button id="editing-folder">Open editing folder</button></div>
  <div class="dialog-section"><h3>Share your review</h3><div class="dialog-actions"><button id="copy-request-more">Copy agent request</button><button id="choices">Export feedback</button><button id="export">Export selected patch</button></div></div>
  <div class="dialog-section"><h3>Discussion</h3><div class="dialog-actions"><button id="review-comments">Next comment</button><button id="show-feedback">Browse comments</button><button id="import-responses">Import responses</button><input id="response-file" type="file" accept=".json,application/json" hidden></div><p id="response-error" class="error" role="status"></p></div>
  <div class="dialog-section"><h3>Whole passage (Shift+A / S / U)</h3><div class="dialog-actions" id="passage-actions"></div></div>
@@ -347,7 +345,7 @@ dialog td{text-align:left;color:var(--muted);padding:5px 0}
  <tr data-standalone><th>H / L or ← / →</th><td>Pan both previews left / right</td></tr>
  <tr data-standalone><th>PageUp / PageDown</th><td>Scroll PDF panes or the passage</td></tr>
  <tr><th>G / M / ?</th><td>Next undecided / review tools / shortcuts</td></tr>
- </tbody></table><p>Holding a key does not repeat decisions. Review shortcuts pause while typing. Tab and Enter work normally on controls.</p><p id="pdf-shortcut-hint" hidden>Use the review panel for whole-file shortcuts and Apply. Modified keys in PDF panes retain their usual behavior.</p>
+ </tbody></table><p>Holding a key does not repeat decisions. Review shortcuts pause while typing. Tab and Enter work normally on controls.</p>
 </dialog>
 <div class="shell">
  <aside aria-label="Changed files" id="files"></aside>

@@ -14,7 +14,7 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
     token = session.snapshot['token']
     static = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
               '/review_model.js': ('review_model.js', 'text/javascript'),
-              '/editor.js': ('editor.js', 'text/javascript'), '/host.js': ('host.js', 'text/javascript')}
+              '/editor.js': ('editor.js', 'text/javascript')}
 
     class Handler(LocalHandler):
         content_security_policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"

@@ -18,7 +18,7 @@ from .comparison import git
 from .latex_highlight import highlight_changes
 from .pdf_preview import document_preview
 
-RENDER_VERSION = 3
+RENDER_VERSION = 4
 
 SCAN = re.compile(r'%[^\n]*|\\(?:begin|end)\{[^}]+\}|\\[\[\]{}%$]|'
                   r'\\(?:begingroup|endgroup|bgroup|egroup)\b|\\[A-Za-z@]+|[{}]|\$\$?|\n[ \t]*\n')
@@ -194,7 +194,8 @@ def typeset_excerpts(data, directory, side, root):
             # Suppress floats and isolated equation numbers in excerpt previews.
             content = re.sub(r'\\begin\{(figure|table|algorithm)\}(?:\[[^\]]*\])?',
                              lambda m: '\\begin{' + m[1] + '}[H]', colored)
-            content = re.sub(r'\\(begin|end)\{equation\}', r'\\\1{equation*}', content)
+            content = re.sub(r'\\(begin|end)\{equation\}',
+                             lambda m: {'begin': r'\[', 'end': r'\]'}[m[1]], content)
             # An input figure can float; captions under review already carry their
             # surrounding figure environment through render_context.
             supplemental = f['path'].startswith('supplement/')

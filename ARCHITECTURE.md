@@ -65,7 +65,13 @@ The file is the editing unit; passages and edits remain the review units; discus
 
 Source segments locate manual intervals in the validated working projection, including repeated text and choices applied earlier. The standalone editor writes only those intervals, preserving unedited working text even when the current review selects different wording. Native Save already writes the buffer; capture records it without another source write. Apply writes the full selected result explicitly. Every captured save pins its version and refreshes the comparison according to its intent. Standalone before/after previews follow the proposal; the native PDF follows selected wording.
 
-CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights. The small adapter in `frontend/editor.js` connects document changes to the existing review client. It owns no review persistence or manuscript writes. The bundle and dependency licenses are checked in; `npm run build` regenerates them without adding a runtime network dependency.
+CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights.
+The adapter in `frontend/editor.js` connects document changes to the review client;
+it owns no review persistence or manuscript writes. The standalone client calls the
+service’s HTTP endpoints directly. Its macOS wrapper provides clipboard and folder
+actions and flushes saved input before reload or quit. The bundle and dependency
+licenses are checked in; `npm run build` regenerates them without a runtime network
+dependency.
 
 The VS Code preview uses its native source editor and CommentController. The comment controller is registered on activation, independently of a comparison.
 Its range provider stays empty to avoid a full-file gutter stripe; a sidebar preference disables
@@ -92,8 +98,11 @@ queued operations to their intended review.
 `native-review.mjs` owns source selection, keyboard focus, CodeLens decisions and
 navigation. The source editor is the only text review surface. Native decisions use
 the existing session save and delivery operations. Same-file navigation uses cached
-exact projections. Review selection drains delivery and saved source, invalidates
-queued native actions, then selects the next record. An interrupted mutation is never
+exact projections and an index of edit IDs. Text validation follows the native document
+version, including failed matches; projection updates invalidate the review index.
+Cursor movement within an edit does not rebuild its CodeLens controls. Background
+editor events cannot change the active source review. Review selection drains delivery
+and saved source, invalidates queued native actions, then selects the next record. An interrupted mutation is never
 replayed automatically.
 
 `pdf-panel.mjs` owns an optional read-only PDF webview and delegates review keys to
