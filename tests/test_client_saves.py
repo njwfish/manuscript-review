@@ -59,7 +59,7 @@ for(const mode of ['idle','revised-edit','navigate','typing','draft','decision',
   active:0,passage:0,edit:2,staleReview:true,locations:[],document:{activeElement:{matches:()=>false},querySelector:()=>null},
   currentFile:()=>context.data.files[context.active],currentHunk:()=>context.currentFile().hunks[context.passage],currentEdit:()=>context.currentHunk().edits[context.edit],
   reviewPosition,editLocations:()=>[],render:()=>events.push('render'),watchPreviews:()=>events.push('preview'),$:()=>({hidden:false}),
-  request:async()=>{await gate;return {ok:true,json:async()=>({...original,files:returned,revision:mode==='older'?0:2,decisions:{},comments:{},drafts:{},preview_status:'queued'})};}};
+  fetch:async()=>{await gate;return {ok:true,json:async()=>({...original,files:returned,revision:mode==='older'?0:2,decisions:{},comments:{},drafts:{},preview_status:'queued'})};}};
  vm.createContext(context);vm.runInContext(source,context);
  const pending=vm.runInContext('refreshExternal()',context);await new Promise(resolve=>setImmediate(resolve));
  if(mode==='navigate')context.active=1;
@@ -80,15 +80,14 @@ for(const mode of ['idle','revised-edit','navigate','typing','draft','decision',
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8');
 const source=app.slice(app.indexOf('async function openEditingFolder'),app.indexOf("$('editing-folder').addEventListener"));
-for(const mode of ['native','browser','embedded','failed']){
- const events=[],context={embedded:mode==='embedded',data:{repo:'/original/A',workspace:'/editing/B'},
+for(const mode of ['native','browser','failed']){
+ const events=[],context={data:{repo:'/original/A',workspace:'/editing/B'},
   window:{flushReview:async()=>{events.push('flush');if(mode==='failed')throw new Error('Unsaved comment');}},
-  runHostCommand:async name=>events.push(['host',name]),copyText:async text=>events.push(['copy',text]),
+  navigator:{clipboard:{writeText:async text=>events.push(['copy',text])}},
   status:text=>events.push(text),$:()=>({close(){events.push('close');}})};
  if(mode==='native')context.window.webkit={messageHandlers:{revealFolder:{postMessage:path=>events.push(['open',path])}}};
  vm.createContext(context);vm.runInContext(source,context);await vm.runInContext('openEditingFolder()',context);
- if(mode==='embedded')assert.deepEqual(events,[['host','editingFolder']]);
- else if(mode==='failed')assert.deepEqual(events,['flush','Unsaved comment']);
+ if(mode==='failed')assert.deepEqual(events,['flush','Unsaved comment']);
  else{assert.equal(events[0],'flush');assert.deepEqual(events[1],[mode==='native'?'open':'copy','/editing/B']);assert.equal(events.at(-1),'close');}
 }
 """
@@ -144,9 +143,9 @@ const source=app.slice(app.indexOf('async function sendAgentComment'),app.indexO
 const events=[],handlers={},elements=[];let release;
 const gate=new Promise(resolve=>{release=resolve;});
 const make=()=>{const item={value:'Exact comment',append(...items){this.children=items;},setAttribute(){},addEventListener(name,fn){handlers[name]=fn;},focus(){events.push('focus');}};elements.push(item);return item;};
-const context={embedded:true,fileEditor:null,noteTarget:null,commentAgent:'codex',staleReview:false,data:{id:'round',agent_label:'Claude Code'},dispatchingComment:false,
+const context={fileEditor:null,noteTarget:null,commentAgent:'codex',staleReview:false,data:{id:'round'},dispatchingComment:false,
  node:()=>make(),button:(label,action)=>({...make(),textContent:label,action}),
- window:{flushReview:async()=>{events.push('flush');await gate;}},openAgentTask:async(id,review)=>events.push([id,review]),
+ window:{flushReview:async()=>{events.push('flush');await gate;}},post:async(route,_choices,_notes,body)=>{events.push({route,body});return {message:'Sent'};},resultStatus:result=>events.push(result.message),remember(){},
  document:{activeElement:{blur:()=>events.push('blur')}},focusSelection:()=>events.push('focus'),status:message=>events.push(message)};
 vm.createContext(context);vm.runInContext(source,context);const area=make();context.area=area;
 vm.runInContext("agentComposer(area,'discussion')",context);
@@ -157,37 +156,7 @@ assert.deepEqual(events,[]);
 let prevented=0;const enter={key:'Enter',preventDefault(){prevented++;},stopPropagation(){}};
 handlers.keydown(enter);handlers.keydown(enter);assert.equal(prevented,2);assert.deepEqual(events,['flush']);
 release();await new Promise(resolve=>setImmediate(resolve));
-assert.deepEqual(events,['flush',['discussion','round'],'Sent to agent in the background.','blur','focus']);assert.equal(context.dispatchingComment,false);
-"""
-        subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
-
-    def test_native_send_locks_input_before_flushing_and_releases_only_its_own_busy_state(self):
-        script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
-import {hostMessage} from './manuscript_review/host.js';
-const app=readFileSync('manuscript_review/app.js','utf8');
-const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import .*;\n/gm,'');
-const flush=app.slice(app.indexOf('window.flushReview='),app.indexOf("$('library').addEventListener"));
-const listener=app.slice(app.indexOf("if(embedded)window.addEventListener('message'"),app.lastIndexOf('ready();'));
-for(const fail of [false,true,'superseded']){
- let receive,release;const gate=new Promise(resolve=>{release=resolve;}),controls={inert:false},events=[],elements=new Map();
- const context={acquireVsCodeApi:()=>({}),hostMessage:event=>hostMessage(event,'vscode-webview://review','page'),setTimeout,clearTimeout,
-  reviewProgress:()=>({total:0,complete:true}),CustomEvent:class{constructor(type,{detail}){Object.assign(this,{type,detail});}},
-  window:{addEventListener:(_name,handler)=>{receive=handler;},dispatchEvent:event=>events.push(event)},
-  document:{querySelectorAll:()=>[controls],body:{classList:{contains:()=>false,toggle(){}}},getElementById:id=>{
-   if(!elements.has(id))elements.set(id,{className:'',textContent:'',querySelector:()=>null});return elements.get(id);}},
-  request:async path=>{if(path==='/save')await gate;return {ok:!fail||path!=='/save',json:async()=>fail?{error:'Disk error'}:{revision:1}};}};
- vm.createContext(context);vm.runInContext(beginning+flush+listener+`data={revision:0,token:'test',scope:'round',files:[],history:[]};`,context);
- const message=data=>({origin:'vscode-webview://review',source:{parent:true},data:{...data,instance:'page'}});
- const pending=receive(message({type:'review-command',action:'flush',lock:true,id:'save'}));
- assert.equal(controls.inert,true);assert.equal(vm.runInContext('Boolean(editing&&reviewLock)',context),true);
- if(fail==='superseded'){await receive(message({type:'review-command',action:'unlock',id:'save'}));vm.runInContext("reviewLock='new';setBusy(true);",context);}
- release();await pending;assert.equal(events.at(-1).detail.ok,!fail);
- if(fail==='superseded'){assert.equal(vm.runInContext('reviewLock',context),'new');assert.equal(controls.inert,true);await receive(message({type:'review-command',action:'unlock',id:'new'}));}
- if(!fail){assert.equal(controls.inert,true);await receive(message({type:'review-command',action:'unlock',id:'save'}));}
- assert.equal(controls.inert,false);assert.equal(vm.runInContext('Boolean(editing||reviewLock)',context),false);
- vm.runInContext('editing=true',context);await receive(message({type:'review-command',action:'unlock',id:'save'}));
- assert.equal(vm.runInContext('editing',context),true,'unlock must preserve an unrelated operation');
-}
+assert.deepEqual(JSON.parse(JSON.stringify(events)),['flush',{route:'/agent',body:{id:'discussion',agent:'codex'}},'Sent','blur','focus']);assert.equal(context.dispatchingComment,false);
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
 
@@ -196,7 +165,7 @@ for(const fail of [false,true,'superseded']){
 const app=readFileSync('manuscript_review/app.js','utf8');
 const source=app.slice(app.indexOf('async function sendAgentComment'),app.indexOf('function agentComposer'));
 for(const fail of [false,'save','stale']){
- const events=[],context={embedded:false,dispatchingComment:false,staleReview:fail==='stale',commentAgent:'claude',data:{id:'round'},
+ const events=[],context={dispatchingComment:false,staleReview:fail==='stale',commentAgent:'claude',data:{id:'round'},
   noteTarget:{comment:'Exact author comment'},currentCommentId:()=>context.noteTarget.id,
   window:{flushReview:async()=>{events.push('flush');if(fail==='save')throw new Error('Disk error');context.noteTarget.id='saved-note';}},
   post:async(route,_decisions,_comments,body)=>{events.push({route,body});return {message:'Sent'};},resultStatus:result=>events.push(result.message),
@@ -214,7 +183,7 @@ for(const fail of [false,'save','stale']){
 const app=readFileSync('manuscript_review/app.js','utf8');
 const source=app.slice(app.indexOf('async function sendAgentComment'),app.indexOf('function agentComposer'));
 let release;const gate=new Promise(resolve=>release=resolve),target={comment:'First'},events=[];
-const context={embedded:false,dispatchingComment:false,staleReview:false,data:{id:'round'},noteTarget:target,commentAgent:'claude',
+const context={dispatchingComment:false,staleReview:false,data:{id:'round'},noteTarget:target,commentAgent:'claude',
  document:{activeElement:{blur:()=>events.push('blur')}},fileEditor:{focus:()=>events.push('focus')},
  window:{flushReview:async()=>{await gate;target.id='saved-first';}},currentCommentId:()=>context.noteTarget.id,
  post:async(route,_decisions,_comments,body)=>{events.push(body);return {message:'Sent'};},resultStatus(){},status(){}};
@@ -233,7 +202,7 @@ for(const changed of ['response','round','round-refreshed','local-save','none'])
  const label={textContent:''},notice={hidden:true,querySelector:()=>label},reload={textContent:'Reload review'},events=[];
  let release;const saving=new Promise(resolve=>release=resolve);
  const context={data:{id:'round',scope:'round',revision:1,latest_review:'round'},saving,staleReview:false,newerReview:false,
-  comments:{draft:'Keep this input'},refreshExternal:async()=>{if(changed!=='round-refreshed')return false;context.data={...context.data,revision:2,latest_review:'new-round'};return true;},request:async()=>({ok:true,json:async()=>({revision:changed==='none'?1:2,latest_review:changed.startsWith('round')?'new-round':'round'})}),
+  comments:{draft:'Keep this input'},refreshExternal:async()=>{if(changed!=='round-refreshed')return false;context.data={...context.data,revision:2,latest_review:'new-round'};return true;},fetch:async()=>({ok:true,json:async()=>({revision:changed==='none'?1:2,latest_review:changed.startsWith('round')?'new-round':'round'})}),
   $:id=>id==='review-notice'?notice:reload,updateProgress:()=>events.push('notice'),setTimeout:()=>events.push('poll')};
  vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('watchReview()',context);
  await new Promise(resolve=>setImmediate(resolve));assert.equal(notice.hidden,true);
@@ -252,33 +221,30 @@ for(const changed of ['response','round','round-refreshed','local-save','none'])
 const app=readFileSync('manuscript_review/app.js','utf8');
 const source=app.slice(app.indexOf('async function post('),app.indexOf('function retainDraft'));
 let release;const gate=new Promise(resolve=>release=resolve);
-const context={data:{revision:1,token:'test'},request:async route=>{if(route==='/agent')await gate;return {ok:true,json:async()=>({revision:route==='/agent'?1:2})};}};
+const context={data:{revision:1,token:'test'},fetch:async route=>{if(route==='/agent')await gate;return {ok:true,json:async()=>({revision:route==='/agent'?1:2})};}};
 vm.createContext(context);vm.runInContext(source,context);const dispatch=vm.runInContext("post('/agent',{}, {},{id:'note',agent:'claude'})",context);
 await vm.runInContext("post('/save',{}, {})",context);assert.equal(context.data.revision,2);
 release();await dispatch;assert.equal(context.data.revision,2);
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
 
-    def test_native_comment_change_opens_its_round_and_saves_pending_notes_first(self):
+    def test_opening_a_comment_change_flushes_notes_before_switching_scope(self):
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
-import {hostMessage} from './manuscript_review/host.js';
 const app=readFileSync('manuscript_review/app.js','utf8');
-const revision=app.slice(app.indexOf('async function showRevision'),app.indexOf('function renderDiscussion'));
-const listener=app.slice(app.indexOf("if(embedded)window.addEventListener('message'"),app.lastIndexOf('ready();'));
+const source=app.slice(app.indexOf('async function showRevision'),app.indexOf('function renderDiscussion'));
 for(const failed of [false,true]){
- let receive;const calls=[];
- const context={refreshExternal:async()=>false,embedded:true,hostMessage:event=>hostMessage(event,'vscode-webview://review','page'),window:{addEventListener(name,handler){receive=handler;}},calls,
+ const calls=[];
+ const context={data:{scope:'baseline',files:[{path:'main.tex',hunks:[{id:'passage',edits:[{id:'edit'}]}]}]},
+  saving:Promise.resolve(),saveFailed:failed,draftChanges:new Map(),noteChanges:new Map(),fileEditor:null,locations:[],
   saveNotes:()=>calls.push('notes'),saveDrafts:()=>calls.push('drafts'),save:()=>calls.push('decisions'),
-  switchScope:async(scope,file)=>{calls.push(['scope',scope,file]);vm.runInContext("data.scope='round';locations=[[0,0,0]]",context);},
-  render:()=>calls.push('render'),openComment:passage=>calls.push(['comment',passage]),status:(text,error)=>calls.push(['status',text,error])};
- vm.createContext(context);vm.runInContext(`let data={scope:'baseline',files:[{path:'main.tex',hunks:[{id:'passage',edits:[{id:'edit'}]}]}]},
-  saving=Promise.resolve(),saveFailed=${failed},draftChanges=new Map(),noteChanges=new Map(),fileEditor=null,
-  locations=[],active=0,passage=0,edit=0,commentId;`+revision+listener,context);
- await receive({origin:'vscode-webview://review',source:{parent:true},data:{instance:'page',type:'review-select',file:'main.tex',target:'passage',kind:'passage',note:'discussion'}});
+  switchScope:async(scope,file)=>{calls.push(['scope',scope,file]);context.data.scope='round';context.locations=[[0,0,0]];},
+  render:()=>calls.push('render'),openComment:passage=>calls.push(['comment',passage])};
+ vm.createContext(context);vm.runInContext(source,context);
+ const action=vm.runInContext("showRevision({file:'main.tex',id:'discussion',target:{id:'passage',kind:'passage'}})",context);
+ if(failed)await assert.rejects(action,/save error/);else await action;
  assert.deepEqual(calls.slice(0,3),['notes','drafts','decisions']);
- if(failed){assert.equal(vm.runInContext('data.scope',context),'baseline');assert.match(calls.at(-1)[1],/save error/);}
- else{assert.deepEqual(calls[3],['scope','round','main.tex']);assert.equal(vm.runInContext('commentId',context),'discussion');assert.deepEqual(calls.at(-1),['comment',true]);}
- const length=calls.length;await receive({origin:'https://pdf-resources.invalid',source:{},data:{type:'review-select',target:'passage'}});assert.equal(calls.length,length);
+ if(failed)assert.equal(context.data.scope,'baseline');
+ else{assert.deepEqual(calls[3],['scope','round','main.tex']);assert.equal(context.commentId,'discussion');assert.deepEqual(calls.at(-1),['comment',true]);}
 }
 """
         subprocess.run(['node', '--input-type=module', '-e', script], cwd=Path(__file__).parents[1], check=True)
@@ -298,7 +264,7 @@ for(const fail of [false,true,'missing','new']){
  const context={currentFeedback,commentThreads,feedbackForPassage,setTimeout,clearTimeout,
  reviewProgress:()=>({total:0,complete:true}),updateProgress:()=>{},renderDiscussion:()=>{},
  document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',children:[],querySelector:()=>null,close(){this.open=false;}});return elements.get(id);},body:{classList:{contains:()=>false,remove:()=>{}}}},
- request:async(path,options)=>{const request=JSON.parse(options.body);requests.push([path,request]);
+ fetch:async(path,options)=>{const request=JSON.parse(options.body);requests.push([path,request]);
   if(path==='/draft'&&fail===true)return {ok:false,json:async()=>({error:'Disk error'})};
   return {ok:true,json:async()=>({revision:requests.length,...(path==='/note'?{entry:{id:fail==='new'?'new':'first',origin_id:fail==='new'?'new':'first',author:'user',kind:'source',file:'a.tex',line:fail==='new'?2:1,comment:request.comment,replies:[]}}:{})})};},
  visited,showFeedback:()=>{context.document.getElementById('feedback').open=true;}};
@@ -364,7 +330,7 @@ assert.equal(context.document.activeElement,textarea);assert.equal(textarea.valu
         script = r"""import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import vm from 'node:vm';
 const app=readFileSync('manuscript_review/app.js','utf8');
 const opener=app.slice(app.indexOf('async function openEditor'),app.indexOf('async function loadEditor'));
-const context={embedded:false};vm.createContext(context);vm.runInContext(`let editing=true,openingEditor=null,fileEditor=null,loads=0;
+const context={};vm.createContext(context);vm.runInContext(`let editing=true,openingEditor=null,fileEditor=null,loads=0;
 const data={scope:'manuscript'},currentFile=()=>({path:'main.tex'}),readOnly=()=>false;
 async function loadEditor(){loads++;fileEditor={};}
 `+opener,context);
@@ -381,7 +347,7 @@ const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import
 const requests=[],elements=new Map();let acknowledge;
 const context={reviewProgress:()=>({total:0,complete:true}),updateProgress:()=>{},setTimeout,clearTimeout,
 document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',children:[],querySelector:()=>null,close(){this.open=false;}});return elements.get(id);},body:{classList:{contains:()=>false}}},
-request:async(path,options)=>{const request=JSON.parse(options.body);requests.push([path,request]);
+fetch:async(path,options)=>{const request=JSON.parse(options.body);requests.push([path,request]);
  if(path==='/note'&&!request.id)await new Promise(resolve=>acknowledge=resolve);
  return {ok:true,json:async()=>({revision:requests.length,entry:{id:'saved-note',file:'main.tex',comment:request.comment}})};}};
 vm.createContext(context);vm.runInContext(beginning+`
@@ -431,7 +397,7 @@ const beginning=app.slice(0,app.indexOf('function setChoices')).replace(/^import
 const flush=app.slice(app.indexOf('window.flushReview='),app.indexOf("$('library').addEventListener"));
 const requests=[],elements=new Map();let fail=true;
 const context={window:{},reviewProgress:()=>({total:0,complete:true}),document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{className:'',textContent:'',children:[],querySelector:()=>null,close(){this.open=false;},hidden:true});return elements.get(id);},body:{classList:{contains:()=>false}}},setTimeout,clearTimeout,
-request:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);if(path==='/draft'&&fail===true)return {ok:false,json:async()=>({error:'Transient disk error'})};return {ok:true,json:async()=>({revision:0})};}};
+fetch:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);if(path==='/draft'&&fail===true)return {ok:false,json:async()=>({error:'Transient disk error'})};return {ok:true,json:async()=>({revision:0})};}};
 vm.createContext(context);vm.runInContext(beginning+'\n'+flush+`
 data={token:'test',revision:0,scope:'round',files:[],history:[]};drafts={passage:{file:'passage',source:'a'.repeat(40),text:'Unsaved manuscript words'}};
 draftChanges.set('passage',drafts.passage);`,context);
@@ -455,7 +421,7 @@ for(const change of ['none','file','round','version','typing','preview','native'
  let release;const gate=new Promise(resolve=>release=resolve);
  const context={data:{id:'review',scope:'round',base:'a',proposed:'b',files:[original,other],decisions:{edit:'reject'}},active:0,
   document:{hasFocus:()=>change!=='native',activeElement:{matches:()=>change==='typing',closest:()=>null}},currentFile:()=>context.data.files[context.active],render:()=>calls.push('render'),focusSelection:()=>calls.push('focus'),
-  request:async path=>{assert.equal(path,'/data?scope=round&file=large.json');await gate;return {ok:true,json:async()=>({id:'review',base:'a',proposed:'b',files:[{path:'large.json',after:'Exact source.',hunks:[{id:'passage',rendered:{}}]}]})};},
+  fetch:async path=>{assert.equal(path,'/data?scope=round&file=large.json');await gate;return {ok:true,json:async()=>({id:'review',base:'a',proposed:'b',files:[{path:'large.json',after:'Exact source.',hunks:[{id:'passage',rendered:{}}]}]})};},
   $:()=>({replaceChildren:()=>calls.push('error')}),node(){},button(){}};
  vm.createContext(context);vm.runInContext(source,context);const pending=vm.runInContext('loadSelectedFile()',context);
  if(change==='file')context.active=1;

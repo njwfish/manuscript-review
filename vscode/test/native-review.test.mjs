@@ -3,27 +3,37 @@ import test from 'node:test';
 import {createNativeReview} from '../src/native-review.mjs';
 
 function fixture(options={}){
- const callbacks={},commands=new Map(),calls=[],errors=[],docs=new Map();
+ const callbacks={},commands=new Map(),calls=[],errors=[],docs=new Map(),metrics={reads:0,scans:0,lenses:0};
  const files=[{path:'main.tex',before:'A old then small sentence.',after:'A new then clear sentence.',edits:[{id:'first',old:'old',new:'new',from:2,to:5},{id:'second',old:'small',new:'clear',from:11,to:16}]}];
+ if(options.editCount){
+  files[0].before='old '.repeat(options.editCount);files[0].after='new '.repeat(options.editCount);
+  files[0].edits=Array.from({length:options.editCount},(_,i)=>({id:'edit-'+i,old:'old',new:'new',from:i*4,to:i*4+3}));
+ }
  if(options.multiple)files.push({path:'other.tex',before:'Old.',after:'New.',edits:[{id:'third',old:'Old',new:'New',from:0,to:3}]});
- for(const file of files){file.hunks=[{id:'passage-'+file.path,edits:file.edits}];docs.set(file.path,{text:file.after,isDirty:false,positionAt:x=>x,offsetAt:x=>x,getText(){return this.text;}});}
+ for(const file of files){
+  const iterate=file.edits[Symbol.iterator].bind(file.edits);
+  file.edits[Symbol.iterator]=()=>{metrics.scans++;return iterate();};
+  file.hunks=[{id:'passage-'+file.path,edits:file.edits}];
+  let text=file.after;
+  docs.set(file.path,{version:1,get text(){return text;},set text(value){text=value;this.version++;},isDirty:false,positionAt:x=>x,offsetAt:x=>x,getText(){metrics.reads++;return this.text;}});
+ }
  const editor={document:docs.get('main.tex'),selection:{active:2},revealRange(){}};
- const runtime={review:{id:'review',revision:1},async data(){calls.push('data');return data;},async request(route,body){calls.push({route,body});await options.saving?.();this.review.revision++;data={...data,revision:this.review.revision,decisions:body.decisions};return {revision:this.review.revision};}};
+ const runtime={review:{id:'review',revision:1},async data(){calls.push('data');await options.reading?.();return data;},async request(route,body){calls.push({route,body});await options.saving?.();this.review.revision++;data={...data,revision:this.review.revision,decisions:body.decisions};return {revision:this.review.revision};}};
  let data={id:'review',revision:1,decisions:{},comments:{thread:'Keep context.'},files};
  const disposable=()=>({dispose(){}}),status={hide(){this.visible=false;},show(){this.visible=true;},dispose(){}};
  const vscode={StatusBarAlignment:{Right:2},TextEditorRevealType:{InCenterIfOutsideViewport:2},TextEditorSelectionChangeKind:{Mouse:2,Keyboard:1},TextDocumentChangeReason:{Undo:1,Redo:2},
-  EventEmitter:class{event=disposable;fire(){}dispose(){}},Selection:class{constructor(start,end){Object.assign(this,{start,end,active:end});}},Range:class{constructor(start,end){Object.assign(this,{start,end});}},CodeLens:class{constructor(range,command){Object.assign(this,{range,command});}},
+  EventEmitter:class{event=disposable;fire(){metrics.lenses++;}dispose(){}},Selection:class{constructor(start,end){Object.assign(this,{start,end,active:end});}},Range:class{constructor(start,end){Object.assign(this,{start,end});}},CodeLens:class{constructor(range,command){Object.assign(this,{range,command});}},
   languages:{registerCodeLensProvider(_selector,provider){callbacks.provider=provider;return disposable();}},
-  window:{activeTextEditor:editor,createStatusBarItem:()=>status,onDidChangeTextEditorSelection(fn){callbacks.selection=fn;return disposable();},onDidChangeActiveTextEditor(fn){callbacks.active=fn;return disposable();}},
-  workspace:{onDidChangeTextDocument(fn){callbacks.change=fn;return disposable();}},commands:{registerCommand(name,fn){commands.set(name,fn);return disposable();}}};
+  window:{activeTextEditor:editor,createStatusBarItem:()=>status,onDidChangeTextEditorSelection(fn){callbacks.selection=event=>fn({textEditor:editor,...event});return disposable();},onDidChangeActiveTextEditor(fn){callbacks.active=fn;return disposable();}},
+  workspace:{onDidChangeTextDocument(fn){callbacks.change=event=>fn({document:editor.document,...event});return disposable();}},commands:{registerCommand(name,fn){commands.set(name,fn);return disposable();}}};
  const sourceEdits={flush:async()=>options.flushing?.()},delivery={flush:async()=>{},refresh:async options=>{calls.push({delivery:options});for(const file of files){const doc=docs.get(file.path);doc.text=file.after;for(const edit of [...file.edits].reverse())if(data.decisions[edit.id]==='reject')doc.text=doc.text.slice(0,edit.from)+edit.old+doc.text.slice(edit.to);}}};
  let controls;
  function update(){const file=files.find(file=>docs.get(file.path)===editor.document);controls.update({document:editor.document,reviewId:data.id,file:file.path,revision:data.revision,text:editor.document.text,ranges:file.edits.map(edit=>({id:edit.id,from:edit.from,to:edit.to}))},data);}
  controls=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>options.enabled!==false,
   async onOpen({file,edit}){calls.push({open:[file,edit]});editor.document=docs.get(file);callbacks.active();editor.selection.active=files.find(item=>item.path===file).edits.find(item=>item.id===edit)?.from??0;update();return editor;},
   onChange:async()=>{calls.push('changed');update();},onFocus:(file,edit,_selected,mode)=>calls.push({focus:[file,edit],mode}),onMode:mode=>calls.push({mode}),onError:error=>errors.push(error.message)});
- update();calls.length=0;
- return {controls,doc:editor.document,editor,runtime,get data(){return data;},vscode,calls,errors,callbacks,status,decide:(...args)=>commands.get('manuscriptReview.decideSource')(...args),lenses:()=>callbacks.provider.provideCodeLenses(editor.document)};
+ update();calls.length=0;metrics.reads=metrics.scans=metrics.lenses=0;
+ return {controls,update,metrics,doc:editor.document,editor,runtime,get data(){return data;},vscode,calls,errors,callbacks,status,decide:(...args)=>commands.get('manuscriptReview.decideSource')(...args),lenses:()=>callbacks.provider.provideCodeLenses(editor.document)};
 }
 
 test('native controls use the single source delivery owner and immediately advance',async()=>{
@@ -116,4 +126,54 @@ test('leaving review cancels queued choices as well as pending auto-advance',asy
 test('a same-revision projection refresh does not falsely refuse a pinned decision',async()=>{
  let f;f=fixture({flushing:()=>f.controls.update({document:f.doc,reviewId:'review',revision:1,file:'main.tex',text:f.doc.text,ranges:[{id:'first',from:2,to:5},{id:'second',from:11,to:16}]},{...f.data})});
  await f.controls.decide('reject');assert.deepEqual(f.data.decisions,{first:'reject'});assert.deepEqual(f.errors,[]);
+});
+
+
+test('cursor movement and same-file navigation reuse exact source and review indexes',async()=>{
+ const f=fixture({editCount:10000});
+ for(let i=0;i<1000;i++){
+  f.editor.selection.active=1+i%2;
+  f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Keyboard});f.lenses();
+ }
+ assert.deepEqual(f.metrics,{reads:0,scans:0,lenses:0});
+ for(let i=0;i<100;i++)await f.controls.move(1);
+ assert.equal(f.editor.selection.active,400);assert.equal(f.calls.includes('data'),false);
+ assert.equal(f.metrics.reads,0);assert.equal(f.metrics.scans,0);assert.equal(f.metrics.lenses,100);
+});
+
+test('changed source is checked once per native version and invalidates inline controls',()=>{
+ const f=fixture();f.doc.text='Author is editing.';f.doc.isDirty=true;
+ for(let i=0;i<100;i++){f.callbacks.selection();assert.deepEqual(f.lenses(),[]);}
+ assert.equal(f.metrics.reads,1);assert.equal(f.metrics.lenses,1);assert.equal(f.status.visible,false);
+ f.doc.text=f.data.files[0].after;f.callbacks.change();assert.equal(f.lenses().length,3);assert.equal(f.metrics.reads,2);
+});
+
+test('projection updates refresh progress even when lazy-loaded data retains its identity',()=>{
+ const f=fixture();f.data.decisions.first='accept';f.update();assert.equal(f.status.text,'1/2');
+ f.controls.clear();assert.equal(f.status.visible,false);assert.deepEqual(f.lenses(),[]);assert.equal(f.metrics.lenses,2);
+});
+
+test('background editor events preserve focused review and queued decisions',async()=>{
+ const f=fixture();await f.controls.begin();const before=f.calls.length;
+ f.callbacks.selection({textEditor:{document:{}},kind:f.vscode.TextEditorSelectionChangeKind.Mouse});
+ f.callbacks.change({document:{},reason:f.vscode.TextDocumentChangeReason.Undo});
+ assert.equal(f.calls.length,before);await f.controls.decide('accept');assert.deepEqual(f.errors,[]);
+ assert.deepEqual(f.data.decisions,{first:'accept'});
+});
+
+test('leaving review cancels navigation waiting for source capture',async()=>{
+ let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ const f=fixture({flushing:async()=>{entered();await gate;}});await f.controls.begin();
+ const moving=f.controls.move(1);await started;f.controls.edit();release();
+ assert.equal(await moving,false);assert.equal(f.editor.selection.active,2);
+});
+
+
+test('leaving or disposing review during a comparison read cannot reopen source',async()=>{
+ for(const cancel of ['edit','clear','dispose']){
+  let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+  const f=fixture({reading:async()=>{entered();await gate;}});f.controls.clear();
+  const moving=f.controls.move(1);await started;f.controls[cancel]();release();
+  assert.equal(await moving,false);assert.equal(f.calls.some(call=>call.open),false);
+ }
 });

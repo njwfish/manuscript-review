@@ -132,6 +132,13 @@ class CompiledPDFTests(unittest.TestCase):
             self.assertFalse(manifest['documents'][side].get('excerpt_error'))
             self.assertTrue(all(passage[side].get('asset') for passage in manifest['passages'].values()))
 
+    def test_standard_equation_excerpts_do_not_require_amsmath(self):
+        source = '\\documentclass{article}\n\\begin{document}\n\\begin{equation}\nx = 1\n\\end{equation}\n\\end{document}\n'
+        _, manifest = self.compile(source, source, source.replace('x = 1', 'x = 2'))
+        for side in ('before', 'after'):
+            self.assertFalse(manifest['documents'][side].get('excerpt_error'))
+            self.assertTrue(all(passage[side].get('asset') for passage in manifest['passages'].values()))
+
     def test_bibliography_item_commands_remain_outside_highlight_groups(self):
         source = '\\documentclass{article}\n\\begin{document}\n\\begin{thebibliography}{9}\n\\bibitem{old}Author.\n\\end{thebibliography}\n\\end{document}\n'
         _, manifest = self.compile(source, source, source.replace('{old}Author', '{new}Another author'))
