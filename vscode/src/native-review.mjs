@@ -79,11 +79,13 @@ export function createNativeReview(vscode,{runtime,enabled,sourceEdits,delivery,
   if(busy)return;
   busy=true;
   try{
-   const selected=current(),epoch=navigationEpoch;
+   const selected=current(),epoch=navigationEpoch,version=selected?.editor.document.version;
    if(!selected||selected.data.id!==id||selected.data.revision!==revision||selected.source.file!==file||selected.span.id!==edit)
     throw new Error('The source comparison changed. Choose its current edit.');
    await delivery().flush();await sourceEdits().flush();
-   if(current()?.data!==selected.data||runtime().review.revision!==revision||selected.editor.document.isDirty)
+   const latest=current();
+   if(!latest||latest.data.id!==id||latest.data.revision!==revision||latest.source.file!==file||latest.span.id!==edit
+    ||latest.editor!==selected.editor||latest.source.text!==selected.source.text||selected.editor.document.version!==version||selected.editor.document.isDirty)
     throw new Error('Save your source edits before deciding this change.');
    const source=selected.data.files.find(item=>item.path===file),group=source?.edits.find(item=>item.id===edit);
    const before=selected.editor.document.getText(),{from,to}=selected.span;

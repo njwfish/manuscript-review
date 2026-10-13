@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 
 /** PDF is a view of selected source; every review action belongs to the editor. */
 export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError}){
- let panel,instance,ready=false,selection,reviewing=false,documentKey,cached,timer,refreshing,opening,again=false,generation=0,disposed=false;
+ let panel,instance,ready=false,selection,reviewing=false,documentKey,displayed,cached,timer,refreshing,opening,again=false,generation=0,disposed=false;
  const post=message=>panel?.webview.postMessage({...message,instance});
  const keys=new Map([['a','accept'],['s','reject'],['d','previous'],['f','next'],['e','edit'],['c','comment'],['u','reset'],['escape','edit']]);
  function schedule(){clearTimeout(timer);timer=setTimeout(()=>void refresh().catch(onError),500);}
@@ -66,7 +66,8 @@ export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError})
  }
  async function create(){
   const id=randomUUID();instance=id;ready=false;generation++;
-  const origin=await viewer.start();
+  const local=new URL('viewer.html',await viewer.start());
+  const address=(await vscode.env.asExternalUri(vscode.Uri.parse(local.href))).toString(),origin=new URL(address).origin;
   if(disposed)return;
   panel=vscode.window.createWebviewPanel('manuscriptReview.pdf','PDF: '+path.basename(runtime.review.repo),
    {viewColumn:vscode.ViewColumn.Beside,preserveFocus:true},{enableScripts:true,retainContextWhenHidden:true,localResourceRoots:[vscode.Uri.file(path.join(context.extensionPath,'dist'))]});
@@ -76,24 +77,25 @@ export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError})
    panel.webview.onDidReceiveMessage(async message=>{
     if(panel!==current||message?.instance!==id)return;
     try{
-     if(message.type==='loaded')await post({type:'viewer',url:origin});
+     if(message.type==='loaded')await post({type:'viewer',url:address});
      else if(message.type==='ready'){ready=true;await refresh();}
+     else if(message.type==='rendered'&&message.document===documentKey)displayed=message.selection;
      else if(message.type==='key'&&reviewing){
       const action=keys.get(message.key?.toLowerCase());
-      if(['accept','reject','reset'].includes(action)&&(message.selection!==selection?.token||selection?.revision!==runtime.review.revision))return;
+      if(['accept','reject','reset'].includes(action)&&(message.selection!==displayed||message.selection!==selection?.token||selection?.revision!==runtime.review.revision))return;
       if(action)await onAction(action,message.ctrlKey?'file':message.shiftKey?'passage':'edit');
-     }else if(message.type==='error')onError(new Error(message.error));
+     }else if(message.type==='error'&&message.document===documentKey){displayed=undefined;await post({type:'status',text:message.error});onError(new Error(message.error));}
     }catch(error){onError(error);}
    }),
    panel.onDidChangeViewState(()=>{if(current.active)void onAction('focus').catch(onError);}),
-   panel.onDidDispose(()=>{if(panel!==current)return;panel=undefined;ready=false;generation++;cached=documentKey=undefined;clearTimeout(timer);for(const item of subscriptions)item.dispose();})
+   panel.onDidDispose(()=>{if(panel!==current)return;panel=undefined;ready=false;generation++;cached=documentKey=displayed=undefined;clearTimeout(timer);for(const item of subscriptions)item.dispose();})
   ];
  }
  return {show,refresh,select(file,edit,revision,removed=false){
    const review=runtime.review.id,token=review+'/'+revision+'/'+file+'/'+edit;
    selection=file?{file,edit,revision,removed,review,token}:undefined;return updateSelection();
   },
-  reset(){generation++;cached=selection=documentKey=undefined;clearTimeout(timer);post({type:'status',text:'Updating PDF…'});},
+  reset(){generation++;cached=selection=documentKey=displayed=undefined;clearTimeout(timer);post({type:'status',text:'Updating PDF…'});},
   setMode(value){reviewing=value;void updateSelection()?.catch(onError);},get active(){return Boolean(panel?.active);},
   dispose(){disposed=true;generation++;clearTimeout(timer);panel?.dispose();}};
 }

@@ -8,13 +8,14 @@ window.addEventListener('message',event=>{
  if(event.source===frame.contentWindow&&event.origin===viewerOrigin){
   if(message?.type==='review-pdf-ready')send({type:'ready'});
   else if(message?.type==='review-pdf-key')send({type:'key',key:message.key,selection:message.selection,shiftKey:message.shiftKey,ctrlKey:message.ctrlKey});
-  else if(message?.type==='review-pdf-error')send({type:'error',error:message.error});
+  else if(message?.type==='review-pdf-rendered')send({type:'rendered',document:message.document,selection:message.selection});
+  else if(message?.type==='review-pdf-error')send({type:'error',document:message.document,error:message.error});
   return;
  }
  if(message?.instance!==instance)return;
  if(message.type==='viewer'){
   const url=new URL(message.url);viewerOrigin=url.origin;
-  url.pathname='/viewer.html';url.searchParams.set('parentOrigin',location.origin);frame.src=url.href;
+  url.searchParams.set('parentOrigin',location.origin);frame.src=url.href;
  }else if(message.type==='status'){
   status.textContent=message.text;status.hidden=!message.text;frame.hidden=Boolean(message.text);
  }else if(message.type==='document'){

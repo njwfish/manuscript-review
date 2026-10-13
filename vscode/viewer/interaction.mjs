@@ -2,6 +2,15 @@ import {reviewMarks} from './highlights.mjs';
 
 const keys = new Set(['a', 's', 'd', 'f', 'u', 'c', 'e', 'escape']);
 
+export function reviewOrigin(value) {
+    const url = new URL(value);
+    const origin = url.protocol === 'vscode-webview:' && /^[a-z0-9-]+$/.test(url.hostname) && !url.port
+        ? 'vscode-webview://' + url.hostname : url.origin;
+    if (origin === 'null' || origin !== value || !['http:', 'https:', 'vscode-webview:'].includes(url.protocol))
+        throw new Error('Invalid PDF review host.');
+    return origin;
+}
+
 export function reviewKey(event) {
     if (event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return;
     if (event.ctrlKey && !['a', 's'].includes(event.key?.toLowerCase())) return;
@@ -33,8 +42,10 @@ export function createPDFReview(application, highlights, onError) {
                 documentKey = key;
             }
             if (ticket === generation) highlights.set(marks, message.color, message.active !== false);
+            return ticket === generation;
         }).catch(error => {
             if (ticket === generation) onError({type: 'review-pdf-error', document: key, error: error.message});
+            return false;
         });
         return loading;
     };

@@ -112,3 +112,8 @@ test('leaving review cancels queued choices as well as pending auto-advance',asy
  const second=f.controls.decide('reject');f.controls.edit();release();await Promise.all([first,second]);
  assert.deepEqual(f.data.decisions,{first:'accept'});assert.equal(f.editor.selection.active,2);
 });
+
+test('a same-revision projection refresh does not falsely refuse a pinned decision',async()=>{
+ let f;f=fixture({flushing:()=>f.controls.update({document:f.doc,reviewId:'review',revision:1,file:'main.tex',text:f.doc.text,ranges:[{id:'first',from:2,to:5},{id:'second',from:11,to:16}]},{...f.data})});
+ await f.controls.decide('reject');assert.deepEqual(f.data.decisions,{first:'reject'});assert.deepEqual(f.errors,[]);
+});

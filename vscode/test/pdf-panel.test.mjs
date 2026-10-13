@@ -8,7 +8,7 @@ function fixture(){
  const view={active:false,webview:{cspSource:'vscode-resource:',html:'',asWebviewUri:uri=>uri.fsPath,
   async postMessage(message){messages.push(message);},onDidReceiveMessage(fn){handlers.message=fn;return disposable();}},
   reveal(){},onDidChangeViewState(fn){handlers.active=fn;return disposable();},onDidDispose(fn){handlers.dispose=fn;return disposable();},dispose(){handlers.dispose();}};
- const vscode={Uri:{file:fsPath=>({scheme:'file',fsPath})},ViewColumn:{Beside:2},window:{createWebviewPanel(type,title){calls.push({type,title});return view;}}};
+ const vscode={Uri:{file:fsPath=>({scheme:'file',fsPath}),parse:value=>({toString:()=>value})},env:{asExternalUri:async uri=>uri},ViewColumn:{Beside:2},window:{createWebviewPanel(type,title){calls.push({type,title});return view;}}};
  let data={id:'review',revision:1,result:'selected',proposed:'proposal',entry:'main.tex'};
  const preview=()=>({proposed:data.result,proposal:data.proposed,entry:data.entry,preview_status:'ready',documents:{after:{pdf:'after.pdf',pages:[{width:100,height:200}],edits:{edit:[{page:1,bounds:[10,20,30,40]}],next:[{page:1,bounds:null}]}}}});
  const runtime={review:{id:'review',repo:'/manuscript',revision:1},async request(route){calls.push(route);await handlers.request?.(route);return route==='/summary'?{...data}:preview();},async asset(route){calls.push(route);await handlers.asset?.();return {bytes:Buffer.from('%PDF-fixture')};}};
@@ -28,7 +28,8 @@ test('PDF opens only explicitly and displays selected source with one normalized
 
 test('PDF keys delegate to source owner only for the displayed selection and revision',async()=>{
  const f=fixture();await f.panel.select('main.tex','edit',1);await f.ready();f.panel.setMode(true);await f.panel.refresh();
- const token=f.messages.filter(message=>message.type==='document').at(-1).selection;
+ const shown=f.messages.filter(message=>message.type==='document').at(-1),token=shown.selection;
+ await f.send({type:'rendered',document:shown.document,selection:token});
  await f.send({type:'key',key:'a',selection:'old'});assert.deepEqual(f.actions,[]);
  await f.send({type:'key',key:'A',selection:token,ctrlKey:true});assert.deepEqual(f.actions,[['accept','file']]);
  f.runtime.review.revision++;await f.send({type:'key',key:'s',selection:token});assert.equal(f.actions.length,1);
@@ -77,7 +78,7 @@ test('review switching drains invalidated runtime request failures',async()=>{
 test('concurrent PDF opening creates one panel and disposal cancels pending startup',async()=>{
  for(const dispose of [false,true]){
   let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve),views=[];
-  const vscode={Uri:{file:fsPath=>({fsPath})},ViewColumn:{Beside:2},window:{createWebviewPanel(){const handlers={};const panel={webview:{asWebviewUri:()=>'',onDidReceiveMessage:()=>({dispose(){}})},onDidChangeViewState:()=>({dispose(){}}),onDidDispose(fn){handlers.dispose=fn;return {dispose(){}};},dispose(){handlers.dispose();}};views.push(panel);return panel;}}};
+  const vscode={Uri:{file:fsPath=>({fsPath}),parse:value=>({toString:()=>value})},env:{asExternalUri:async uri=>uri},ViewColumn:{Beside:2},window:{createWebviewPanel(){const handlers={};const panel={webview:{asWebviewUri:()=>'',onDidReceiveMessage:()=>({dispose(){}})},onDidChangeViewState:()=>({dispose(){}}),onDidDispose(fn){handlers.dispose=fn;return {dispose(){}};},dispose(){handlers.dispose();}};views.push(panel);return panel;}}};
   const owner=createPDFPanel(vscode,{extensionPath:'/extension'},{review:{id:'review',repo:'/paper'}},{viewer:{start:async()=>{entered();await gate;return 'http://127.0.0.1:1234';}},onAction:async()=>{},onError:()=>{}});
   const first=owner.show();await started;const second=owner.show();if(dispose)owner.dispose();release();await Promise.all([first,second]);assert.equal(views.length,dispose?0:1);owner.dispose();
  }

@@ -487,7 +487,7 @@ export function activate(context){
  command('commentChange',()=>nativeReview.comment());
  command('editSource',()=>nativeReview.edit());
  command('exitReview',async()=>{nativeReview.edit();await setHighlights(false);await refreshSource();});
- command('reviewPDF',async()=>{if(await ensureReview())await pdf.show();});
+ command('reviewPDF',async()=>{if(await ensureReview()){await sourceEdits.flush();await pdf.show();}});
  command('refresh',async()=>{if(!await ensureReview())return;await refreshSource();void pdf.refresh().catch(fail);});
  command('reviewSavedChanges',reviewSavedChanges);
  command('compare',()=>compareVersions());

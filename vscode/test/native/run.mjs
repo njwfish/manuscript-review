@@ -27,12 +27,15 @@ const source=path.join(app,'vscode/src');
 // Observe existing owners without adding test hooks to the product API.
 await build({entryPoints:[path.join(source,'extension.mjs')],bundle:true,platform:'node',target:'node22',format:'cjs',external:['vscode'],outfile:path.join(fixture,'actual.cjs'),plugins:[{
  name:'native-test-observation',setup(builder){
-  builder.onResolve({filter:/^\.\/(runtime|comments|decorations)\.mjs$/},args=>args.importer===path.join(source,'extension.mjs')?{path:args.path.slice(2),namespace:'observe'}:undefined);
+  builder.onResolve({filter:/^\.\/(runtime|comments|decorations|pdf-panel)\.mjs$/},args=>args.importer===path.join(source,'extension.mjs')?{path:args.path.slice(2),namespace:'observe'}:undefined);
   builder.onLoad({filter:/.*/,namespace:'observe'},args=>{
-   const name={ 'runtime.mjs':'createRuntime','comments.mjs':'createComments','decorations.mjs':'createDecorations'}[args.path];
-   const extra=args.path==='comments.mjs'?'export {sourceFile,sourceDocument} from '+JSON.stringify(path.join(source,args.path))+';':'';
+   const name={ 'runtime.mjs':'createRuntime','comments.mjs':'createComments','decorations.mjs':'createDecorations','pdf-panel.mjs':'createPDFPanel'}[args.path];
+   const extra=args.path==='pdf-panel.mjs'?'export {followWorkshopPDF} from '+JSON.stringify(path.join(source,args.path))+';':args.path==='comments.mjs'?'export {sourceFile,sourceDocument} from '+JSON.stringify(path.join(source,args.path))+';':'';
    return {contents:`import {${name} as original} from ${JSON.stringify(path.join(source,args.path))};${extra}
-    export function ${name}(...args){const owner=original(...args);globalThis.nativeReviewTest[${JSON.stringify(args.path)}]=owner;return owner;}`,resolveDir:source,loader:'js'};
+    export function ${name}(...args){
+    ${args.path==='pdf-panel.mjs'?`const platform=args[0];globalThis.nativeReviewTest.pdfMessages=[];
+      const proxy=Object.create(platform),window=Object.create(platform.window);Object.defineProperty(proxy,'window',{value:window});Object.defineProperty(window,'createWebviewPanel',{value(...values){const panel=platform.window.createWebviewPanel(...values);panel.webview.onDidReceiveMessage(message=>globalThis.nativeReviewTest.pdfMessages.push(message));return panel;}});args[0]=proxy;`:''}
+    const owner=original(...args);globalThis.nativeReviewTest[${JSON.stringify(args.path)}]=owner;return owner;}`,resolveDir:source,loader:'js'};
   });
  }}]});
 console.log('Native fixture: '+root);

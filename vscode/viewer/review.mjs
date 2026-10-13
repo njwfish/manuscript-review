@@ -1,10 +1,9 @@
 import {createHighlights} from './highlights.mjs';
-import {createPDFReview, reviewKey, reviewMessage} from './interaction.mjs';
+import {createPDFReview, reviewKey, reviewMessage, reviewOrigin} from './interaction.mjs';
 
 const origin = new URL(location.href).searchParams.get('parentOrigin');
 if (!origin || origin === 'null') throw new Error('The PDF viewer requires its review host.');
-const target = new URL(origin).origin;
-if (target !== origin) throw new Error('Invalid PDF review host.');
+const target = reviewOrigin(origin);
 const send = value => window.parent.postMessage(value, target);
 
 // Workshop applies these options immediately before PDF.js initializes.
@@ -38,7 +37,7 @@ window.addEventListener('message', event => {
     const message = reviewMessage(event, target, window.parent);
     if (message) {
         const ticket=++revision;reviewing=false;
-        void reviewPDF(message).then(()=>{if(ticket===revision){reviewing=Boolean(message.reviewing);selection=message.selection;}});
+        void reviewPDF(message).then(success=>{if(success&&ticket===revision){reviewing=Boolean(message.reviewing);selection=message.selection;send({type:'review-pdf-rendered',document:message.document,selection});}});
     }
 });
 
