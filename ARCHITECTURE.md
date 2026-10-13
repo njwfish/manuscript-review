@@ -1,6 +1,6 @@
 # Manuscript Review architecture
 
-VS Code is the primary interface. Its extension bundles and starts the Python review service, hosts focused comparisons and PDF review, and uses the native editor and comments for manuscript work. The standalone app remains another interface to the same service and review records. Shared review operations live in `manuscript_review/`; VS Code adapters live in `vscode/`. The Python runtime uses its standard library.
+VS Code is the primary interface. Its extension bundles and starts the Python review service, uses the native editor for focused source review and comments, with an optional synchronized PDF. The standalone app remains another interface to the same service and review records. Shared review operations live in `manuscript_review/`; VS Code adapters live in `vscode/`. The Python runtime uses its standard library.
 
 ## The review record
 
@@ -48,7 +48,7 @@ The author selects wording and resolves issues. Agent providers retain working
 transcripts; the review stores comments and final responses. The UI can navigate
 unresolved threads independently of undecided source edits. Native comments use
 VS Code’s resolved/unresolved state and display filters; source navigation has an
-Unresolved/All picker. The focused interface keeps the same filter beside its
+Unresolved/All picker. The standalone interface keeps the same filter beside its
 comment arrows. Resolved discussions collapse and remain available to reopen.
 
 Agents can also create a discussion entry directly against a passage or edit. Existing diff explanations use this operation. Initial external feedback imports exact source quotes through the same source-comment operation as the editor; revision passes append replies to those comments. The same record fields hold both, with explicit `author` attribution. Explanation imports preserve editable user notes and decisions, use the same revision check, and deduplicate by author, round, target, and text. The UI displays relevant agent notes from the current proposal beside the diff, and keeps earlier notes in discussion. External feedback inventories belong in agent-maintained project files, not the app record.
@@ -63,12 +63,12 @@ Agents can also create a discussion entry directly against a passage or edit. Ex
 
 The file is the editing unit; passages and edits remain the review units; discussions can attach to them or any source selection. The editor starts from selected wording and retains a draft against a pinned source version. Saving compares that source with the edited file, expands manual changes that touch an existing replacement, and maps those intervals back to the proposal. If a manual change merges neighboring edits, their selected wording travels into the merged replacement. The updated proposal remains separate from unrelated rejected wording. New manual changes are accepted; unaffected decisions survive, and affected notes become discussion. The selected result must reproduce the editor text exactly before any manuscript write.
 
-Source segments locate manual intervals in the validated working projection, including repeated text and choices applied earlier. Saving writes only those intervals. Unedited working text retains its exact contents even when the current review selects different wording. Applying the review writes the full selected result explicitly. Every captured source save pins its version and refreshes the comparison according to its editing intent; typeset previews follow the current proposal.
+Source segments locate manual intervals in the validated working projection, including repeated text and choices applied earlier. The standalone editor writes only those intervals, preserving unedited working text even when the current review selects different wording. Native Save already writes the buffer; capture records it without another source write. Apply writes the full selected result explicitly. Every captured save pins its version and refreshes the comparison according to its intent. Standalone before/after previews follow the proposal; the native PDF follows selected wording.
 
 CodeMirror owns text input, selection, undo, search, scrolling, and editor highlights. The small adapter in `frontend/editor.js` connects document changes to the existing review client. It owns no review persistence or manuscript writes. The bundle and dependency licenses are checked in; `npm run build` regenerates them without adding a runtime network dependency.
 
 The VS Code preview uses its native source editor and CommentController. The comment controller is registered on activation, independently of a comparison.
-Its range provider accepts supported manuscript sources; a sidebar preference disables
+Its range provider stays empty to avoid a full-file gutter stripe; a sidebar preference disables
 new-comment controls without disposing threads or replies. The service restores saved
 comments for the active source checkout. A first annotation lazily opens the working
 manuscript through the existing prepare operation, without a round picker or focused
@@ -83,23 +83,29 @@ caret at the original start without selecting the quoted passage. Native comment
 ranges stay empty to avoid a persistent stripe down the file; source annotation uses
 the selection action, keyboard shortcut, and context menu. Without an adjacent break,
 VS Code can still repeat its native glyph on wrapped rows.
-`source-edits.mjs` flushes pending review choices, captures the latest saved file
-through `ReviewSession.capture_file`, and refreshes the same comparison without
-replacing the native buffer or taking focus. Unsaved typing remains in VS Code. Decisions and comments
-use the same record transactions as the standalone app. The extension host keeps service
-tokens private, pins queued operations to their intended review, and passes requests
-through `host.js` to the shared focused-review client. Navigation stays in webview state.
-Every focused page owns a UUID, request waiters, readiness and its flush lock. Replies
-and commands cannot cross a reload. Review selection prepares the target checkout
-without transferring input ownership, drains native delivery and saved source, locks
-focused input, then commits synchronously when no Save or delivery remains pending.
-Retries release that lock before draining again. Unexpected service exit replaces only
-the child service on explicit retry, retaining selection and pending captures; an
-interrupted mutation is never replayed automatically.
+`source-edits.mjs` captures ordered native saves through `ReviewSession.capture_file`
+and refreshes the same comparison without replacing the buffer or taking focus.
+Unsaved typing stays in VS Code. Decisions and comments use the same transactions
+as the standalone app. The extension host keeps service tokens private and pins
+queued operations to their intended review.
 
-Apply checks unsaved repository buffers immediately before sending its queued transaction;
-the review engine retains its source, revision, and Git checks. Comparing saved source
-checks buffers both before flushing the focused panel and before creating the new round.
+`native-review.mjs` owns source selection, keyboard focus, CodeLens decisions and
+navigation. The source editor is the only text review surface. Native decisions use
+the existing session save and delivery operations. Same-file navigation uses cached
+exact projections. Review selection drains delivery and saved source, invalidates
+queued native actions, then selects the next record. An interrupted mutation is never
+replayed automatically.
+
+`pdf-panel.mjs` owns an optional read-only PDF webview and delegates review keys to
+the native owner. It displays the selected result, including rejected wording, with
+round edit IDs projected onto that result. The selected preview cache is separate
+from the standalone before/after excerpt caches and skips page-to-SVG conversion.
+Selections update cached PDF marks without compiling or rereading source.
+An already open matching Workshop PDF follows saved source through SyncTeX.
+
+Apply checks unsaved repository buffers immediately before sending its queued
+transaction; the engine retains source, revision and Git checks. Comparing saved
+source checks buffers before creating the next round.
 
 The extension's setup, repository comparison, library, Apply, response imports, and
 agent workflow use the shared operations directly. Git comparisons show both endpoints,
@@ -199,8 +205,9 @@ unchanged document projections, coalescing overlapping refreshes. Background rea
 for prior writes without joining the write queue; review epochs and monotonic revisions
 reject obsolete results. Record watchers read the small status endpoint rather than
 parsing source records in the extension host. Git pickers open with cached choices and
-refresh history in place. Focused review builds collapsed context on demand and combines
-queued decisions into the latest save. Manuscript writes retain the same locks, revision
+refresh history in place. The standalone client builds collapsed context on demand and combines queued decisions
+into the latest save. Native review serializes decisions and uses cached source spans
+for navigation. Manuscript writes retain the same locks, revision
 checks, durable record replacement, and recovery journal.
 
 Comparison construction reads Git trees and blobs in bulk. Source enumeration
@@ -208,8 +215,8 @@ respects ignore rules, hidden and temporary directories, and nested Git boundari
 without filtering by file extension. Existing snapshots remain intact. Preview source
 extraction and successful reference compilation are cached by exact source and renderer
 versions. A malformed excerpt is isolated from other excerpts; a preamble failure
-stops the batch without repeated compiler attempts. Focused comparisons dim surrounding
-context; clicking the passage expands it. The sidebar can independently disable review
+stops the batch without repeated compiler attempts. Native focus dims distant source; clicking source returns to typing. Standalone
+focus collapses surrounding context; clicking the passage expands it. The sidebar can independently disable review
 highlights while retaining comments.
 
 The extension discovers Python 3.12 or newer before importing the engine, skipping older
@@ -272,16 +279,14 @@ uses the existing review for one author-versus-agent comparison. `authoring.py` 
 the comparison base to captured author wording and carries ordinary drafting saves
 into that base. Review-mode refinements keep the base fixed. The original baseline and archived records retain earlier comparisons,
 choices and discussion. Proposals still merge through the same session operations.
-The dispatch boundary uses the comment's source URI to distinguish native source
-comments from focused review discussions; tab visibility only pauses source delivery.
+The dispatch boundary uses the comment's source URI to retain its manuscript context.
 A source dispatch clears earlier staged version choices before refreshing the sidebar;
 choices made during the handoff stay staged.
 
 `delivery.mjs` requests exact replacements from the session, checks every participating
 native buffer is saved and unchanged, then uses a native WorkspaceEdit and Save. It
-never overwrites a dirty buffer. Automatic delivery pauses while focused review is
-visible and resumes when it closes; explicit source decisions and Open review use
-the same checked delivery operation. Delivery stages all source checkpoints before exposing edits and gates native
+never overwrites a dirty buffer. Explicit source decisions and Review in editor use
+the same checked delivery operation; native focus does not pause clean delivery. Delivery stages all source checkpoints before exposing edits and gates native
 capture until the workspace edit succeeds or rolls back. Source capture
 receives the delivered source checkpoint, distinguishing agent delivery from subsequent
 author edits; VS Code workspace storage retains that checkpoint until capture succeeds.

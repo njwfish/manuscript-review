@@ -37,7 +37,10 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
             elif urlsplit(self.path).path == '/previews':
                 scope = parse_qs(urlsplit(self.path).query).get('scope', ['round'])[0]
                 try:
-                    self.response(session.preview(scope))
+                    result = session.preview(scope)
+                    self.response(result)
+                    if result['preview_status'] == 'queued':
+                        session.previews.queue('round' if scope == 'manuscript' else scope)
                 except ValueError as error:
                     self.response({'error': str(error)}, status=400)
             elif self.path == '/summary':
@@ -58,8 +61,9 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                 if scope not in ('round', 'baseline', 'manuscript'):
                     return self.response({'error': 'Unknown comparison scope.'}, status=400)
                 self.response(session.selected_patch(scope), 'text/plain', attachment='manuscript-selected.patch')
-            elif self.path.startswith(('/assets/', '/baseline-assets/')) and re.fullmatch(r'[A-Za-z0-9_-]+\.(?:svg|pdf)', self.path.rsplit('/', 1)[-1]):
-                path = session.directory / ('baseline-renders' if self.path.startswith('/baseline-assets/') else 'renders') / self.path.rsplit('/', 1)[-1]
+            elif self.path.startswith(('/assets/', '/baseline-assets/', '/selected-assets/')) and re.fullmatch(r'[A-Za-z0-9_-]+\.(?:svg|pdf)', self.path.rsplit('/', 1)[-1]):
+                folder = {'assets': 'renders', 'baseline-assets': 'baseline-renders', 'selected-assets': 'selected-renders'}[self.path.split('/')[1]]
+                path = session.directory / folder / self.path.rsplit('/', 1)[-1]
                 if path.exists():
                     self.response(path.read_bytes(), 'application/pdf' if path.suffix == '.pdf' else 'image/svg+xml')
                 else:

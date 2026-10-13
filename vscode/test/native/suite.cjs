@@ -6,11 +6,11 @@ exports.run=async()=>{
  const {fixture,document,editor}=state;
  const engine=(script,...args)=>JSON.parse(execFileSync(fixture.python,['-c',script,fixture.home,fixture.review,...args],{cwd:fixture.package+'/dist/runtime',encoding:'utf8'}));
  const record=async()=>JSON.parse(await fs.readFile(fixture.home+'/reviews/'+fixture.review+'/review.json','utf8'));
- await until(()=>state.runtime?.review?.id===fixture.review);await state.comments.refresh();
  assert.equal(document.getText(),fixture.text);
  // Dispatch is detached, saves the native thread, and preserves dirty source.
  editor.selection=new vscode.Selection(document.positionAt(0),document.positionAt(24));
  const thread=await state.comments.annotate(editor);
+ await until(()=>state.runtime?.review?.id===fixture.review);await state.comments.refresh();
  assert.equal(thread.range.isEmpty,true);
  assert.equal(thread.range.start.line,1);
  const began=performance.now();
@@ -43,7 +43,8 @@ exports.run=async()=>{
  assert.equal(execFileSync('git',['show',authorBase+':main.tex'],{cwd:fixture.repo,encoding:'utf8'}),authorText);
  await until(async()=> (await record()).metadata.workspace_version!==(await record()).snapshot.base);
  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
- await vscode.commands.executeCommand('manuscriptReview.refresh'); // Exercises live webview readiness and flush across reload.
+ await vscode.commands.executeCommand('manuscriptReview.refresh');
+ assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false,'Review must use native source without another text tab');
  await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
  let at=document.getText().indexOf('observed');
  await editor.edit(builder=>builder.replace(new vscode.Range(document.positionAt(at),document.positionAt(at+8)),'recorded'));
@@ -65,8 +66,21 @@ exports.run=async()=>{
  assert.ok(document.getText().includes('recorded'),'Undo must target the native source editor, not the adjacent webview');
  await document.save();
  await until(()=>document.getText().includes('recorded')&&!document.isDirty);
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ // Verify real webview transport and PDF.js rendering with a synthetic selected PDF.
+ const selected=await record(),edit=selected.snapshot.files.find(file=>file.path==='main.tex').edits[0];
+ const lines=document.getText().trim().split('\n').filter(Boolean),content='BT /F1 12 Tf 36 700 Td '+lines.map((line,index)=>(index?'0 -24 Td ':'')+'('+line.replace(/[\\()]/g,'\\$&')+') Tj').join(' ')+' ET';
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>','<< /Length '+Buffer.byteLength(content)+' >>\nstream\n'+content+'\nendstream'];
+ let bytes='%PDF-1.4\n',offsets=[0];objects.forEach((value,index)=>{offsets.push(Buffer.byteLength(bytes));bytes+=(index+1)+' 0 obj\n'+value+'\nendobj\n';});
+ const xref=Buffer.byteLength(bytes);bytes+='xref\n0 6\n0000000000 65535 f \n'+offsets.slice(1).map(value=>String(value).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+ const preview=fixture.home+'/reviews/'+fixture.review+'/selected-renders';await fs.mkdir(preview,{recursive:true});await fs.writeFile(preview+'/native-test.pdf',bytes);
+ engine("import sys,json;from pathlib import Path;from manuscript_review.library import Library;from manuscript_review.storage import atomic_json;from manuscript_review.render_latex import RENDER_VERSION;from manuscript_review.session import ReviewSession;session=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));record=session.store.read();atomic_json(session.directory/'selected-renders/manifest.json',{'base':record['snapshot']['base'],'proposed':record['result'],'proposal':record['snapshot']['proposed'],'entry':record['snapshot']['entry'],'renderer':RENDER_VERSION,'documents':{'after':{'pdf':'native-test.pdf','pages':[{'width':612,'height':792}],'edits':{sys.argv[3]:[{'page':1,'bounds':[90,80,138,96]}]}}}});record['metadata']['selected_preview_status']='ready';session.store.patch({'metadata':record['metadata']});print(json.dumps({'ready':True}))",edit.id);
+ await vscode.commands.executeCommand('manuscriptReview.reviewPDF');
+ await until(()=>state.pdfMessages.some(message=>message.type==='rendered')).catch(async error=>{await fs.writeFile(fixture.root+'/pdf-messages.json',JSON.stringify(state.pdfMessages));throw error;});
+ assert.equal(state.pdfMessages.some(message=>message.type==='error'),false,'The real PDF webview must decode and render selected PDF bytes');
+ assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false);
  assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:fixture.repo,encoding:'utf8'}).trim(),fixture.head);
  assert.equal(execFileSync('git',['diff','--cached','--name-only'],{cwd:fixture.repo,encoding:'utf8'}).trim(),'');
  await state.actual.deactivate();
- await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,focusedWebviewReload:true,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
+ await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,singleNativeReviewEditor:true,selectedPDFRendered:true,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
 };

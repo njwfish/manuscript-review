@@ -65,8 +65,8 @@ In VS Code, **Edit** selects **Your draft** or **Proposal** in an agent comparis
 Opening focused review selects Proposal. **Review highlights** controls display;
 automatic delivery can reveal changes without changing the editing intent. A fixed
 commit comparison always retains its base. Intent is pinned when manual typing starts.
-Opening the focused pane pauses automatic delivery. Hiding it resumes delivery and
-retains the selected editing intent.
+Focused review changes keyboard behavior and display; it does not pause clean source
+delivery or create another editable buffer.
 
 ## Save ownership and retries
 
@@ -106,7 +106,7 @@ confirms whether delivery occurred; cancelling retains the ledger for retry. A n
 delivery cannot overwrite an unresolved stage. Confirmed delivery survives restarts
 without another choice.
 
-Automatic delivery runs for agent comparisons while focused review is hidden.
+Automatic delivery runs for agent comparisons whenever the participating source is saved.
 Explicit native decisions use the same checked delivery path. The standalone interface
 writes manual intervals through its source journal; Apply writes the complete selected
 result. File creation and deletion require explicit Apply. Neither interface replaces
@@ -126,5 +126,22 @@ baseline and reconstructs the selected result from the proposal and decisions.
 
 Native adapter tests cover persistence, ownership, staging, and concurrent typing.
 The real VS Code fixture exercises dirty-buffer delivery, manual refinement, inline
-rejection, Undo and focused-view reloads. All write tests use synthetic repositories
+rejection, Undo and native review navigation. All write tests use synthetic repositories
 and isolated libraries.
+
+
+## Native review and PDF ownership
+
+`native-review.mjs` owns the current source selection, focused keyboard mode, navigation
+and inline decisions. It uses the exact editor projection for that saved revision.
+Same-file navigation uses cached spans; cross-file navigation opens the corresponding
+native document. Decisions use the existing session transaction and delivery owner.
+Queued actions retain their review identity and are cancelled when that review closes.
+Mouse editing, E/Escape and Undo leave focused mode; unrelated tabs keep normal typing.
+
+`pdf-panel.mjs` is an optional read-only view of the selected result. It retains PDF
+bytes and locations between selections and delegates actions to native review. A
+selection token prevents a decision on an obsolete displayed change. The selected PDF
+cache includes the result, raw proposal, entry file and renderer version, so locations
+retain the round's edit identities even when rejections restore earlier wording.
+PDF compilation never blocks native navigation or transfers Save ownership.

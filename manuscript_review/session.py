@@ -14,10 +14,10 @@ from .file_editing import file_replacements, replace_ranges
 from .anchors import SourceSpan, SourceMap
 from .feedback import feedback_report, feedback_record, validate_comments
 from .history import add_explanations, add_responses, build_history, round_id, attach
-from .previews import Previews, preview_assets
+from .previews import Previews, preview_assets, PREVIEW_SCOPES, preview_versions
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
-from .documents import document_file, manuscript_files, source_point, saved_source, review_payload
+from .documents import document_file, manuscript_files, source_point, saved_source, review_payload, selected_snapshot
 from .render_latex import RENDER_VERSION
 from .workspace import edit_checkout, working_directory, same_repository
 from .merging import merge_text
@@ -94,6 +94,8 @@ class ReviewSession:
             return make_patch(self.comparison(r, scope), {} if scope == 'baseline' else r['decisions'])
 
     def comparison(self, record, scope):
+        if scope == 'selected':
+            return selected_snapshot(record)
         if scope in ('round', 'manuscript'):
             return record['snapshot']
         with self.comparison_lock:
@@ -200,17 +202,18 @@ class ReviewSession:
                 **(self.review_context() if self.review_context else {})}
 
     def preview(self, scope='round'):
-        if scope not in ('round', 'baseline', 'manuscript'):
-            raise ValueError('Choose this round or since baseline.')
+        scope = 'round' if scope == 'manuscript' else scope
+        if scope not in PREVIEW_SCOPES:
+            raise ValueError('Choose a manuscript preview.')
         state = self._status()
-        baseline = scope == 'baseline'
-        base, proposed = (state['baseline'], state['result']) if baseline else (state['base'], state['proposed'])
-        manifest = read_json(self.directory / ('baseline-renders' if scope == 'baseline' else 'renders') / 'manifest.json', {})
-        valid = (manifest.get('base'), manifest.get('proposed'), manifest.get('renderer')) == (base, proposed, RENDER_VERSION)
-        status = state.get('baseline_preview_status' if baseline else 'preview_status', 'queued')
-        return {'base': base, 'proposed': proposed,
+        folder, status_key, error_key = PREVIEW_SCOPES[scope]
+        versions = preview_versions(state, scope)
+        manifest = read_json(self.directory / folder / 'manifest.json', {})
+        valid = all(manifest.get(key) == value for key, value in {**versions, 'renderer': RENDER_VERSION}.items())
+        status = state.get(status_key, 'queued')
+        return {**versions,
                 'preview_status': status if valid else 'queued' if state.get('entry') else 'none',
-                'preview_error': state.get('baseline_preview_error' if baseline else 'preview_error'),
+                'preview_error': state.get(error_key),
                 'documents': manifest.get('documents', {}) if valid else {},
                 'passages': preview_assets(manifest.get('passages', {})) if valid else {}}
 

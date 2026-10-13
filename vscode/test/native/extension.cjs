@@ -13,5 +13,5 @@ exports.activate=async context=>{
  actual.activate({subscriptions:context.subscriptions,globalState:context.globalState,workspaceState:context.workspaceState,
   globalStorageUri:context.globalStorageUri,extensionPath:fixture.package,
   extension:{packageJSON:JSON.parse(await fs.readFile(fixture.package+'/package.json','utf8'))}});
- return {fixture,document,editor,actual,get runtime(){return globalThis.nativeReviewTest['runtime.mjs'];},get comments(){return globalThis.nativeReviewTest['comments.mjs'];}};
+ return {fixture,document,editor,actual,get runtime(){return globalThis.nativeReviewTest['runtime.mjs'];},get comments(){return globalThis.nativeReviewTest['comments.mjs'];},get pdfMessages(){return globalThis.nativeReviewTest.pdfMessages||[];}};
 };

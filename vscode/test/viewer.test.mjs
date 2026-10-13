@@ -8,7 +8,7 @@ import test from 'node:test';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {buildViewer} from '../src/build-viewer.mjs';
 import {createHighlights, reviewMarks, viewportBounds} from '../viewer/highlights.mjs';
-import {createPDFReview, reviewKey, reviewMessage} from '../viewer/interaction.mjs';
+import {createPDFReview, reviewKey, reviewMessage, reviewOrigin} from '../viewer/interaction.mjs';
 
 const source = fileURLToPath(new URL('../viewer/', import.meta.url));
 
@@ -174,10 +174,12 @@ test('PDF failures identify their document and do not poison later document load
 });
 
 test('review shortcuts leave PDF search and modified editing shortcuts untouched', () => {
-    assert.deepEqual(reviewKey({key: 'A', shiftKey: true}), {type: 'review-pdf-key', key: 'A', shiftKey: true, repeat: false});
+    assert.deepEqual(reviewKey({key: 'A', shiftKey: true}), {type: 'review-pdf-key', key: 'A', shiftKey: true, ctrlKey: false, repeat: false});
     assert.equal(reviewKey({key: 'f', repeat: true}).repeat, true);
     assert.equal(reviewKey({key: 'e'}).key, 'e');
-    for (const key of ['[', ']', 'p', 'n', 'q', 'm', 'i', '?']) assert.equal(reviewKey({key}).key, key);
+    assert.equal(reviewKey({key:'Escape'}).key,'Escape');
+    assert.equal(reviewKey({key:'a',ctrlKey:true}).ctrlKey,true);
+    for (const key of ['[',']','p','n','q','m','i','?','r']) assert.equal(reviewKey({key}),undefined);
     for (const event of [{key: 'a', metaKey: true}, {key: 'f', ctrlKey: true}, {key: 'r', altKey: true},
         {key: 'a', isComposing: true}, {key: 'c', defaultPrevented: true}, {key: '+'},
         {key: 'a', target: {isContentEditable: true}}, {key: 's', target: {closest: () => ({})}}]) {
@@ -209,4 +211,10 @@ test('the packaged viewer retains pinned Workshop sources, PDF engine resources,
     assert.doesNotMatch(html, /ws:\/\/|out\/viewer\/latexworkshop/);
     assert.match(await readFile(join(destination, 'build/pdf.mjs'), 'utf8'), /pdfjsVersion = 6\.2\.108/);
     await assert.rejects(buildViewer(source), /outside its source directory/);
+});
+
+
+test('PDF host validation accepts the native webview origin without treating it as opaque',()=>{
+ for(const origin of ['vscode-webview://review-id','https://review.vscode-cdn.net','http://127.0.0.1:1234'])assert.equal(reviewOrigin(origin),origin);
+ for(const origin of ['null','vscode-webview://review-id/','vscode-webview://review-id?x=1','vscode-webview://review-id:123','https://host.test/path','file:///source'])assert.throws(()=>reviewOrigin(origin));
 });

@@ -3,7 +3,7 @@ import {Buffer} from 'node:buffer';
 import {sourceFile} from './comments.mjs';
 
 /** Saved buffers are an ordered ledger; VS Code alone owns their source writes. */
-export function createSourceEdits(runtime,{flushPanel,unlockPanel,refreshPanel,refreshComments,state,intent=()=> 'proposal',recoverDelivery,resolveCapture}){
+export function createSourceEdits(runtime,{onChange,state,intent=()=> 'proposal',recoverDelivery,resolveCapture}){
  const pending=new Map(Object.entries(state?.get('savedSources',{})||{})),intents=new WeakMap(),editing=new Map(Object.entries(state?.get('deliveredSources',{})||{}));
  const stagedDocuments=new Map();
  let saving=Promise.resolve(),persisting=Promise.resolve(),disposed=false,deliveryGate,releaseDelivery;
@@ -30,33 +30,31 @@ export function createSourceEdits(runtime,{flushPanel,unlockPanel,refreshPanel,r
     }
     await completeDelivery([{file}],marker.source,applied,entry.review);continue;
    }
-   const lock=await flushPanel({lock:true});
-   try{
-    if(disposed||runtime.review?.id!==entry.review)throw new Error('The review changed before its saved edits were captured.');
-    await runtime.request('/summary');
+   if(disposed||runtime.review?.id!==entry.review)throw new Error('The review changed before its saved edits were captured.');
+   await runtime.request('/summary');
+   if(disposed||runtime.review?.id!==entry.review)throw new Error('The review changed before its saved edits were captured.');
+   if(pending.get(identifier)!==entry)continue;
+   // Keep large bursts bounded without dropping any save or its editing intent.
+   const saves=[];let bytes=Buffer.byteLength(entry.saves.at(-1).text,'utf8');
+   for(const save of entry.saves){const size=Buffer.byteLength(JSON.stringify(save),'utf8');if(saves.length&&bytes+size>12_000_000)break;saves.push(save);bytes+=size;}
+   let result;
+   try{result=await runtime.request('/capture',{file,text:entry.saves.at(-1).text,source:entry.source,cursor:entry.cursor,saves});}
+   catch(error){
     if(pending.get(identifier)!==entry)continue;
-    // Keep large bursts bounded without dropping any save or its editing intent.
-    const saves=[];let bytes=Buffer.byteLength(entry.saves.at(-1).text,'utf8');
-    for(const save of entry.saves){const size=Buffer.byteLength(JSON.stringify(save),'utf8');if(saves.length&&bytes+size>12_000_000)break;saves.push(save);bytes+=size;}
-    let result;
-    try{result=await runtime.request('/capture',{file,text:entry.saves.at(-1).text,source:entry.source,cursor:entry.cursor,saves});}
-    catch(error){
-     if(pending.get(identifier)!==entry)continue;
-     const conflict=error.capture;
-     if(conflict?.file===file&&conflict.intent==='proposal'&&saves.some(save=>save.id===conflict.save&&save.intent==='author')&&await resolveCapture?.(conflict)){
-      const latest=pending.get(identifier);
-      pending.set(identifier,{...latest,saves:latest.saves.map(save=>save.id===conflict.save?{...save,intent:'proposal'}:save)});
-      await persist();continue;
-     }
-     throw error;
+    const conflict=error.capture;
+    if(conflict?.file===file&&conflict.intent==='proposal'&&saves.some(save=>save.id===conflict.save&&save.intent==='author')&&await resolveCapture?.(conflict)){
+     const latest=pending.get(identifier);
+     pending.set(identifier,{...latest,saves:latest.saves.map(save=>save.id===conflict.save?{...save,intent:'proposal'}:save)});
+     await persist();continue;
     }
-    if(result.captured!==saves.at(-1).id)throw new Error('The source service did not acknowledge these saves. They remain available for retry.');
-    const latest=pending.get(identifier),remaining=latest.saves.slice(saves.length);
-    if(remaining.length)pending.set(identifier,{...latest,source:result.workspace_version,cursor:result.cursor,saves:remaining});else pending.delete(identifier);
-    const delivered=editing.get(key(file));
-    if(delivered&&saves.some(save=>save.editing===delivered.source))editing.delete(key(file));
-    await persist();await refreshPanel({flushed:true});await refreshComments();
-   }finally{unlockPanel(lock);}
+    throw error;
+   }
+   if(result.captured!==saves.at(-1).id)throw new Error('The source service did not acknowledge these saves. They remain available for retry.');
+   const latest=pending.get(identifier),remaining=latest.saves.slice(saves.length);
+   if(remaining.length)pending.set(identifier,{...latest,source:result.workspace_version,cursor:result.cursor,saves:remaining});else pending.delete(identifier);
+   const delivered=editing.get(key(file));
+   if(delivered&&saves.some(save=>save.editing===delivered.source))editing.delete(key(file));
+   await persist();await onChange();
   }
  }
  function flush(){saving=saving.catch(()=>{}).then(async()=>{await persisting;await drain();});return saving;}

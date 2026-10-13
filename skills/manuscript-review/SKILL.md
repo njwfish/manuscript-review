@@ -43,7 +43,7 @@ Edit only in that returned workspace. Keep the canonical repository path for lib
 "/path/to/skill/scripts/review-agent" feedback --review REVIEW_ID
 ```
 
-Clean changes accumulate as undecided edits in the current review. In source authoring, the comparison base follows saved author wording; explicit version reviews keep their chosen base. Finish preserves unaffected decisions, comments, drafts, earlier source versions, and other agent results; overlapping changes are refused for reconciliation in a fresh proposal checkout. Finish only publishes to the review. VS Code delivers clean results to saved native source in authoring; dirty buffers wait for Save, and focused review retains explicit Apply. Never write the author's checkout yourself. Replies without source changes use the same review. For an explicitly requested separate revision round after a settled review, read [Revision rounds](references/revision-rounds.md). Applying choices, pushing a branch, and merging a PR follow the author's authorization and repository workflow.
+Clean changes accumulate as undecided edits in the current review. In source authoring, the comparison base follows saved author wording; explicit version reviews keep their chosen base. Finish preserves unaffected decisions, comments, drafts, earlier source versions, and other agent results; overlapping changes are refused for reconciliation in a fresh proposal checkout. Finish only publishes to the review. VS Code delivers clean results to saved native source in authoring; dirty buffers wait for Save. Focused native review does not pause clean delivery; new or deleted files require Apply. Never write the author's checkout yourself. Replies without source changes use the same review. For an explicitly requested separate revision round after a settled review, read [Revision rounds](references/revision-rounds.md). Applying choices, pushing a branch, and merging a PR follow the author's authorization and repository workflow.
 
 Write replies as a JSON array in a temporary file:
 
@@ -72,7 +72,14 @@ If a feedback ledger exists, update its affected rows after the pass using the s
 
 ## Show the result
 
-Return the review ID and published source version. Clean agent results refresh an idle review automatically; **Reload review** is available while the author has active input. A VS Code link of the form `vscode://njwfish.manuscript-review/review/REVIEW_ID` opens that review. Keep the same configured library. **This round** shows the current comparison and **Since baseline** shows accumulated selected changes; **T** switches between them in focused review. **C** opens attached discussion and **Q** searches comments and saved exchanges, including notes whose edits disappeared. **Copy agent request**, or **R** in focused review, gives the author a prompt for their agent's chat. The interface retains only comments and responses.
+Return the review ID and published source version. A VS Code link of the form
+`vscode://njwfish.manuscript-review/review/REVIEW_ID` selects that review and focuses
+its native source. Keep the configured library. **Review in editor** starts keyboard
+review in the source, with inline decisions and native discussion; there is no separate
+text review tab. An open manuscript PDF follows the selected edit. The sidebar keeps
+comparison endpoints visible and offers earlier selected drafts or Git versions for
+accumulated comparisons. Agent transcripts stay with the provider; the review retains
+comments and final responses.
 
 When the author uses the standalone interface, open **Manuscript Review.app** with the available app tool, or run the source checkout's `.venv/bin/manuscript-review --review REVIEW_ID`. Its Library opens new rounds and retains the same discussion and baseline. Manual saves update the current proposal against the fixed starting draft. **Review tools → Open editing folder** opens the bound source checkout; the browser interface copies its path.
 
@@ -84,7 +91,13 @@ To read and comment without requiring changes, use **Open manuscript review** in
 "/path/to/skill/scripts/review-agent" open --repo /absolute/path/to/manuscript
 ```
 
-Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then sends a comment or copies an agent request while continuing their work. Native saves retain unrelated choices and discussion. In source authoring, **Agent changes** compares the accumulating proposal to saved author wording; clean results join saved files and enable highlights. Overlaps remain for review, and focused review keeps explicit **Apply**. The sidebar selects **Agent** and **Model**; **Open agent session** resumes the provider's own transcript. **Open editing folder** opens its source checkout for normal Git and LaTeX work. **Compare saved changes** captures external revisions as a new round. **⌘/Ctrl+Alt+[ / ]** steps through unresolved native threads; **Manuscript Review: Comment navigation → All** in the Command Palette also includes resolved threads. **Resolve comment** and **Reopen comment** use the native thread toolbar. **View change** opens the attached diff. The standalone app’s editor uses **⌘/Ctrl+Shift+[ / ]** for comment navigation, with the same **Unresolved / All** filter and **Resolve / Reopen** controls. Source comments use the same begin, finish, and respond operations above.
+Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then dispatches a saved comment while continuing their work. Native saves retain unrelated choices and discussion. In source authoring, **Agent changes** compares the accumulating proposal to saved author wording; clean results join saved files and enable highlights. Overlaps remain for review; new or deleted files use explicit **Apply**.
+
+The sidebar selects **Agent** and **Model**; **Open agent session** resumes the provider's own transcript. **Open editing folder** opens its source checkout for normal Git and LaTeX work. **Review saved source changes** captures external revisions as a new round.
+
+**⌘/Ctrl+Alt+[ / ]** steps through unresolved native threads; **Manuscript Review: Comment navigation → All** in the Command Palette also includes resolved threads. **Resolve comment** and **Reopen comment** use the native thread toolbar. **View change** opens the attached diff.
+
+The standalone app’s editor uses **⌘/Ctrl+Shift+[ / ]** for comment navigation, with the same **Unresolved / All** filter and **Resolve / Reopen** controls. Source comments use the same begin, finish, and respond operations above.
 
 To start a comparison in VS Code, use **Compare manuscript versions** and pick commits or saved checkpoints. **Clone manuscript from GitHub** opens the cloned folder; **Fetch manuscript history** updates remote history without merging. The standalone app provides these operations through **Library → Compare versions**.
 

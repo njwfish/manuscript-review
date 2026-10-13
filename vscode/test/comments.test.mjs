@@ -671,3 +671,16 @@ test('a pending native reply cannot move to another round while its source loads
  assert.equal(thread.input,'My pending annotation');assert.match(f.errors.at(-1),/original round|this comment’s review/);
  f.comments.dispose();
 });
+
+
+test('a removed-file change can receive one new native discussion against its pinned source',async()=>{
+ const f=fixture([]),document=f.documents[0];document.uri={scheme:'manuscript-review-source',authority:'review',path:'/main.tex',query:'version=original',fsPath:'/main.tex',toString:()=> 'manuscript-review-source://review/main.tex?version=original'};
+ f.vscode.window.activeTextEditor=f.editor;f.openDocument(async()=>document);
+ const selected={editor:f.editor,source:{reviewId:'review',revision:1,file:'main.tex',text:document.text},span:{from:6,to:20}};
+ const thread=await f.comments.discuss(selected);assert.equal(thread.canReply,true);assert.equal(f.created.length,1);
+ assert.equal(await f.comments.discuss(selected),thread);assert.equal(f.created.length,1);
+ await f.command('reply',{thread,text:'Keep this deleted wording.'});
+ assert.equal(f.requests.find(request=>request.route==='/note').body.source,'selected-source');
+ assert.equal(f.requests.find(request=>request.route==='/note').body.text,document.text);
+ f.comments.dispose();
+});

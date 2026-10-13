@@ -18,13 +18,16 @@ export function createViewer(directory){
     if(!/^(?:127\.0\.0\.1|localhost):[1-9]\d*$/.test(request.headers.host||''))return reply(403,'Forbidden');
     if(!['GET','HEAD'].includes(request.method))return reply(405,'Method not allowed');
     try{
-     const filename=await realpath(path.join(root,decodeURIComponent(new URL(request.url,origin).pathname)));
+     const url=new URL(request.url,origin),parent=url.searchParams.get('parentOrigin');
+     let parentOrigin='';
+     if(parent){const host=new URL(parent);if(host.origin===parent&&host.protocol==='https:'&&/\.(?:vscode-cdn|vscode-webview)\.net$/.test(host.hostname))parentOrigin=' '+parent;}
+     const filename=await realpath(path.join(root,decodeURIComponent(url.pathname)));
      const relative=path.relative(root,filename);
      if(!relative||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))return reply(404,'Not found');
      const bytes=await readFile(filename);
      response.writeHead(200,{'Content-Type':types[path.extname(filename)]||'application/octet-stream','Content-Length':bytes.length,
       'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin',
-      'Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self' blob: data:; frame-ancestors vscode-webview: vscode-file:; base-uri 'none'; form-action 'none'"});
+      'Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self' blob: data:; frame-ancestors vscode-webview: vscode-file:"+parentOrigin+"; base-uri 'none'; form-action 'none'"});
      response.end(request.method==='HEAD'?undefined:bytes);
     }catch{reply(404,'Not found');}
    });

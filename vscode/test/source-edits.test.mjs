@@ -4,18 +4,17 @@ import {createSourceEdits} from '../src/source-edits.mjs';
 
 function fixture(options={}){
  const events=[],review={id:'review',repo:'/original',workspace:'/editing',workspace_version:'B'};
- const runtime={review,async data(){events.push('data');return {...this.review};},async request(route,body){if(route==='/summary'){events.push('data');return {...this.review};}events.push({route,body});await options.capture?.(body);this.review.source_cursors={...this.review.source_cursors,[body.file]:body.saves.at(-1).id};return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:this.review.workspace_version};}};
+ const runtime={review,async data(){events.push('data');return {...this.review};},async request(route,body){if(route==='/summary'){events.push('data');await options.flush?.();return {...this.review};}events.push({route,body});await options.capture?.(body);this.review.source_cursors={...this.review.source_cursors,[body.file]:body.saves.at(-1).id};return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:this.review.workspace_version};}};
  const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:false,version:1,text:'B edited',getText(){return this.text;}};
- const edits=createSourceEdits(runtime,{async flushPanel(value){events.push({flush:value});await options.flush?.();return 'lock';},
-  unlockPanel(lock){events.push({unlock:lock});},async refreshPanel(value){events.push({refresh:value});},async refreshComments(){events.push('comments');}});
+ const edits=createSourceEdits(runtime,{async onChange(){events.push('changed');}});
  return {events,runtime,document,edits};
 }
 
-test('native Save flushes pending author choices, captures B plus edits, and refreshes without taking focus',async()=>{
+test('native Save captures B plus edits and refreshes without taking focus',async()=>{
  const f=fixture();await f.edits.save(f.document);
  const save=f.events.find(event=>event.route).body.saves[0];assert.match(save.id,/^[a-f0-9]{32}$/);
- assert.deepEqual(f.events,[{flush:{lock:true}},'data',{route:'/capture',body:{file:'main.tex',text:'B edited',source:'B',cursor:null,saves:[{id:save.id,text:'B edited',intent:'proposal'}]}},
-  {refresh:{flushed:true}},'comments',{unlock:'lock'}]);
+ assert.deepEqual(f.events,['data',{route:'/capture',body:{file:'main.tex',text:'B edited',source:'B',cursor:null,saves:[{id:save.id,text:'B edited',intent:'proposal'}]}},
+  'changed']);
  assert.equal(f.edits.pending,false);
 });
 
@@ -34,27 +33,27 @@ test('saved review documents cannot be captured or written back as working sourc
  assert.deepEqual(f.events,[]);assert.equal(f.edits.pending,false);
 });
 
-test('a newer Save during the author-state flush coalesces into the latest saved text',async()=>{
+test('a newer Save during the canonical read coalesces into the latest saved text',async()=>{
  let release,entered;const enteredFlush=new Promise(resolve=>entered=resolve),blocked=new Promise(resolve=>release=resolve);
  let count=0;const f=fixture({async flush(){if(++count===1){entered();await blocked;}}});
  const first=f.edits.save(f.document);await enteredFlush;
  f.document.version++;f.document.text='Latest saved wording';const second=f.edits.save(f.document);release();
  await Promise.all([first,second]);
  assert.deepEqual(f.events.filter(event=>event.route).map(event=>event.body.text),['Latest saved wording']);
- assert.equal(f.events.filter(event=>event.unlock).length,2);assert.equal(f.edits.pending,false);
+ assert.equal(f.events.filter(event=>event==='changed').length,1);assert.equal(f.edits.pending,false);
 });
 
 test('typing after Save keeps the saved comparison and leaves the newer dirty buffer to VS Code',async()=>{
  const f=fixture({flush(){f.document.isDirty=true;f.document.version++;f.document.text='Unsaved wording';}});
  await f.edits.save(f.document);
  assert.equal(f.events.find(event=>event.route).body.text,'B edited');assert.equal(f.edits.pending,false);
- assert.equal(f.document.text,'Unsaved wording');assert.deepEqual(f.events.at(-1),{unlock:'lock'});
+ assert.equal(f.document.text,'Unsaved wording');assert.equal(f.events.at(-1),'changed');
 });
 
-test('capture failures retain the saved work for retry and release the focused review lock',async()=>{
+test('capture failures retain the saved work for retry and do not refresh failed captures',async()=>{
  let fail=true;const f=fixture({capture(){if(fail)throw new Error('Stale review');}});
  await assert.rejects(f.edits.save(f.document),/Stale review/);
- assert.equal(f.edits.pending,true);assert.deepEqual(f.events.at(-1),{unlock:'lock'});
+ assert.equal(f.edits.pending,true);assert.equal(f.events.includes('changed'),false);
  fail=false;await f.edits.flush();assert.equal(f.edits.pending,false);
  assert.equal(f.events.filter(event=>event.route).length,2);
 });
@@ -63,7 +62,7 @@ test('switching or disposing a review while flush waits cannot capture into the 
  for(const action of [f=>f.runtime.review={...f.runtime.review,id:'other'},f=>f.edits.dispose()]){
   const f=fixture({flush(){action(f);}});
   await assert.rejects(f.edits.save(f.document),/review changed/);
-  assert.equal(f.events.some(event=>event.route),false);assert.deepEqual(f.events.at(-1),{unlock:'lock'});
+  assert.equal(f.events.some(event=>event.route),false);assert.equal(f.events.includes('changed'),false);
  }
 });
 
@@ -117,7 +116,7 @@ test('the explicit edit intent is pinned when typing starts, even if Review chan
  let reviewing=true;
  const review={id:'review',workspace:'/editing',revision:1,workspace_version:'B'},captures=[];
  const runtime={review,async request(route,body){if(route==='/summary')return review;captures.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:review.workspace_version};}};
- const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',onChange:async()=>{}});
  const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,getText:()=> 'Refined proposal'};
  edits.change(document);reviewing=false;document.isDirty=false;await edits.save(document);
  assert.equal(captures[0].saves.at(-1).intent,'proposal');
@@ -138,7 +137,7 @@ test('an unacknowledged Save survives a review switch and can be captured when i
 test('Undo to clean source ends the typing episode before a fresh drafting edit',async()=>{
  let reviewing=true;const captures=[],review={id:'review',workspace:'/editing',workspace_version:'B'};
  const runtime={review,async request(route,body){if(route==='/summary')return review;captures.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:review.workspace_version};}};
- const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',onChange:async()=>{}});
  const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,getText:()=> 'Fresh author wording'};
  edits.change(document);document.isDirty=false;edits.change(document);
  reviewing=false;document.isDirty=true;edits.change(document);document.isDirty=false;edits.change(document);
@@ -150,8 +149,8 @@ test('consecutive saves preserve different intents even when the first capture i
  const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve),captures=[];
  const review={id:'review',workspace:'/editing',workspace_version:'B'};
  let count=0;
- const runtime={review,async request(route,body){if(route==='/summary')return review;captures.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'Updated B'};}};
- const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',flushPanel:async()=>{if(++count===1){entered();await gate;}},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const runtime={review,async request(route,body){if(route==='/summary'){if(++count===1){entered();await gate;}return review;}captures.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'Updated B'};}};
+ const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',onChange:async()=>{}});
  const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,text:'Proposal refinement',getText(){return this.text;}};
  edits.change(document);document.isDirty=false;const first=edits.save(document);await started;
  reviewing=false;document.isDirty=true;document.text='Proposal refinement and author drafting';edits.change(document);document.isDirty=false;
@@ -165,7 +164,7 @@ test('saved points survive an extension restart and reuse their identities on ac
  const review={id:'review',workspace:'/editing',workspace_version:'B'},captures=[];
  let fail=true;
  const runtime={review,async request(route,body){if(route==='/summary')return review;captures.push(body);if(fail)throw new Error('Lost response');return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
- const callbacks={state:storage,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}};
+ const callbacks={state:storage,onChange:async()=>{}};
  const first=createSourceEdits(runtime,callbacks),document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:false,getText:()=> 'Saved words'};
  await assert.rejects(first.save(document),/Lost response/);first.dispose();
  const snapshot=structuredClone(state.get('savedSources'));fail=false;
@@ -185,7 +184,7 @@ test('a save appended during capture is acknowledged separately against the prec
 test('typing during delivery keeps its original intent and is distinct from the synthetic edit',async()=>{
  let reviewing=false;const review={id:'review',workspace:'/editing',workspace_version:'B'},calls=[];
  const runtime={review,async request(route,body){if(route==='/summary')return review;calls.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
- const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const edits=createSourceEdits(runtime,{intent:()=>reviewing?'proposal':'author',onChange:async()=>{}});
  const files=[{file:'main.tex',before:'Author words',after:'Agent words'}],document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,text:'Agent words',getText(){return this.text;}};
  await edits.delivered(files,'Agent');edits.change(document);
  document.text='Agent words and new author words';edits.change(document);await edits.completeDelivery(files,'Agent',true);
@@ -196,7 +195,7 @@ test('typing during delivery keeps its original intent and is distinct from the 
 test('manual text equal to a staged delivery keeps its typing intent after cancellation',async()=>{
  let intent='author';const review={id:'review',workspace:'/editing',workspace_version:'B'},calls=[];
  const runtime={review,async request(route,body){if(route==='/summary')return review;calls.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
- const edits=createSourceEdits(runtime,{intent:()=>intent,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const edits=createSourceEdits(runtime,{intent:()=>intent,onChange:async()=>{}});
  const files=[{file:'main.tex',before:'Author words',after:'Agent words'}],document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,getText:()=> 'Agent words'};
  await edits.delivered(files,'Agent');edits.change(document);await edits.completeDelivery(files,'Agent',false);
  intent='proposal';document.isDirty=false;await edits.save(document);
@@ -208,7 +207,7 @@ test('an interrupted staged delivery requires explicit origin recovery and retai
   const values=new Map(),state={get:(key,fallback)=>values.get(key)??fallback,async update(key,value){values.set(key,structuredClone(value));}};
   const review={id:'review',workspace:'/editing',workspace_version:'B'},calls=[];
   const runtime={review,async request(route,body){if(route==='/summary')return review;calls.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
-  const callbacks={state,intent:()=> 'author',flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}};
+  const callbacks={state,intent:()=> 'author',onChange:async()=>{}};
   const first=createSourceEdits(runtime,callbacks),files=[{file:'main.tex',before:'Author words',after:'Agent words'}];
   await first.delivered(files,'Agent');first.dispose();
   const second=createSourceEdits(runtime,callbacks),document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:false,getText:()=> 'Author words with punctuation.'};
@@ -225,7 +224,7 @@ test('an interrupted staged delivery requires explicit origin recovery and retai
 test('successful delivery ends purely synthetic typing even when its first Save fails',async()=>{
  let intent='author';const review={id:'review',workspace:'/editing',workspace_version:'B'},calls=[];
  const runtime={review,async request(route,body){if(route==='/summary')return review;calls.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
- const edits=createSourceEdits(runtime,{intent:()=>intent,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+ const edits=createSourceEdits(runtime,{intent:()=>intent,onChange:async()=>{}});
  const files=[{file:'main.tex',before:'Author words',after:'Agent words',version:1}],document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,version:2,text:'Agent words',getText(){return this.text;}};
  await edits.delivered(files,'Agent');edits.change(document);await edits.completeDelivery(files,'Agent',true);
  // The automatic Save fails, then a new manual refinement begins in this dirty buffer.
@@ -237,7 +236,7 @@ test('restart recovery preserves point origins on either side of native applicat
  const values=new Map(),state={get:(key,fallback)=>values.get(key)??fallback,async update(key,value){values.set(key,structuredClone(value));}};
  const review={id:'review',workspace:'/editing',workspace_version:'B'},calls=[];
  const runtime={review,async request(route,body){if(route==='/summary')return review;calls.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
- const callbacks={state,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}};
+ const callbacks={state,onChange:async()=>{}};
  const first=createSourceEdits(runtime,callbacks),files=[{file:'main.tex',before:'Author words',after:'Agent words'}],document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:false,text:'Author words',getText(){return this.text;}};
  await first.delivered(files,'Agent');void first.save(document);await new Promise(setImmediate);
  document.text='Agent words';void first.save(document);await new Promise(setImmediate);first.dispose();
@@ -249,7 +248,7 @@ test('typing after a provisional native event uses its own intent when applied a
  for(const applied of [false,true])for(const saveBeforeCompletion of [false,true]){
   let intent='author';const review={id:'review',workspace:'/editing',workspace_version:'B'},calls=[];
   const runtime={review,async request(route,body){if(route==='/summary')return review;calls.push(body);return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
-  const edits=createSourceEdits(runtime,{intent:()=>intent,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+  const edits=createSourceEdits(runtime,{intent:()=>intent,onChange:async()=>{}});
   const files=[{file:'main.tex',before:'Author words',after:'Agent words',version:1}],document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:true,version:2,text:'Agent words',getText(){return this.text;}};
   await edits.delivered(files,'Agent');edits.change(document);
   intent='proposal';document.version++;document.text='Refined agent words';edits.change(document);document.isDirty=false;
@@ -264,7 +263,7 @@ test('an unrepresentable author rebase can be explicitly retried as refinement w
  for(const resolve of [false,true]){
   const review={id:'review',workspace:'/editing',workspace_version:'B'},calls=[];
   const runtime={review,async request(route,body){if(route==='/summary')return review;calls.push(body);if(body.saves[0].intent==='author')throw Object.assign(new Error('Unrepresentable selection'),{capture:{file:'main.tex',save:body.saves[0].id,intent:'proposal'}});return {captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:'C'};}};
-  const edits=createSourceEdits(runtime,{intent:()=> 'author',resolveCapture:async()=>resolve,flushPanel:async()=>{},unlockPanel(){},refreshPanel:async()=>{},refreshComments:async()=>{}});
+  const edits=createSourceEdits(runtime,{intent:()=> 'author',resolveCapture:async()=>resolve,onChange:async()=>{}});
   const document={uri:{scheme:'file',fsPath:'/editing/main.tex'},isDirty:false,getText:()=> 'Saved author draft'};
   if(resolve){await edits.save(document);assert.equal(calls[0].saves[0].id,calls[1].saves[0].id);assert.equal(calls[1].saves[0].intent,'proposal');assert.equal(edits.pending,false);}
   else{await assert.rejects(edits.save(document),/Unrepresentable/);assert.equal(edits.pending,true);assert.equal(calls.length,1);}

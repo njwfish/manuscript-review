@@ -1,17 +1,17 @@
 /** Deliver to saved native buffers with undo; source capture owns the comparison. */
-export function createDelivery(vscode,runtime,{sourceEdits,paused,onDelivered,onConflict,openDocument}){
+export function createDelivery(vscode,runtime,{sourceEdits,onDelivered,onConflict,openDocument}){
  let active,again=false,forced=false,disposed=false;
  async function deliver(force){
   const review=runtime.review?.id;
-  if(disposed||!review||(!force&&paused()))return;
+  if(disposed||!review)return;
   await sourceEdits.flush();
   const data=await runtime.request('/summary');
-  if(!force&&!data.authoring||runtime.review?.id!==review||(!force&&paused()))return;
+  if(!force&&!data.authoring||runtime.review?.id!==review)return;
   const plan=await runtime.request('/delivery',{revision:data.revision,...(force?{explicit:true}:{})});
   if(plan.conflicts?.length)await onConflict?.();
   if(!plan.files.length)return;
   const entries=await Promise.all(plan.files.map(async file=>({file,document:await openDocument(file.file)})));
-  const available=()=>!disposed&&runtime.review?.id===review&&(force||!paused());
+  const available=()=>!disposed&&runtime.review?.id===review;
   if(!available())return;
   let captured=false;
   for(const {file,document} of entries){

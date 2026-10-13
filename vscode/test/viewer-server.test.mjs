@@ -16,6 +16,11 @@ test('the isolated viewer serves bundled assets, rejects traversal and stops wit
  const response=await fetch(origin+'/viewer.html?parentOrigin=vscode-webview%3A%2F%2Freview');
  assert.equal(response.status,200);assert.equal(await response.text(),'<html>Bundled viewer</html>');
  const policy=response.headers.get('content-security-policy');assert.match(policy,/frame-ancestors vscode-webview: vscode-file:/);assert.match(policy,/img-src 'self' blob: data:/);
+ const nativeOrigin='https://review-id.vscode-cdn.net';
+ const native=await fetch(origin+'/viewer.html?parentOrigin='+encodeURIComponent(nativeOrigin));
+ assert.ok(native.headers.get('content-security-policy').includes('vscode-file: '+nativeOrigin+';'));
+ const foreign=await fetch(origin+'/viewer.html?parentOrigin='+encodeURIComponent('https://foreign.test'));
+ assert.equal(foreign.headers.get('content-security-policy').includes('foreign.test'),false);
  assert.equal((await fetch(origin+'/font.wasm')).headers.get('content-type'),'application/wasm');
  assert.equal((await fetch(origin+'/viewer.html',{method:'HEAD'})).headers.get('content-length'),'27');
  for(const file of ['/','/outside.txt','/%2e%2e/private.txt','/missing'])assert.equal((await fetch(origin+file)).status,404);

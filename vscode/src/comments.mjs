@@ -14,11 +14,11 @@ export function sourceFile(review,document){
   ?relative.split(path.sep).join('/'):null;
 }
 
-export function createComments(vscode,getRuntime,{openDocument,onChange,onReview,onProjection,onAgent,onSource,canComment=sourceDocument}={}) {
+export function createComments(vscode,getRuntime,{openDocument,onChange,onReview,onProjection,onAgent,onSource,canComment=document=>sourceDocument(document)||document?.uri.scheme==='manuscript-review-source'}={}) {
   const controller=vscode.comments.createCommentController('manuscript-review','Manuscript Review');
   const subscriptions=[controller],threads=new Map(),pending=new Set();
-  let generation=0,disposed=false,activeThread,includeResolved=false;
-  let refreshing,requested=false,needsData=false,cachedData,cachedRuntime;
+  let generation=0,disposed=false,activeThread,includeResolved=false,enabled=true;
+  let refreshing,requested=false,needsData=false,cachedData,cachedRuntime,cachedFile,selectedFile;
   const projected=new WeakMap();
 
   const fileFor=document=>sourceFile(getRuntime()?.review,document);
@@ -136,9 +136,9 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     const runtime=getRuntime();
     const review=runtime?.review;
     if(!review||disposed)return;
-    if(needsData||cachedRuntime!==runtime||cachedData?.id!==review.id||cachedData.revision!==review.revision){
+    if(needsData||cachedRuntime!==runtime||cachedData?.id!==review.id||cachedData.revision!==review.revision||cachedFile!==selectedFile){
       needsData=false;
-      cachedData=await runtime.data('round',fileFor(vscode.window.activeTextEditor?.document));cachedRuntime=runtime;
+      cachedData=await runtime.data('round',selectedFile);cachedRuntime=runtime;cachedFile=selectedFile;
     }
     const data=cachedData;
     const current=()=>{
@@ -197,7 +197,8 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     return true;
   }
 
-  function refresh({sourceOnly=false}={}){
+  function refresh({sourceOnly=false,file}={}){
+    selectedFile=file||fileFor(vscode.window.activeTextEditor?.document)||selectedFile;
     generation++;requested=true;needsData||=!sourceOnly;
     refreshing??=(async()=>{let result;do{requested=false;result=await update(generation);}while(requested&&!disposed);return result;})()
       .finally(()=>{refreshing=undefined;});
@@ -206,8 +207,9 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
 
   async function annotate(editor=vscode.window.activeTextEditor) {
     if(!editor)throw new Error('Select text in a source editor to leave a comment.');
-    if(!sourceDocument(editor.document))throw new Error('Choose a manuscript source file to leave a comment.');
-    if(!canComment(editor.document))throw new Error('Turn on source comments in the Manuscript Review sidebar.');
+    const saved=editor.document.uri.scheme==='manuscript-review-source'&&fileFor(editor.document);
+    if(!sourceDocument(editor.document)&&!saved)throw new Error('Choose a manuscript source file to leave a comment.');
+    if(!enabled||!canComment(editor.document))throw new Error('Turn on source comments in the Manuscript Review sidebar.');
     const version=editor.document.version;
     const range=editor.selection.isEmpty
       ? editor.document.lineAt(editor.selection.start.line).range : editor.selection;
@@ -220,6 +222,25 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     thread.contextValue='manuscriptReview.pending';
     thread.collapsibleState=vscode.CommentThreadCollapsibleState.Expanded;
     pending.add(state);
+    return thread;
+  }
+
+  async function discuss({editor,source,span}) {
+    const current=()=>source.reviewId===getRuntime()?.review?.id&&source.revision===getRuntime().review.revision&&editor.document.getText()===source.text;
+    if(!current())throw new Error('The source changed. Select its current change to comment.');
+    await refresh({file:source.file});
+    if(!current())throw new Error('The source changed. Select its current change to comment.');
+    const state=[...threads.values()].find(state=>state.reviewId===getRuntime()?.review?.id
+      &&state.entry.file===source.file&&state.range
+      &&(span.from===span.to?state.range.contains(editor.document.positionAt(span.from))
+       :editor.document.offsetAt(state.range.start)<span.to&&editor.document.offsetAt(state.range.end)>span.from));
+    if(state){state.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Expanded;activeThread=state.key;return state.thread;}
+    const draft=[...pending].find(state=>state.reviewId===source.reviewId&&state.projection.file===source.file&&state.start===span.from&&state.end===span.to);
+    if(draft){draft.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Expanded;return draft.thread;}
+    const start=editor.document.positionAt(span.from),end=editor.document.positionAt(span.to);
+    editor.selection=new vscode.Selection(start,end);
+    const thread=await annotate(editor);
+    editor.selection=new vscode.Selection(start,start);
     return thread;
   }
 
@@ -330,7 +351,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   // Source annotations use the selection action. Native commenting ranges draw a
   // persistent gutter stripe even when every comment is collapsed.
   const rangeProvider={provideCommentingRanges:()=>[]};
-  function setEnabled(enabled){controller.commentingRangeProvider=enabled?rangeProvider:undefined;}
+  function setEnabled(value){enabled=value;controller.commentingRangeProvider=enabled?rangeProvider:undefined;}
   setEnabled(true);
   command('reply',async input=>Boolean(await reply(input)));command('editComment',editComment);command('saveComment',saveComment);command('cancelComment',cancelComment);
   async function setResolved(thread,resolved){
@@ -375,5 +396,5 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     for(const subscription of subscriptions)subscription.dispose();
     threads.clear();pending.clear();
   }
-  return {refresh,annotate,move,dispose,setEnabled,setAgent:label=>{controller.options={prompt:`Comment for ${label}…`,placeHolder:`Enter sends to ${label}. Shift+Enter adds a newline.`};}};
+  return {refresh,annotate,discuss,move,dispose,setEnabled,setAgent:label=>{controller.options={prompt:`Comment for ${label}…`,placeHolder:`Enter sends to ${label}. Shift+Enter adds a newline.`};}};
 }

@@ -8,7 +8,7 @@ function render(){
   element(id).textContent=label||'';element(id).title=version==='working'?'Snapshot of saved working files':version&&version!==label?`${label}\n${version}`:label||'';
   element(id).setAttribute('aria-label',`${{from:'From',to:'To',entry:'PDF'}[id]}: ${label||'Source only'}`);
  }
- element('review').textContent=state.active&&!state.pending?'Open review':'Compare';
+ element('review').textContent=state.active&&!state.pending?'Review in editor':'Compare';
  element('apply').hidden=!state.canApply||state.pending;
  element('progress').textContent=state.pending?'Ready to compare':state.applied?'Applied':state.progress||'';
  element('progress').hidden=!element('progress').textContent;

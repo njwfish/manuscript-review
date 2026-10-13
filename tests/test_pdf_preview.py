@@ -192,3 +192,27 @@ class CompiledPDFTests(unittest.TestCase):
             marks = manifest['documents'][side]['edits'][identifier]
             self.assertTrue(marks)
             self.assertTrue(all(mark['bounds'] and mark['page'] == 1 for mark in marks))
+
+
+    def test_selected_pdf_renders_rejected_words_with_round_locations_without_svg_conversion(self):
+        from unittest.mock import patch
+        from manuscript_review.documents import selected_snapshot
+        from manuscript_review.render_latex import render_document, run
+        source = '\\documentclass{article}\n\\begin{document}\nWe count cells.\n\\end{document}\n'
+        snapshot, _ = self.compile(source, source, source.replace('count', 'measure'))
+        edit = snapshot['files'][0]['edits'][0]
+        selected = selected_snapshot({'snapshot': snapshot, 'decisions': {edit['id']: 'reject'}, 'result': snapshot['base']})
+        directory = Path(self.temp.name) / 'selected'
+        directory.mkdir()
+        with patch('manuscript_review.render_latex.run', wraps=run) as commands:
+            render_document(directory, selected, directory / 'sources')
+        self.assertFalse(any(call.args[0][0] == 'pdftocairo' for call in commands.call_args_list))
+        manifest = json.loads((directory / 'renders/manifest.json').read_text())
+        document = manifest['documents']['after']
+        words = pdf_words(directory / 'renders/after-pdf-words.html')
+        self.assertIn('count', [word['text'] for page in words for word in page['words']])
+        self.assertNotIn('measure', [word['text'] for page in words for word in page['words']])
+        self.assertTrue(document['edits'][edit['id']])
+        self.assertTrue(all(mark['precision'] == 'words' and mark['bounds'] for mark in document['edits'][edit['id']]))
+        self.assertTrue((directory / 'renders' / document['pdf']).exists())
+        self.assertEqual(list((directory / 'renders').glob('*.svg')), [])

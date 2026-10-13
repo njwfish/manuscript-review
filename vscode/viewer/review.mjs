@@ -1,10 +1,9 @@
 import {createHighlights} from './highlights.mjs';
-import {createPDFReview, reviewKey, reviewMessage} from './interaction.mjs';
+import {createPDFReview, reviewKey, reviewMessage, reviewOrigin} from './interaction.mjs';
 
 const origin = new URL(location.href).searchParams.get('parentOrigin');
 if (!origin || origin === 'null') throw new Error('The PDF viewer requires its review host.');
-const target = new URL(origin).origin;
-if (target !== origin) throw new Error('Invalid PDF review host.');
+const target = reviewOrigin(origin);
 const send = value => window.parent.postMessage(value, target);
 
 // Workshop applies these options immediately before PDF.js initializes.
@@ -30,18 +29,25 @@ const {PDFViewerApplication: application} = await import('./viewer.mjs');
 await application.initializedPromise;
 const highlights = createHighlights(application);
 const reviewPDF = createPDFReview(application, highlights, send);
+document.getElementById('secondaryOpenFile')?.remove();
+document.getElementById('openFile')?.remove();
+let reviewing=false,selection,revision=0;
 
 window.addEventListener('message', event => {
     const message = reviewMessage(event, target, window.parent);
-    if (message) reviewPDF(message);
+    if (message) {
+        const ticket=++revision;reviewing=false;
+        void reviewPDF(message).then(success=>{if(success&&ticket===revision){reviewing=Boolean(message.reviewing);selection=message.selection;send({type:'review-pdf-rendered',document:message.document,selection});}});
+    }
 });
 
 window.addEventListener('keydown', event => {
+    if(!reviewing)return;
     const message = reviewKey(event);
     if (!message) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    send(message);
+    send({...message,selection});
 }, {capture: true});
 
 // A historical comparison must keep displaying its pinned PDF.
