@@ -34,15 +34,28 @@ await build({entryPoints:[path.join(source,'extension.mjs')],bundle:true,platfor
    return {contents:`import {${name} as original} from ${JSON.stringify(path.join(source,args.path))};${extra}
     export function ${name}(...args){
     ${args.path==='pdf-panel.mjs'?`const platform=args[0];globalThis.nativeReviewTest.pdfMessages=[];
-      const proxy=Object.create(platform),window=Object.create(platform.window);Object.defineProperty(proxy,'window',{value:window});Object.defineProperty(window,'createWebviewPanel',{value(...values){const panel=platform.window.createWebviewPanel(...values);panel.webview.onDidReceiveMessage(message=>globalThis.nativeReviewTest.pdfMessages.push(message));return panel;}});args[0]=proxy;`:''}
+      const proxy=Object.create(platform),window=Object.create(platform.window);
+      Object.defineProperty(proxy,'window',{value:window});
+      Object.defineProperty(window,'createWebviewPanel',{value(...values){
+        const panel=platform.window.createWebviewPanel(...values);
+        panel.webview.onDidReceiveMessage(message=>globalThis.nativeReviewTest.pdfMessages.push(message));
+        const post=panel.webview.postMessage.bind(panel.webview);
+        Object.defineProperty(panel.webview,'postMessage',{value:async message=>{
+          const delivered=await post(message);
+          globalThis.nativeReviewTest.pdfMessages.push({direction:'out',type:message.type,url:message.url,document:message.document,delivered});
+          return delivered;
+        }});
+        return panel;
+      }});args[0]=proxy;`:''}
     const owner=original(...args);globalThis.nativeReviewTest[${JSON.stringify(args.path)}]=owner;return owner;}`,resolveDir:source,loader:'js'};
   });
  }}]});
 console.log('Native fixture: '+root);
 try{
+ // Keep the real webview rendering while the user works in another macOS window.
  await runTests({extensionDevelopmentPath:fixture,extensionTestsPath:path.join(fixture,'suite.cjs'),
   ...(process.env.MR_TEST_CODE?{vscodeExecutablePath:process.env.MR_TEST_CODE}:{}),version:'stable',
-  launchArgs:[repo,'--disable-workspace-trust','--disable-extensions','--skip-welcome','--skip-release-notes','--user-data-dir',path.join(root,'profile'),'--extensions-dir',path.join(root,'extensions')],
+  launchArgs:[repo,'--disable-renderer-backgrounding','--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-workspace-trust','--disable-extensions','--skip-welcome','--skip-release-notes','--user-data-dir',path.join(root,'profile'),'--extensions-dir',path.join(root,'extensions')],
   extensionTestsEnv:{MR_NATIVE_FIXTURE:root}});
  const result=JSON.parse(await readFile(path.join(root,'passed.json'),'utf8'));console.log(JSON.stringify(result,null,2));
  await rm(root,{recursive:true,force:true});
