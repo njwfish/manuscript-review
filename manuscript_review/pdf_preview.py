@@ -161,7 +161,7 @@ def word_locations(source, span, units, pages, regions, line_regions):
     return locations if wanted and matched == len(wanted) else []
 
 
-def document_preview(data, directory, side, root, run):
+def document_preview(data, directory, side, root, run, page_images=True):
     if not all(shutil.which(tool) for tool in ('pdftotext', 'pdfinfo')):
         return {'pages': [], 'edits': {}, 'error': 'PDF locations require pdftotext and pdfinfo.'}
     entry = root / data['entry']
@@ -181,6 +181,9 @@ def document_preview(data, directory, side, root, run):
     run(['pdfinfo', '-f', '1', '-l', str(len(pages)), str(pdf)], entry.parent, info)
     rotated = {int(number) for number, degrees in re.findall(r'Page\s+(\d+) rot:\s+(-?\d+)', info.read_text()) if int(degrees) % 360}
     for number, page in enumerate(pages, 1):
+        if not page_images:
+            page['transformed'] = number in rotated
+            continue
         page['asset'] = prefix + f'-{number}.svg'
         run(['pdftocairo', '-svg', '-f', str(number), '-l', str(number), str(pdf), str(directory / page['asset'])],
             entry.parent, directory / (side + '-pdf-convert.log'))
@@ -216,7 +219,7 @@ def document_preview(data, directory, side, root, run):
             for line in range(first, last+1):
                 regions.extend(item for item in line_regions.get(line, []) if item not in regions)
             # Each source occurrence has its own text alignment, including repeated inputs.
-            locations = [] if edit['math'] else [box for number in sorted({page for page, _ in regions})
+            locations = [] if edit['math'] or (not page_images and any(pages[page-1]['transformed'] for page, _ in regions)) else [box for number in sorted({page for page, _ in regions})
                          for box in word_locations(source, span, units, pages, [(page, bounds) for page, bounds in regions if page == number], line_regions)]
             precision = 'words' if locations else 'region'
             selected_start, selected_end = math_span or span

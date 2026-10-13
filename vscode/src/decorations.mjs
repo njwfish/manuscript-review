@@ -34,7 +34,9 @@ export function createDecorations(vscode) {
     const groups={changed:[],rejected:[],point:[]};
     const selected=focused?.file===projection.file&&edits.has(focused.edit)&&projection.ranges.find(span=>span.id===focused.edit);
     if(selected){
-      const bands=focusBands(projection.text,selected.from,selected.to);
+      const passage=file.hunks?.find(passage=>passage.edits.some(edit=>edit.id===focused.edit));
+      const context=projection.passages?.find(span=>span.id===passage?.id)||selected;
+      const bands=focusBands(projection.text,context.from,context.to);
       for(const [kind,spans] of Object.entries(bands))groups[kind]=spans.map(([from,to])=>new vscode.Range(projection.document.positionAt(from),projection.document.positionAt(to)));
     }
     for(const span of projection.ranges) {

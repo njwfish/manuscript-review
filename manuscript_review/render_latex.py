@@ -287,6 +287,15 @@ def render(directory, data_override=None, source_cache=None):
     print(f'Preview manifest ready: {output}', flush=True, file=sys.stderr)
 
 
+def render_document(directory, data_override, source_cache):
+    """Render the selected PDF with the round's source locations, without excerpts."""
+    output = Path(directory) / 'renders'
+    output.mkdir(exist_ok=True)
+    root = prepare_sources(data_override, output, 'after', source_cache)
+    document = document_preview(data_override, output, 'after', root, run, page_images=False)
+    atomic_json(output / 'manifest.json', {'documents': {'after': document}, 'passages': {}})
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--review', required=True)

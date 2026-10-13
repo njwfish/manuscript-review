@@ -10,6 +10,7 @@ await rm(destination,{recursive:true,force:true});
 await mkdir(destination,{recursive:true});
 await cp(join(root,'media/review.svg'),join(destination,'review.svg'));
 await cp(join(root,'src/sidebar.js'),join(destination,'sidebar.js'));
+await cp(join(root,'src/pdf-panel.js'),join(destination,'pdf-panel.js'));
 await build({entryPoints:[join(root,'src/extension.mjs')],bundle:true,platform:'node',target:'node22',format:'cjs',external:['vscode'],outfile:join(destination,'extension.cjs')});
 await cp(join(root,'../manuscript_review'),join(destination,'runtime/manuscript_review'),{
  recursive:true,filter:file=>!file.includes('__pycache__')&&!file.endsWith('.pyc')

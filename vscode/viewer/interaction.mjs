@@ -1,12 +1,13 @@
 import {reviewMarks} from './highlights.mjs';
 
-const keys = new Set(['a', 's', 'd', 'f', 'j', 'k', 'u', 'c', 'r', 'v', 't', 'g', 'e', 'p', 'n', 'q', 'm', 'i', '?', '[', ']']);
+const keys = new Set(['a', 's', 'd', 'f', 'u', 'c', 'e', 'escape']);
 
 export function reviewKey(event) {
-    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return;
+    if (event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return;
+    if (event.ctrlKey && !['a', 's'].includes(event.key?.toLowerCase())) return;
     if (event.target?.isContentEditable || event.target?.closest?.('input, textarea, select')) return;
     if (!keys.has(event.key?.toLowerCase())) return;
-    return {type: 'review-pdf-key', key: event.key, shiftKey: Boolean(event.shiftKey), repeat: Boolean(event.repeat)};
+    return {type: 'review-pdf-key', key: event.key, shiftKey: Boolean(event.shiftKey), ctrlKey: Boolean(event.ctrlKey), repeat: Boolean(event.repeat)};
 }
 
 export function reviewMessage(event, origin, parent) {

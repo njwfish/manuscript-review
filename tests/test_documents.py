@@ -285,3 +285,23 @@ class ManuscriptTests(ReviewFixture):
         next_round.import_responses([{'id':entry['id'],'text':'Proposed a smaller wording change.'}],record['revision'])
         self.assertEqual(self.session.store.read(), before)
         self.assertTrue(next_round.report()['history'][0]['replies'])
+
+
+class SelectedSnapshotTests(ReviewFixture):
+    def test_selected_pdf_locations_keep_round_ids_and_source_spans_without_mutation(self):
+        from manuscript_review.documents import selected_snapshot
+        record = self.session.store.read()
+        before = copy.deepcopy(record)
+        for file in record['snapshot']['files']:
+            for edit in file['edits']:
+                record['decisions'][edit['id']] = 'reject'
+        snapshot = selected_snapshot(record)
+        self.assertEqual(snapshot['proposed'], record['result'])
+        for file in snapshot['files']:
+            original = next(source for source in record['snapshot']['files'] if source['path'] == file['path'])
+            self.assertEqual(file['after'], original['before'])
+            for edit in file['edits']:
+                lo, hi = edit['proposal_span']
+                self.assertEqual((file['after'] or '')[lo:hi], edit['old'])
+                self.assertEqual(edit['new'], edit['old'])
+        self.assertEqual(record['snapshot'], before['snapshot'])

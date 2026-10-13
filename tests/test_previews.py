@@ -38,3 +38,43 @@ class PreviewTests(ReviewFixture):
             self.assertEqual(calls, [r['snapshot']['proposed'], proposed])
             self.assertEqual(manifest['proposed'], proposed)
             self.assertEqual(self.session.store.read()['metadata']['preview_status'], 'ready')
+
+    def test_selected_generation_keeps_edit_ids_when_result_equals_base_and_invalidates_new_entry(self):
+        r = self.session.store.read()
+        r['snapshot']['entry'] = 'main.tex'
+        self.session.store.commit(r)
+        ids = [edit['id'] for file in r['snapshot']['files'] for edit in file['edits']]
+        with patch.object(self.session.previews, 'queue'):
+            self.session.update('save', self.request(decisions=dict.fromkeys(ids, 'reject')))
+        r = self.session.store.read()
+        from manuscript_review.comparison import read_blob
+        self.assertEqual(read_blob(self.repo, r['result'], 'main.tex'), self.base_text)
+        def render(directory, data_override, source_cache):
+            self.assertEqual(data_override['proposed'], r['result'])
+            self.assertEqual([edit['id'] for file in data_override['files'] for edit in file['edits']], ids)
+            self.assertEqual(next(file for file in data_override['files'] if file['path'] == 'main.tex')['after'], self.base_text)
+            atomic_json(directory / 'renders/manifest.json', {'documents': {'after': {'pdf': 'after.pdf', 'pages': [{}]}}})
+        with patch('manuscript_review.render_latex.render_document', side_effect=render):
+            self.session.previews.render('selected')
+        preview = self.session.preview('selected')
+        self.assertEqual(preview['preview_status'], 'ready')
+        self.assertEqual(preview['proposal'], r['snapshot']['proposed'])
+        self.assertEqual(preview['entry'], 'main.tex')
+        r = self.session.store.read()
+        r['snapshot']['entry'] = 'other.tex'
+        self.session.store.commit(r)
+        self.assertEqual(self.session.preview('selected')['documents'], {})
+        self.assertEqual(self.session.preview('selected')['preview_status'], 'queued')
+
+    def test_selected_render_never_publishes_stale_result(self):
+        r = self.session.store.read()
+        r['snapshot']['entry'] = 'main.tex'
+        self.session.store.commit(r)
+        def render(directory, data_override, source_cache):
+            with patch.object(self.session.previews, 'queue'):
+                self.session.update('save', self.request(decisions={self.file()['edits'][0]['id']: 'reject'}))
+            atomic_json(directory / 'renders/manifest.json', {'documents': {'after': {'pdf': 'stale.pdf'}}})
+        with patch('manuscript_review.render_latex.render_document', side_effect=render):
+            self.session.previews.render('selected')
+        self.assertFalse((self.directory / 'selected-renders/manifest.json').exists())
+        self.assertEqual(self.session.preview('selected')['documents'], {})

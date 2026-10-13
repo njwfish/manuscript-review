@@ -2,6 +2,19 @@
 import re
 from .comparison import compare, enrich_snapshot, git, read_blob
 from .previews import preview_assets
+from .editing import project_source
+
+
+def selected_snapshot(record):
+    """Locate the round's edit identities in the exact selected manuscript."""
+    files = []
+    for file in record['snapshot']['files']:
+        selected = project_source(file, record['decisions'])
+        source = selected.content or ''
+        edits = [{**edit, 'proposal_span': selected.ranges[edit['id']],
+                  'new': source[slice(*selected.ranges[edit['id']])]} for edit in file['edits']]
+        files.append({**file, 'after': selected.content, 'edits': edits})
+    return {**record['snapshot'], 'proposed': record['result'], 'files': files}
 
 
 def saved_source(record, path, version=None):

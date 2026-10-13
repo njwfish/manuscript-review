@@ -24,7 +24,7 @@ function reviewRoute(path, writing) {
     if (writing) return reviewWrites.has(path);
     if (path === '/feedback.json' || path === '/status' || path === '/summary') return true;
     if (/^\/data\?scope=(?:round|baseline|manuscript)&file=[^#]*$/.test(path)) return true;
-    if (/^\/previews\?scope=(?:round|baseline|manuscript)$/.test(path)) return true;
+    if (/^\/previews\?scope=(?:round|baseline|manuscript|selected)$/.test(path)) return true;
     if (/^\/(?:data|selected\.patch)(?:\?scope=(?:round|baseline|manuscript))?$/.test(path)) return true;
     return /^\/editor\?file=[^#]*$/.test(path);
 }
@@ -295,7 +295,7 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
     }
 
     async function asset(path) {
-        if (!/^\/(?:assets|baseline-assets)\/[A-Za-z0-9_-]+\.(?:svg|pdf)$/.test(path)) throw new Error('Choose a manuscript preview asset.');
+        if (!/^\/(?:assets|baseline-assets|selected-assets)\/[A-Za-z0-9_-]+\.(?:svg|pdf)$/.test(path)) throw new Error('Choose a manuscript preview asset.');
         return resource(path, path.endsWith('.svg') ? 'image/svg+xml' : 'application/pdf');
     }
 

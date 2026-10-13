@@ -6,11 +6,11 @@ exports.run=async()=>{
  const {fixture,document,editor}=state;
  const engine=(script,...args)=>JSON.parse(execFileSync(fixture.python,['-c',script,fixture.home,fixture.review,...args],{cwd:fixture.package+'/dist/runtime',encoding:'utf8'}));
  const record=async()=>JSON.parse(await fs.readFile(fixture.home+'/reviews/'+fixture.review+'/review.json','utf8'));
- await until(()=>state.runtime?.review?.id===fixture.review);await state.comments.refresh();
  assert.equal(document.getText(),fixture.text);
  // Dispatch is detached, saves the native thread, and preserves dirty source.
  editor.selection=new vscode.Selection(document.positionAt(0),document.positionAt(24));
  const thread=await state.comments.annotate(editor);
+ await until(()=>state.runtime?.review?.id===fixture.review);await state.comments.refresh();
  assert.equal(thread.range.isEmpty,true);
  assert.equal(thread.range.start.line,1);
  const began=performance.now();
@@ -43,7 +43,8 @@ exports.run=async()=>{
  assert.equal(execFileSync('git',['show',authorBase+':main.tex'],{cwd:fixture.repo,encoding:'utf8'}),authorText);
  await until(async()=> (await record()).metadata.workspace_version!==(await record()).snapshot.base);
  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
- await vscode.commands.executeCommand('manuscriptReview.refresh'); // Exercises live webview readiness and flush across reload.
+ await vscode.commands.executeCommand('manuscriptReview.refresh');
+ assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false,'Review must use native source without another text tab');
  await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
  let at=document.getText().indexOf('observed');
  await editor.edit(builder=>builder.replace(new vscode.Range(document.positionAt(at),document.positionAt(at+8)),'recorded'));
@@ -68,5 +69,5 @@ exports.run=async()=>{
  assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:fixture.repo,encoding:'utf8'}).trim(),fixture.head);
  assert.equal(execFileSync('git',['diff','--cached','--name-only'],{cwd:fixture.repo,encoding:'utf8'}).trim(),'');
  await state.actual.deactivate();
- await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,focusedWebviewReload:true,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
+ await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,singleNativeReviewEditor:true,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
 };

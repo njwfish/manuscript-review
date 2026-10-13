@@ -30,18 +30,25 @@ const {PDFViewerApplication: application} = await import('./viewer.mjs');
 await application.initializedPromise;
 const highlights = createHighlights(application);
 const reviewPDF = createPDFReview(application, highlights, send);
+document.getElementById('secondaryOpenFile')?.remove();
+document.getElementById('openFile')?.remove();
+let reviewing=false,selection,revision=0;
 
 window.addEventListener('message', event => {
     const message = reviewMessage(event, target, window.parent);
-    if (message) reviewPDF(message);
+    if (message) {
+        const ticket=++revision;reviewing=false;
+        void reviewPDF(message).then(()=>{if(ticket===revision){reviewing=Boolean(message.reviewing);selection=message.selection;}});
+    }
 });
 
 window.addEventListener('keydown', event => {
+    if(!reviewing)return;
     const message = reviewKey(event);
     if (!message) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    send(message);
+    send({...message,selection});
 }, {capture: true});
 
 // A historical comparison must keep displaying its pinned PDF.

@@ -39,12 +39,11 @@ buttons, or open **Manuscript Review** from the left activity bar. Its sidebar k
 comment controls. Library is in the title bar; Setup and saved-source review are in its menu. With no folder open, choose a manuscript folder or clone from GitHub.
 
 Choose a saved round; a repository with no reviews opens for annotation. The toolbar
-button opens focused review beside the source. **Open manuscript review** from the
-command palette keeps an unchanged manuscript in the source editor; **Focus review**
-opens the comparison when needed. The round label
-opens the history picker for that manuscript. **Browse review library** groups saved
-rounds by manuscript.
-**Import saved review** imports a `review.json` through the shared record operations.
+button starts focused review in the source editor. No separate text review tab opens.
+**Open manuscript review** from the Command Palette selects the manuscript, and
+**Focus review in editor** starts keyboard review. **Browse review library** groups
+saved rounds by manuscript. **Import saved review** imports a `review.json` through
+the shared record operations.
 
 **Compare versions** opens this sidebar. Click **From**, **To**, or **PDF** to change
 a field, then choose **Compare** to open that pair and its proposal source. The current review and its
@@ -58,10 +57,9 @@ The folder name also lets you choose another workspace folder or local directory
 captures saved tracked files, including staged new files, as a fixed snapshot.
 Choosing a **selected draft** for **From** starts a new round with its decisions, original baseline,
 and discussion preserved. Choosing a Git version starts a fresh comparison whose
-baseline is that version. Both versions remain visible above the focused review;
-hover to inspect their exact hashes, or click to choose another comparison.
-**This round** compares the starting and proposed drafts; **Since baseline** compares
-the original baseline with your current selected wording.
+baseline is that version. The sidebar shows both endpoints; hover to inspect their
+exact hashes, or click to choose another comparison. Select an earlier draft or the
+original Git baseline as **From** to inspect accumulated changes.
 
 **PDF document** selects the LaTeX entry file; choose **Source only** to skip compilation.
 **Fetch manuscript history** updates available history without changing your working
@@ -86,13 +84,12 @@ visit unresolved threads across files; **Manuscript Review: Comment navigation �
 threads. The Comments view also provides its native resolved/unresolved filter. New-comment shortcuts require source comments to be on; navigation stays available
 for saved threads. These shortcuts require source editor focus and can be remapped in Keyboard Shortcuts.
 
-Clicking proposed text in the focused review opens the source file at the change.
-Focused review shows exact word changes in their full passage. The native editor
-shows the same selected wording, with **Accept** and **Reject** beside the change
-under your cursor. Selecting a source change also selects it in an open focused
-comparison or PDF view.
-Opening focused review starts at the change under your cursor or the next change
-in that source file.
+The source editor drives the review. It shows selected wording with word highlights
+and **Accept**, **Reject**, and **Comment** above the current change. Focused review
+keeps its full passage visible and dims distant source. It starts at the change under
+your cursor, or the next change in that file. Clicking source or pressing **E/Escape**
+returns to typing. The review toolbar button resumes keyboard review.
+
 Source remains a normal VS Code document with saving, undo, syntax highlighting, and
 LaTeX Workshop compilation. Change backgrounds show replacements against the exact current editor buffer.
 **Show removals** adds the original wording as transient strikethrough beside its
@@ -110,11 +107,11 @@ The intent is pinned when typing starts, so changing that choice before Save can
 reclassify an edit. New manual edits are accepted;
 unaffected choices remain, and comments on revised edits move into discussion.
 The original baseline stays fixed. Parallel agent revisions join the current proposal
-through the bundled skill; **Compare saved changes** captures edits made outside this editor.
+through the bundled skill; **Review saved source changes** captures edits made outside this editor.
 
 Source editing uses B’s checkout. If the open folder contains another version or
 unrelated changes, the review creates a separate Git worktree containing its selected
-draft. **Open editing folder** in Review tools opens that source as a normal VS Code
+draft. **Manuscript Review: Open editing folder** in the Command Palette opens that source as a normal VS Code
 folder for Git, terminals, and LaTeX Workshop. Your original checkout stays intact;
 create a branch in the editing folder when you want to commit or publish its changes.
 
@@ -126,27 +123,27 @@ and recovery behavior.
 
 ## Review and apply
 
-In **Focus review**, use **A / S** to accept or reject and advance, **D / F** to move
-backward or forward, and **Shift+A / S** for passage decisions. **Ctrl+A / S** applies
-a decision to the file. These shortcuts apply within the review panel; source editing
-keeps its normal keys. Comments save automatically.
+In focused source review, **A/S** accepts or rejects and advances, **D/F** moves
+backward or forward, and **Shift+A/S** decides the passage. **Ctrl+A/S** decides the
+file, **U** resets a decision, and **C** opens its native comment. **E/Escape** returns
+to ordinary editing. Outside focus mode, **Ctrl+Alt+D/F** navigates highlighted edits.
+**Exit review** in the editor title turns off highlights and review shortcuts.
 
-**PDF** shows the original and proposed pages using the bundled LaTeX Workshop viewer,
-with the selected change highlighted. Moving through edits retains zoom and the loaded
-PDF. PDF panes retain selection, search, and copy shortcuts; whole-file decisions and
-Apply use the review panel. **Show location in LaTeX Workshop PDF** uses the installed
-Workshop extension's SyncTeX for live source. Its compiler and live viewer remain the
-usual Workshop tools.
+**Open manuscript PDF** in the sidebar title opens the selected manuscript using the
+bundled LaTeX Workshop viewer. It follows the selected edit and retains zoom and search.
+The PDF shows your current selected wording, including rejections. While focused
+review is active, the same decision and navigation keys work there; **E/Escape**
+returns focus to source. An already open matching LaTeX Workshop PDF also follows
+saved source through SyncTeX. Compilation runs in the background; unavailable exact
+geometry falls back to the corresponding page.
 
-When the review is complete, **Apply review** writes the selected wording to your files.
-Save or discard unsaved manuscript buffers first. Apply preserves Git HEAD and staging
-and refuses intervening source changes. Review tools also contain patch and feedback
-exports, response imports, version comparison, the library, drafts, and setup.
+Native decisions update clean saved source through undoable edits. **Apply review**
+appears in the sidebar when every edit has a decision and files still need applying,
+including new or deleted files. Save or discard unsaved manuscript buffers first.
+Apply preserves Git HEAD and staging and refuses intervening source changes.
 
-Accept/reject selects wording. Resolve/reopen settles a discussion. These actions are
-independent: accepting an edit or receiving a response leaves its thread status intact.
-The focused review’s **Unresolved / All** filter and **Resolve / Reopen** controls use
-the same thread state as native comments.
+Accept/reject selects wording. Resolve/reopen settles a discussion independently.
+Accepting an edit or receiving a response leaves its thread status intact.
 
 ## Work with an agent
 
@@ -173,16 +170,13 @@ Agent changes** comparison. Clean results join saved source through native undoa
 edits. Dirty buffers wait for your next Save. Your own saves update the author side,
 so the diff contains agent changes; the original baseline and archived comparisons
 remain available. **Agent changes** in the sidebar also brings existing results into
-this workflow. Opening focused review pauses delivery and keeps **Apply review**
-explicit. Overlapping author and agent wording stays visible for review; neither
+this workflow. Clean results can join source while focused review is active. Overlapping author and agent wording stays visible for review; neither
 version is lost. New or deleted files use explicit Apply. Pending decisions and unsaved source
 do not block agent revisions. The author reviews wording and resolves settled threads.
 
-**Copy agent request** prepares the same workflow for your external chat. An idle
-focused review refreshes returned changes and replies automatically; active input is
-retained with **Reload review** available. **This round** shows the current comparison;
-**Since baseline** includes selected changes across earlier
-rounds. An explicitly requested separate revision pass can still create a new round.
+Returned changes and replies refresh native source and comments automatically.
+Unsaved source stays in its native buffer. An explicitly requested separate revision
+pass can still create a new round.
 
 **Review highlights** in the sidebar turns diff highlighting and surrounding dimming
 off or on, independently of editing intent and **Source comments**. Automatic delivery
@@ -203,7 +197,7 @@ npm run package
 ```
 
 The VSIX is written under `dist/`. The build includes the shared Python engine,
-comparison interface, viewer, skill, and commands. Python is a local prerequisite;
+native controls, PDF viewer, skill, and commands. Python is a local prerequisite;
 the engine has no third-party Python dependencies. No standalone app installation is
 required. The viewer's pinned upstream sources and license notices are documented in
 `viewer/UPSTREAM.json`.

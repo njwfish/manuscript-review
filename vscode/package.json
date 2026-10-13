@@ -6,7 +6,7 @@
     "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -46,7 +46,7 @@
       },
       {
         "command": "manuscriptReview.focusedReview",
-        "title": "Focus review",
+        "title": "Focus review in editor",
         "category": "Manuscript Review"
       },
       {
@@ -211,6 +211,53 @@
         "command": "manuscriptReview.agentChanges",
         "title": "Review agent changes",
         "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.acceptChange",
+        "title": "Accept change",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.rejectChange",
+        "title": "Reject change",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.resetChange",
+        "title": "Reset decision",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.previousChange",
+        "title": "Previous change",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.nextChange",
+        "title": "Next change",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.commentChange",
+        "title": "Comment on change",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.editSource",
+        "title": "Edit source",
+        "category": "Manuscript Review"
+      },
+      {
+        "command": "manuscriptReview.exitReview",
+        "title": "Exit review",
+        "category": "Manuscript Review",
+        "icon": "$(close)"
+      },
+      {
+        "command": "manuscriptReview.reviewPDF",
+        "title": "Open manuscript PDF",
+        "category": "Manuscript Review",
+        "icon": "$(file-pdf)"
       }
     ],
     "configuration": {
@@ -349,6 +396,11 @@
           "command": "manuscriptReview.review",
           "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/",
           "group": "navigation@3"
+        },
+        {
+          "command": "manuscriptReview.exitReview",
+          "when": "manuscriptReview.source && manuscriptReview.reviewVisible",
+          "group": "navigation@4"
         }
       ],
       "view/title": [
@@ -381,6 +433,11 @@
           "command": "manuscriptReview.commentFilter",
           "when": "view == manuscriptReview.start && manuscriptReview.active",
           "group": "review@2"
+        },
+        {
+          "command": "manuscriptReview.reviewPDF",
+          "when": "view == manuscriptReview.start && manuscriptReview.active",
+          "group": "navigation@3"
         }
       ]
     },
@@ -415,6 +472,80 @@
         "key": "ctrl+alt+]",
         "mac": "cmd+alt+]",
         "when": "manuscriptReview.source && editorTextFocus"
+      },
+      {
+        "command": "manuscriptReview.acceptChange",
+        "key": "a",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.rejectChange",
+        "key": "s",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.acceptChange",
+        "key": "shift+a",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition",
+        "args": "passage"
+      },
+      {
+        "command": "manuscriptReview.rejectChange",
+        "key": "shift+s",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition",
+        "args": "passage"
+      },
+      {
+        "command": "manuscriptReview.acceptChange",
+        "key": "ctrl+a",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition",
+        "args": "file"
+      },
+      {
+        "command": "manuscriptReview.rejectChange",
+        "key": "ctrl+s",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition",
+        "args": "file"
+      },
+      {
+        "command": "manuscriptReview.previousChange",
+        "key": "d",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.nextChange",
+        "key": "f",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.editSource",
+        "key": "e",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.editSource",
+        "key": "escape",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.commentChange",
+        "key": "c",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.resetChange",
+        "key": "u",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.focused && !suggestWidgetVisible && !findWidgetVisible && !inComposition"
+      },
+      {
+        "command": "manuscriptReview.previousChange",
+        "key": "ctrl+alt+d",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.reviewVisible"
+      },
+      {
+        "command": "manuscriptReview.nextChange",
+        "key": "ctrl+alt+f",
+        "when": "manuscriptReview.source && editorTextFocus && manuscriptReview.reviewVisible"
       }
     ],
     "viewsContainers": {

@@ -1,6 +1,23 @@
 """Typeset immutable proposal versions; publish only the current generation."""
 import threading
+import hashlib
+import json
 from .storage import FileLock, atomic_json, read_json
+
+PREVIEW_SCOPES = {
+    'round': ('renders', 'preview_status', 'preview_error'),
+    'baseline': ('baseline-renders', 'baseline_preview_status', 'baseline_preview_error'),
+    'selected': ('selected-renders', 'selected_preview_status', 'selected_preview_error'),
+}
+PREVIEW_VERSIONS = {
+    'round': {'base': 'base', 'proposed': 'proposed'},
+    'baseline': {'base': 'baseline', 'proposed': 'result'},
+    'selected': {'base': 'base', 'proposed': 'result', 'proposal': 'proposed', 'entry': 'entry'},
+}
+
+
+def preview_versions(state, scope):
+    return {key: state[value] for key, value in PREVIEW_VERSIONS[scope].items()}
 
 
 def preview_assets(passages):
@@ -39,7 +56,7 @@ class Previews:
         threading.Thread(target=work, daemon=True).start()
 
     def render(self, scope='round'):
-        from .render_latex import render, RENDER_VERSION
+        from .render_latex import render, render_document, RENDER_VERSION
         store = self.session.store
         with self.lock:
             with store.transaction():
@@ -47,22 +64,24 @@ class Previews:
                 snapshot = self.session.comparison(record, scope)
                 if not snapshot['entry']:
                     return
-                output = store.directory / ('renders' if scope == 'round' else 'baseline-renders')
+                folder, status_key, error_key = PREVIEW_SCOPES[scope]
+                output = store.directory / folder
                 manifest = read_json(output / 'manifest.json', {})
-                status_key = 'preview_status' if scope == 'round' else 'baseline_preview_status'
-                error_key = 'preview_error' if scope == 'round' else 'baseline_preview_error'
-                if (manifest.get('base'), manifest.get('proposed'), manifest.get('renderer')) == (snapshot['base'], snapshot['proposed'], RENDER_VERSION):
+                generation = preview_versions({**record['snapshot'], 'baseline': record['baseline'], 'result': record['result']}, scope)
+                identity = {**generation, 'renderer': RENDER_VERSION}
+                if all(manifest.get(key) == value for key, value in identity.items()):
                     if record['metadata'].get(status_key) in ('queued', 'rendering'):
                         record['metadata'][status_key] = 'ready'
                         store.patch({'metadata': record['metadata']})
                     return
-                generation = (snapshot['base'], snapshot['proposed'])
                 record['metadata'][status_key] = 'rendering'
                 store.patch({'metadata': record['metadata']})
             try:
-                cache = store.directory / 'preview-cache' / '-'.join(generation)
+                key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:40]
+                cache = store.directory / 'preview-cache' / (scope + '-' + key)
                 cache.mkdir(parents=True, exist_ok=True)
-                render(cache, data_override=snapshot, source_cache=store.directory / 'preview-cache/sources')
+                renderer = {'round': render, 'baseline': render, 'selected': render_document}[scope]
+                renderer(cache, data_override=snapshot, source_cache=store.directory / 'preview-cache/sources')
                 rendered = read_json(cache / 'renders/manifest.json')
                 output.mkdir(exist_ok=True)
                 for asset in (cache / 'renders').iterdir():
@@ -78,10 +97,9 @@ class Previews:
                 rendered = {}
             with store.transaction():
                 record = store.read(lambda record: {key: record[key] for key in ('metadata', 'baseline', 'result')}
-                                    | {'snapshot': {key: record['snapshot'][key] for key in ('base', 'proposed')}})
-                current = ((record['snapshot']['base'], record['snapshot']['proposed']) if scope == 'round'
-                           else (record['baseline'], record['result']))
+                                    | {'snapshot': {key: record['snapshot'][key] for key in ('base', 'proposed', 'entry')}})
+                current = preview_versions({**record['snapshot'], 'baseline': record['baseline'], 'result': record['result']}, scope)
                 if current == generation:
-                    atomic_json(output / 'manifest.json', {'base': generation[0], 'proposed': generation[1], 'renderer': RENDER_VERSION, **rendered})
+                    atomic_json(output / 'manifest.json', {**identity, **rendered})
                     record['metadata'].update({status_key: result, error_key: error})
                     store.patch({'metadata': record['metadata']})
