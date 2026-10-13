@@ -60,6 +60,16 @@ exports.run=async()=>{
  assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false,'Review must use native source without another text tab');
  // C must open the native input, including a follow-up to a replied discussion.
  const root=(await record()).history.find(entry=>entry.comment==='Keep this surgical.');
+ await state.comments.refresh();
+ editor.selection=new vscode.Selection(document.positionAt(document.getText().indexOf('observed')),document.positionAt(document.getText().indexOf('observed')));
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ const originalComment=await vscode.commands.executeCommand('manuscriptReview.commentChange');
+ assert.equal(originalComment.comments[0].mode,vscode.CommentMode.Editing);
+ const sourceBeforeRootEdit=document.getText();await delay(500);
+ await vscode.commands.executeCommand('default:type',{text:' Add context.'});
+ assert.equal(document.getText(),sourceBeforeRootEdit,'Editing an existing comment must not type into source');
+ await vscode.commands.executeCommand('editor.action.submitComment');
+ await until(async()=> (await record()).history.find(entry=>entry.id===root.id)?.comment==='Keep this surgical. Add context.');
  engine("import sys,json;from manuscript_review.library import Library;from manuscript_review.session import ReviewSession;s=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));r=s.store.read();s.import_responses([{'id':sys.argv[3],'text':'Updated the wording.'}],r['revision']);print(json.dumps({'ready':True}))",root.id);
  await state.comments.refresh();
  editor.selection=new vscode.Selection(document.positionAt(document.getText().indexOf('observed')),document.positionAt(document.getText().indexOf('observed')));
@@ -104,7 +114,7 @@ exports.run=async()=>{
  await vscode.commands.executeCommand(reject.command.command,...reject.command.arguments);
  await until(()=>document.getText()===authorText&&!document.isDirty);
  assert.equal((await record()).snapshot.base,authorBase);
- assert.equal((await record()).history.find(entry=>entry.comment==='Keep this surgical.').comment,'Keep this surgical.');
+ assert.equal((await record()).history.find(entry=>entry.id===root.id).comment,'Keep this surgical. Add context.');
  await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
  await vscode.commands.executeCommand('undo');

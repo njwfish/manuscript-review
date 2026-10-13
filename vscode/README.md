@@ -151,11 +151,12 @@ Accepting an edit or receiving a response leaves its thread status intact.
 
 ## Work with an agent
 
-Press **Enter** in a comment to save it and dispatch it through the selected agent's
+Press **Enter** in a new comment to save it and dispatch it through the selected agent's
 CLI; **Shift+Enter** adds a newline. The sidebar chooses **Agent** (Codex or Claude
 Code) and **Model**; **CLI default** uses that provider's own settings. The arrow in
 a native comment toolbar also chooses the provider. Both choices are remembered. **Add comment**
 saves without dispatching; **Send to agent** also works on a saved comment.
+Editing a saved comment uses **Save comment**; Enter saves that correction.
 
 [Install and sign in to the CLI](../docs/INSTALL.md#agent-clis) first. No provider tab
 opens and focus stays in your manuscript. Several agents can work while you continue

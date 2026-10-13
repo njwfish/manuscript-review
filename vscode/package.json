@@ -311,12 +311,12 @@
         {
           "command": "manuscriptReview.saveComment",
           "when": "comment == manuscriptReview.editing",
-          "group": "inline"
+          "group": "inline@0"
         },
         {
           "command": "manuscriptReview.cancelComment",
           "when": "comment == manuscriptReview.editing",
-          "group": "inline"
+          "group": "inline@1"
         },
         {
           "command": "manuscriptReview.sendDraft",
