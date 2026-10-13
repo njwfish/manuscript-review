@@ -22,7 +22,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   const projected=new WeakMap();
 
   const fileFor=document=>sourceFile(getRuntime()?.review,document);
-  const threadKey=(uri,origin)=>JSON.stringify([uri.toString(),origin]);
+  const threadKey=(reviewId,uri,origin)=>JSON.stringify([reviewId,uri.toString(),origin]);
 
   function checkReview(state) {
     if(disposed)throw new Error('Manuscript Review has closed.');
@@ -43,16 +43,15 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     const runtime=getRuntime();
     const review=runtime?.review,file=fileFor(document),reviewId=review?.id;
     if(!file)throw new Error('Choose a source file in the reviewed repository.');
-    const text=document.getText(),version=document.version;
-    const saved=snapshotVersion(document);
-    const cached=projected.get(document);
+    const version=document.version,cached=projected.get(document);
     if(cached?.runtime===runtime&&cached.value.reviewId===reviewId&&cached.value.revision===runtime.review.revision
-      &&cached.version===version&&cached.value.text===text)return cached.value;
+      &&cached.value.documentVersion===version)return cached.value;
+    const text=document.getText(),saved=snapshotVersion(document);
     const result=await runtime.request('/editor',{file,text,...(saved?{version:saved}:{})});
     if(getRuntime()!==runtime||runtime?.review?.id!==reviewId||document.version!==version||document.getText()!==text)
       throw Object.assign(new Error('The source changed while locating this comment. Try again.'),{code:'SourceChanged'});
-    const value={...result,file,text,document,reviewId};
-    projected.set(document,{runtime,version,value});
+    const value={...result,file,text,document,documentVersion:version,reviewId};
+    projected.set(document,{runtime,value});
     return value;
   }
 
@@ -138,7 +137,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     if(!review||disposed)return;
     if(needsData||cachedRuntime!==runtime||cachedData?.id!==review.id||cachedData.revision!==review.revision||cachedFile!==selectedFile){
       needsData=false;
-      cachedData=await runtime.data('round',selectedFile);cachedRuntime=runtime;cachedFile=selectedFile;
+      cachedData=await runtime.data(selectedFile);cachedRuntime=runtime;cachedFile=selectedFile;
     }
     const data=cachedData;
     const current=()=>{
@@ -155,7 +154,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
         const document=await documentFor(file);
         if(fileFor(document)){
           if(data.files.find(item=>item.path===file)?.loaded===false){
-            const full=await runtime.data('round',file);
+            const full=await runtime.data(file);
             if(!current())return;
             const replacement=full.files.find(item=>item.path===file);
             if(full.id!==data.id||full.revision!==data.revision||full.proposed!==data.proposed||!replacement)return;
@@ -169,12 +168,12 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       }
       if(!current())return;
     }
-    if([...projections.values()].some(projection=>projection.revision!==data.revision||projection.document.getText()!==projection.text))return;
+    if([...projections.values()].some(projection=>projection.revision!==data.revision||projection.document.version!==projection.documentVersion))return;
     for(const projection of projections.values())onProjection?.(projection,data);
     for(const entry of latest) {
       const projection=projections.get(entry.file);
       if(!projection)continue;
-      const origin=entry.origin_id,key=threadKey(projection.document.uri,origin),range=rangeFor(entry,projection);
+      const origin=entry.origin_id,key=threadKey(review.id,projection.document.uri,origin),range=rangeFor(entry,projection);
       let state=threads.get(key);
       if(!state) {
         state={thread:makeThread(projection.document,range)};
@@ -277,7 +276,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       ...(state.entry?{parent:state.entry.id}:{})});
     if(!state.entry) {
       pending.delete(state);state.entry=result.entry;state.origin=result.entry.origin_id;
-      state.key=threadKey(state.thread.uri,state.origin);
+      state.key=threadKey(state.reviewId,state.thread.uri,state.origin);
       threads.set(state.key,state);activeThread=state.key;
     }
     state.data={...(state.data||cachedData),revision:result.revision};
@@ -304,17 +303,22 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     comment.body=text;
     checkReview(state);
     if(comment.conflict||!comment.editable)throw new Error('This comment changed or received a response. Cancel editing and leave a follow-up.');
+    let result;
     if(comment.current) {
-      await runtime.request('/save',{revision:comment.editRevision,decisions:state.data.decisions,
+      result=await runtime.request('/save',{revision:comment.editRevision,decisions:state.data.decisions,
         comments:{...state.data.comments,[comment.entry.id]:text}});
-    } else await runtime.request('/note',{revision:comment.editRevision,id:comment.entry.id,comment:text});
+    } else result=await runtime.request('/note',{revision:comment.editRevision,id:comment.entry.id,comment:text});
+    comment.entry={...comment.entry,comment:text};
+    if(state.entry.id===comment.entry.id)state.entry=comment.entry;
+    state.data={...state.data,revision:result.revision};
+    if(comment.current)state.data.comments={...state.data.comments,[comment.entry.id]:text};
     comment.body=comment.savedBody=text;comment.mode=vscode.CommentMode.Preview;
     await changed();
     return true;
   }
 
   function cancelComment(comment) {
-    comment.body=comment.savedBody;comment.mode=vscode.CommentMode.Preview;
+    comment.body=comment.savedBody=comment.entry.comment;comment.mode=vscode.CommentMode.Preview;comment.conflict=false;
     comment.contextValue=comment.editable?'manuscriptReview.editable':undefined;
     comment.parent.comments=[...comment.parent.comments];
   }

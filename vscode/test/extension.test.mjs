@@ -69,7 +69,7 @@ async function fixture(t,options={}) {
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id,selectionOptions={}){await selectionOptions.beforeSelect?.();await options.onBeforeSelect?.();calls.push({kind:'open',id});calls.push({kind:'request',route:'/workspace',body:{}});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record,workspace:options.workspace||preparedRepo||repo,workspace_version:'2'.repeat(40)};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){await options.onData?.();return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:options.decisions||{},comments:options.comments||{},history:[],resolved:[],drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent-request')return {discussion:body.id};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const pdf={active:false,reset(){},select(){return Promise.resolve();},setMode(){},async show(){calls.push({kind:'show-pdf'});},async refresh(){calls.push({kind:'pdf-refresh'});},dispose(){calls.push({kind:'dispose-pdf'});}};
@@ -580,6 +580,26 @@ test('a new sidebar choice survives a source dispatch still in flight',async t=>
  assert.equal(state[0].pending,true);assert.equal(state[0].base.revision,'working');
  f.commentsCallbacks.onProjection({},{});
  assert.equal(f.calls.some(call=>call.kind==='decorate'),false);
+});
+
+test('a delayed initial sidebar summary cannot replace a newly staged comparison',async t=>{
+ const f=await fixture(t,{pick:items=>items.find(item=>item.revision==='working')});
+ await f.command('open');
+ let release,entered,held=false;
+ const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ const request=f.runtime.request;
+ f.runtime.request=async(route,...args)=>{
+  const result=await request(route,...args);
+  if(route==='/summary'&&!held){held=true;entered();await gate;}
+  return result;
+ };
+ const loading=f.sidebarCallbacks.load();await started;
+ await f.sidebarCallbacks.onAction('base');
+ release();
+ const state=await loading;
+ assert.equal(state[0].pending,true);assert.equal(state[0].base.revision,'working');
+ const current=await f.sidebarCallbacks.load();
+ assert.equal(current[0].pending,true);assert.equal(current[0].base.revision,'working');
 });
 
 test('Agent changes cannot convert a different review while native saves are capturing',async t=>{

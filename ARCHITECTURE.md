@@ -79,7 +79,10 @@ new-comment controls without disposing threads or replies. The service restores 
 comments for the active source checkout. A first annotation lazily opens the working
 manuscript through the existing prepare operation, without a round picker or focused
 review tab. The controller reads the current runtime through a getter so failed service
-startup and review switches retain its native editors. The same
+startup and review switches retain its native editors. Native thread identity includes
+the review ID, source URI and discussion origin; carried discussion does not move an
+unfinished reply into another round. Successful comment saves publish their wording
+and revision locally before refreshing source anchors. The same
 `ReviewSession.editor` operation projects spans onto an exact external buffer without
 saving it; offsets use UTF-16 for both editors. VS Code owns source saves.
 Native threads display a point marker at an adjacent paragraph break when available,
@@ -120,7 +123,8 @@ The extension's setup, repository comparison, library, Apply, response imports, 
 agent workflow use the shared operations directly. Git comparisons show both endpoints,
 repository, and PDF entry in the review sidebar. `sidebar.mjs` owns the view lifecycle
 and derives display state; `comparison.mjs` owns staged version choices and request
-construction. A field opens one native picker, and preparing that pair is explicit.
+construction. A field opens one native picker, and preparing that pair is explicit. Comparison
+initialization has one owner; late sidebar reads cannot replace staged choices.
 The open review remains intact while another pair is staged.
 Native source highlights clear while that pair is staged, so they cannot depict a
 different comparison from the sidebar controls.
@@ -210,7 +214,11 @@ handoff follows that transaction; provider execution remains detached.
 Interactive reads select their needed fields before copying the record. The sidebar
 reads counts and comparison metadata; source projections read one file and its anchors.
 Pinned Git sources have bounded session caches. Native typing reuses review data and
-unchanged document projections, coalescing overlapping refreshes. Background reads wait
+unchanged document projections, coalescing overlapping refreshes. Document versions
+validate unchanged projections without rereading the buffer. `decorations.mjs` caches
+word highlights and hovers per exact projection; navigation updates only focus shading,
+using at most two continuous ranges at each opacity. Split editors share those values.
+A changed document version, review revision or loaded file invalidates the cache. Background reads wait
 for prior writes without joining the write queue; review epochs and monotonic revisions
 reject obsolete results. Record watchers read the small status endpoint rather than
 parsing source records in the extension host. Git pickers open with cached choices and

@@ -61,18 +61,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'id': opened, 'revision': revision})
         if self.path.startswith('/data'):
             return self.reply({'id': opened, 'token': 'review-secret', 'repo': str(home), 'revision': revision})
-        if self.path.startswith('/editor'):
-            return self.reply({'revision': revision, 'source': 'b' * 40, 'text': 'A sentence.'})
-        if self.path == '/feedback.json':
-            return self.reply({'history': [], 'token': 'review-secret'})
-        if self.path.startswith('/assets/'):
-            if self.path.endswith('missing.svg'):
+        if self.path.startswith('/selected-assets/'):
+            if self.path.endswith('missing.pdf'):
                 return self.reply({'error': 'not found'}, 404)
-            if self.path.endswith('.svg'):
-                return self.reply('<svg xmlns="http://www.w3.org/2000/svg"/>', mime='image/svg+xml')
             return self.reply('%PDF-1.4', mime='application/pdf')
-        if self.path.startswith('/selected.patch'):
-            return self.reply('--- old\\n+++ new\\n', mime='text/plain')
         return self.reply({'error': 'unknown request'}, 404)
     def do_POST(self):
         global revision, opened
@@ -128,13 +120,13 @@ test('tokens stay in the extension host and ordered writes preserve explicit rev
     assert.equal(first.revision, 4);
     assert.equal(second.revision, 5);
     assert.equal(runtime.review.revision, 5);
-    await assert.rejects(runtime.request('/responses', {revision: 3, responses: []}), error => {
+    await assert.rejects(runtime.request('/save', {revision: 3, decisions: {}, comments: {}}), error => {
         assert.equal(error.status, 409);
         assert.equal(error.stale, true);
         return /Review changed/.test(error.message);
     });
     assert.equal((await runtime.data()).revision, 5);
-    assert.equal((await runtime.request('/ui', {ui: {view: 'pdf'}})).revision, 6);
+    assert.equal((await runtime.request('/thread', {id: 'comment', resolved: true})).revision, 6);
     const mutable = runtime.review;
     mutable.revision = 0;
     assert.equal(runtime.review.revision, 6);
@@ -151,20 +143,23 @@ test('the boundary refuses source writes, arbitrary URLs, and unsafe assets', as
         await assert.rejects(runtime.asset(path), /preview asset/);
     }
     await assert.rejects(runtime.library('/install-skill', {}), /unavailable/);
-    assert.throws(() => runtime.data('arbitrary'), /comparison/);
+    for (const path of ['/data?scope=baseline', '/data?scope=manuscript', '/previews?scope=round', '/editor?file=main.tex', '/feedback.json', '/selected.patch']) {
+        await assert.rejects(runtime.request(path), /unavailable/);
+    }
+    for (const path of ['/workspace', '/ui', '/responses', '/retain', '/agent-request']) {
+        await assert.rejects(runtime.request(path, {}), /unavailable/);
+    }
     await assert.rejects(runtime.open('not-an-id'), /saved review/);
-    assert.equal((await runtime.request('/editor?file=main.tex')).text, 'A sentence.');
     assert.equal((await runtime.request('/editor', {file: 'main.tex', text: 'Dirty 🧬 source.'})).text, 'Dirty 🧬 source.');
     assert.equal(runtime.review.revision, 3);
-    assert.match(await runtime.request('/selected.patch'), /--- old/);
-    assert.equal(JSON.parse((await runtime.download('/feedback.json')).bytes).token, undefined);
-    assert.match((await runtime.download('/selected.patch?scope=round')).bytes.toString(), /--- old/);
-    await assert.rejects(runtime.download('/selected.patch?scope=manuscript'), /review export/);
-    await assert.rejects(runtime.download('/assets/a.svg'), /review export/);
-    const svg = await runtime.asset('/assets/a.svg');
-    assert.equal(svg.mime, 'image/svg+xml');
-    assert.match(svg.bytes.toString(), /<svg/);
-    await assert.rejects(runtime.asset('/assets/missing.svg'), error => error.status === 404);
+    for (const path of ['/assets/a.svg', '/assets/a.pdf', '/baseline-assets/a.pdf', '/selected-assets/a.svg']) {
+        await assert.rejects(runtime.asset(path), /preview asset/);
+    }
+    const pdf = await runtime.asset('/selected-assets/a.pdf');
+    assert.equal(pdf.mime, 'application/pdf');
+    assert.match(pdf.bytes.toString(), /%PDF/);
+    await assert.rejects(runtime.asset('/selected-assets/missing.pdf'), error => error.status === 404);
+
 });
 
 test('queued operations cannot write an earlier review into a newly opened one', async t => {
@@ -324,7 +319,7 @@ test('the bundled Python service preserves source while comments travel into the
     const job = await runtime.prepare('/manuscript', {repo});
     const initial = await runtime.open(job.review);
     assert.equal(runtime.review.feedback_path, await realpath(join(home, 'reviews', job.review, 'review.json')));
-    const editor = await runtime.request('/editor?file=main.tex');
+    const editor = await runtime.request('/editor', {file: 'main.tex', text: await readFile(file, 'utf8')});
     const note = await runtime.request('/note', {
         file: 'main.tex', source: editor.source, text: editor.text,
         start: 3, end: 11, comment: 'Please replace original with clearer.'
@@ -340,8 +335,10 @@ test('the bundled Python service preserves source while comments travel into the
     assert.equal(await readFile(file, 'utf8'), editor.text);
     assert.equal(git('rev-parse', 'HEAD'), head);
     assert.deepEqual(await readFile(join(repo, '.git/index')), index);
-    await runtime.request('/responses', {responses: [{id: note.entry.id, text: 'I will refine this word.'}]});
-    const withResponse = await runtime.data('manuscript');
+    const responses = join(directory, 'responses.json');
+    await writeFile(responses, JSON.stringify([{id: note.entry.id, text: 'I will refine this word.'}]));
+    execFileSync('python3', ['-m', 'manuscript_review.agent', '--home', home, 'respond', '--review', job.review, '--revision', String(note.revision), '--responses', responses], {cwd: join(directory, 'runtime')});
+    const withResponse = await runtime.data('main.tex');
     assert.equal(withResponse.history[0].replies[0].text, 'I will refine this word.');
     const prior = await readFile(join(home, 'reviews', job.review, 'review.json'));
     await writeFile(file, 'An clearer sentence.\n');

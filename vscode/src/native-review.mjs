@@ -122,7 +122,7 @@ export function createNativeReview(vscode, {
     const service = runtime(),
       review = service.review.id,
       live = current(true),
-      data = live?.data || (await service.data('round'));
+      data = live?.data || (await service.data());
     if (disposed || ticket !== generation) return false;
     if (
       runtime() !== service ||
