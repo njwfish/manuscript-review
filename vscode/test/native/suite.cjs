@@ -6,6 +6,13 @@ exports.run=async()=>{
  const {fixture,document,editor}=state;
  const engine=(script,...args)=>JSON.parse(execFileSync(fixture.python,['-c',script,fixture.home,fixture.review,...args],{cwd:fixture.package+'/dist/runtime',encoding:'utf8'}));
  const record=async()=>JSON.parse(await fs.readFile(fixture.home+'/reviews/'+fixture.review+'/review.json','utf8'));
+ const inspect=async()=>{
+  await fs.writeFile(fixture.root+'/visual-ready','');console.log('Visual fixture ready: '+fixture.root);
+  for(let i=0;i<2400;i++){
+   try{await fs.access(fixture.root+'/continue-visual');break;}catch{}
+   await delay(200);
+  }
+ };
  assert.equal(document.getText(),fixture.text);
  // Dispatch is detached, saves the native thread, and preserves dirty source.
  editor.selection=new vscode.Selection(document.positionAt(0),document.positionAt(24));
@@ -13,6 +20,12 @@ exports.run=async()=>{
  await until(()=>state.runtime?.review?.id===fixture.review);await state.comments.refresh();
  assert.equal(thread.range.isEmpty,true);
  assert.equal(thread.range.start.line,1);
+ if(process.env.MR_NATIVE_VISUAL==='comment')await inspect();
+ // Give native comment models and their first layout time to initialize.
+ await delay(500);
+ await vscode.commands.executeCommand('default:type',{text:'Typing in a comment'});
+ assert.equal(document.getText(),fixture.text,'Comment input must take keyboard focus without typing into source');
+ assert.equal(document.isDirty,false);
  const began=performance.now();
  assert.equal(await vscode.commands.executeCommand('manuscriptReview.sendComment',{thread,text:'Keep this surgical.'}),true);
  const dispatchMs=performance.now()-began;
@@ -45,6 +58,38 @@ exports.run=async()=>{
  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
  await vscode.commands.executeCommand('manuscriptReview.refresh');
  assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false,'Review must use native source without another text tab');
+ // C must open the native input, including a follow-up to a replied discussion.
+ const root=(await record()).history.find(entry=>entry.comment==='Keep this surgical.');
+ engine("import sys,json;from manuscript_review.library import Library;from manuscript_review.session import ReviewSession;s=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));r=s.store.read();s.import_responses([{'id':sys.argv[3],'text':'Updated the wording.'}],r['revision']);print(json.dumps({'ready':True}))",root.id);
+ await state.comments.refresh();
+ editor.selection=new vscode.Selection(document.positionAt(document.getText().indexOf('observed')),document.positionAt(document.getText().indexOf('observed')));
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ const discussion=await vscode.commands.executeCommand('manuscriptReview.commentChange');
+ assert.equal(discussion.comments.at(-1).mode,vscode.CommentMode.Editing);
+ const sourceBeforeComment=document.getText();
+ await delay(500);
+ await vscode.commands.executeCommand('default:type',{text:'Additional'});
+ assert.equal(document.getText(),sourceBeforeComment,'C must put typing into the comment input');
+ await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+ await vscode.commands.executeCommand('manuscriptReview.commentChange');
+ await delay(500);
+ await vscode.commands.executeCommand('default:type',{text:' feedback from C'});
+ assert.equal(document.getText(),sourceBeforeComment,'C must refocus unfinished input without typing into source');
+ await vscode.commands.executeCommand('editor.action.submitComment');
+ await until(async()=> (await record()).history.some(entry=>entry.comment==='Additional feedback from C')).catch(async error=>{
+  await fs.writeFile(fixture.root+'/comment-debug.json',JSON.stringify({errors:globalThis.nativeReviewTest.commentErrors,
+   comments:discussion.comments.map(comment=>({id:comment.id,body:comment.body,mode:comment.mode,contextValue:comment.contextValue})),
+   source:document.getText(),documents:vscode.workspace.textDocuments.map(doc=>({uri:doc.uri.toString(),text:doc.getText()}))}));throw error;
+ });
+ assert.equal((await record()).history.at(-1).origin_id,root.origin_id);
+ if(process.env.MR_NATIVE_VISUAL==='review'){
+  discussion.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
+  await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+  await inspect();
+ }
  await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
  let at=document.getText().indexOf('observed');
  await editor.edit(builder=>builder.replace(new vscode.Range(document.positionAt(at),document.positionAt(at+8)),'recorded'));

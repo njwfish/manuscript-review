@@ -87,7 +87,7 @@ async function fixture(t,options={}) {
     'test-runtime':{createRuntime(configuration){calls.push({kind:'create-runtime',configuration});return runtime;}},
     'test-pdf-panel':{createPDFPanel(){return pdf;},async followWorkshopPDF(){}},
     'test-comments':{sourceFile,sourceDocument,createComments(_vscode,_runtime,callbacks){commentsCallbacks=callbacks;return comments;}},
-    'test-decorations':{createDecorations(){return {setRemovals(){},setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
+    'test-decorations':{createDecorations(){return {setReviewed(){},setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
   };
   const preferences=new Map([['commentAgent',options.agent],...(options.commentsEnabled===undefined?[]:[['commentsEnabled',options.commentsEnabled]])]);
   const module={exports:{}},context={globalState:{get:(key,fallback)=>preferences.has(key)?preferences.get(key):fallback,async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
@@ -653,7 +653,7 @@ test('a comment sent while navigation waits cannot move silently into another ro
 });
 
 test('focused review dims context and entering the manuscript editor reveals it',async t=>{
- const f=await fixture(t);await f.command('open');f.nativeCallbacks.onFocus('main.tex','edit',{data:{revision:1},span:{}},true);
+ const f=await fixture(t);await f.command('open');f.nativeCallbacks.onFocus('main.tex','edit',{data:await f.runtime.data(),span:{}},true);
  assert.equal(f.calls.at(-1).kind,'focus-source');
  f.nativeCallbacks.onMode(false);assert.equal(f.calls.at(-1).kind,'reveal-source');
 });

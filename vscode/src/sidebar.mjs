@@ -35,7 +35,7 @@ button,input{font:inherit}button{cursor:pointer;color:inherit;border:0;border-ra
 </div><div class="actions"><button id="review" class="primary" data-action="review">Compare</button><button class="secondary" data-action="agentChanges" title="Compare your saved draft to accumulated agent changes">Agent changes</button><button id="apply" class="secondary" data-action="apply" hidden>Apply review</button></div><p id="progress" class="progress" hidden></p></div>
 <div class="comments"><div id="editing-row" class="versions" hidden><span>Edit</span><button id="editing" class="version" data-action="editing"></button></div>
  <label class="toggle"><input id="highlights" type="checkbox" checked>Review highlights</label>
- <label class="toggle"><input id="removals" type="checkbox" checked>Show removals</label>
+ <label class="toggle"><input id="removals" type="checkbox" checked>Original on focus</label>
  <label class="toggle"><input id="comments" type="checkbox" checked>Source comments</label>
  <div id="discussion" class="discussion" hidden><span id="unresolved"></span><div><button data-action="previous" aria-label="Previous comment">Previous</button><button data-action="next" aria-label="Next comment">Next</button></div></div>
  <div class="versions" style="margin-top:18px;margin-bottom:8px"><span>Agent</span><button id="agent" class="version" data-action="agent"><span id="agent-label">Codex</span></button><span>Model</span><button id="model" class="version" data-action="model">CLI default</button></div>

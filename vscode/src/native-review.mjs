@@ -91,7 +91,8 @@ export function createNativeReview(vscode, {
           exact.span.id,
           exact.span.from,
           exact.span.to,
-          exact.data.decisions[exact.span.id]
+          exact.data.decisions[exact.span.id],
+          focusMode
         ].join('/')
       : undefined;
     if (key !== lensKey || exact?.editor.document !== lensDocument) {
@@ -105,13 +106,13 @@ export function createNativeReview(vscode, {
       return;
     }
     const progress = reviewIndex(selected.data).progress;
-    status.text = progress.complete ? 'Reviewed' : progress.done + '/' + progress.total;
+    status.text = (focusMode ? 'Review ' : '') + (progress.complete ? 'Reviewed' : progress.done + '/' + progress.total);
     status.tooltip = progress.complete
       ? selected.data.applied
         ? 'All changes reviewed and saved.'
         : 'All changes reviewed. Apply review in the sidebar.'
       : focusMode
-        ? 'Review changes: A accept, S reject, D back, F forward. E edits the source.'
+        ? 'A accept, S reject, D previous, F next, C comment. E or Escape edits the source.'
         : 'Review manuscript changes';
     status.show();
   }
@@ -131,9 +132,17 @@ export function createNativeReview(vscode, {
     )
       throw new Error('The review changed. Navigate its current changes.');
     const { edits: all, positions } = reviewIndex(data);
-    const selected = current(true),
-      anchor = selected ? { file: selected.source.file, edit: selected.span.id } : focused;
-    const index = positions.get(anchor?.edit) ?? (direction > 0 ? -1 : 0);
+    const selected = current(),
+      anchor = selected ? { file: selected.source.file, edit: selected.span.id } : undefined;
+    let index = positions.get(anchor?.edit);
+    if (index === undefined && live) {
+      const cursor = live.editor.document.offsetAt(live.editor.selection.active);
+      const after = all.findIndex(item => item.file > live.source.file
+        || item.file === live.source.file && live.ranges.get(item.edit)?.from > cursor);
+      index = after < 0 ? all.length - 1 : after - 1;
+      if (direction < 0) index++;
+    }
+    index ??= direction > 0 ? -1 : 0;
     for (let step = 1; step <= all.length; step++) {
       const at = (index + direction * step + all.length) % all.length;
       const item = all[at];
@@ -154,18 +163,19 @@ export function createNativeReview(vscode, {
         service.review.revision !== data.revision
       )
         throw new Error('The review changed while opening this change.');
+      setMode(true);
       focused = item;
       const latest = current();
       if (latest?.span.id === item.edit) select(latest);
       refresh();
       return true;
     }
-    if (undecided) setMode(false);
+    if (undecided) { setMode(false); lastFocus = undefined; onFocus?.(); }
+    refresh();
     return false;
   }
   async function begin(entry) {
     const ticket = generation;
-    setMode(true);
     if (entry)
       await open({
         file: entry.file,
@@ -175,6 +185,7 @@ export function createNativeReview(vscode, {
     if (disposed || ticket !== generation) return;
     const selected = current(true);
     if (selected) {
+      setMode(true);
       focused = { file: selected.source.file, edit: selected.span.id };
       const position = selected.editor.document.positionAt(selected.span.from);
       selected.editor.selection = new vscode.Selection(position, position);
@@ -243,6 +254,7 @@ export function createNativeReview(vscode, {
         if (value === 'reset') delete decisions[target.id];
         else decisions[target.id] = value;
       }
+      setMode(true);
       await service.request('/save', { revision, decisions, comments: selected.data.comments });
       if (runtime() !== service || service.review.id !== id)
         throw new Error(
@@ -276,6 +288,7 @@ export function createNativeReview(vscode, {
     setMode(false);
     lastFocus = undefined;
     onFocus?.();
+    refresh();
     return sourceEditor;
   }
   function enqueue(action) {
@@ -302,30 +315,35 @@ export function createNativeReview(vscode, {
           const point = document.positionAt(selected.span.from),
             range = new vscode.Range(point, point);
           const decision = selected.data.decisions[selected.span.id];
+          const shortcut = (label, key) => focusMode ? `${label} ${key}` : label;
           const controls = [
-            ['accept', 'Accept', 'Accepted'],
-            ['reject', 'Reject', 'Rejected']
-          ].map(([value, label, chosen]) => new vscode.CodeLens(range, {
-            title: decision === value ? chosen : label,
+            ['accept', 'Accept', 'Accepted', 'A'],
+            ['reject', 'Reject', 'Rejected', 'S']
+          ].map(([value, label, chosen, key]) => new vscode.CodeLens(range, {
+            title: decision === value ? chosen : shortcut(label, key),
             command: 'manuscriptReview.decideSource',
             arguments: [selected.data.id, selected.data.revision, selected.source.file, selected.span.id, value]
           }));
-          controls.push(
-            new vscode.CodeLens(range, {
-              title: 'Comment',
-              command: 'manuscriptReview.commentChange'
-            })
-          );
+          for (const [command, label, key] of [
+            ['previousChange', 'Previous', 'D'], ['nextChange', 'Next', 'F'], ['commentChange', 'Comment', 'C']
+          ]) controls.push(new vscode.CodeLens(range, { title: shortcut(label, key), command: 'manuscriptReview.' + command }));
+          controls.push(new vscode.CodeLens(range, {
+            title: focusMode ? 'Edit E' : 'Review',
+            command: focusMode ? 'manuscriptReview.editSource' : 'manuscriptReview.focusedReview'
+          }));
+          if (decision) controls.push(new vscode.CodeLens(range, {
+            title: shortcut('Reset', 'U'), command: 'manuscriptReview.resetChange'
+          }));
           return controls;
         }
       }
     ),
     vscode.window.onDidChangeTextEditorSelection((event) => {
       if (event.textEditor !== activeEditor()) return;
-      if (event?.kind === vscode.TextEditorSelectionChangeKind.Mouse) {
+      if (event?.kind === vscode.TextEditorSelectionChangeKind.Mouse && (!focusMode || !current())) {
         focused = undefined;
         edit();
-      } else if (event?.kind === vscode.TextEditorSelectionChangeKind.Keyboard) navigationEpoch++;
+      } else if ([vscode.TextEditorSelectionChangeKind.Keyboard, vscode.TextEditorSelectionChangeKind.Mouse].includes(event?.kind)) navigationEpoch++;
       const selected = current();
       if (selected) select(selected);
       refresh();
@@ -338,7 +356,8 @@ export function createNativeReview(vscode, {
       if (event.document !== activeEditor()?.document) return;
       if (
         event?.reason === vscode.TextDocumentChangeReason.Undo ||
-        event?.reason === vscode.TextDocumentChangeReason.Redo
+        event?.reason === vscode.TextDocumentChangeReason.Redo ||
+        event.contentChanges?.length && !delivery()?.ownsChange(event.document)
       )
         edit();
       refresh();
@@ -355,6 +374,7 @@ export function createNativeReview(vscode, {
     comment: () => {
       const selected = current();
       if (!selected) throw new Error('Select a current change first.');
+      edit();
       return onComment(selected);
     },
     selection() {

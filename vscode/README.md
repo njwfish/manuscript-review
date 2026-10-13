@@ -84,17 +84,19 @@ visit unresolved threads across files; **Manuscript Review: Comment navigation â
 threads. The Comments view also provides its native resolved/unresolved filter. New-comment shortcuts require source comments to be on; navigation stays available
 for saved threads. These shortcuts require source editor focus and can be remapped in Keyboard Shortcuts.
 
-The source editor drives the review. It shows selected wording with word highlights
-and **Accept**, **Reject**, and **Comment** above the current change. Focused review
-keeps its full passage visible and dims distant source. It starts at the change under
-your cursor, or the next change in that file. Clicking source or pressing **E/Escape**
-returns to typing. The review toolbar button resumes keyboard review.
+The source editor drives the review. Focused review outlines the current change, dims surrounding
+text, and shows **Accept A**, **Reject S**, **Previous D**, **Next F**, **Comment C**,
+and **Edit E** above its source line. It starts at the change under your cursor, or
+the next change in that file. Clicking ordinary source or pressing **E/Escape**
+returns to typing. Clicking a highlighted change selects it. The review toolbar
+button resumes keyboard review.
 
 Source remains a normal VS Code document with saving, undo, syntax highlighting, and
 LaTeX Workshop compilation. Change backgrounds show replacements against the exact current editor buffer.
-**Show removals** adds the original wording as transient strikethrough beside its
-replacement; line breaks appear as spaces, and the hover retains exact source.
-These decorations never enter your file or Undo history.
+**Original on focus** opens a hover with the exact original and proposed source in
+monospace. You can also hover over a change yourself. Removed prose stays in the
+hover so source wrapping and line breaks remain intact. Review decorations never
+enter your file or Undo history.
 
 If a reviewed file has been removed or moved, its saved source opens in a read-only
 editor. Existing comments remain accessible there. Opening saved source never
@@ -125,7 +127,7 @@ and recovery behavior.
 
 In focused source review, **A/S** accepts or rejects and advances, **D/F** moves
 backward or forward, and **Shift+A/S** decides the passage. **Ctrl+A/S** decides the
-file, **U** resets a decision, and **C** opens its native comment. **E/Escape** returns
+file, **U** resets a decision, and **C** opens an editable native comment. **E/Escape** returns
 to ordinary editing. Outside focus mode, **Ctrl+Alt+D/F** navigates highlighted edits.
 **Exit review** in the editor title turns off highlights and review shortcuts.
 
@@ -137,7 +139,9 @@ returns focus to source. An already open matching LaTeX Workshop PDF also follow
 saved source through SyncTeX. Compilation runs in the background; unavailable exact
 geometry falls back to the corresponding page.
 
-Native decisions update clean saved source through undoable edits. **Apply review**
+Native decisions update clean saved source through undoable edits. Decided changes
+become ordinary text and review advances to the next pending change. **Toggle reviewed
+change highlights** in the Command Palette shows their markup again. **Apply review**
 appears in the sidebar when every edit has a decision and files still need applying,
 including new or deleted files. Save or discard unsaved manuscript buffers first.
 Apply preserves Git HEAD and staging and refuses intervening source changes.

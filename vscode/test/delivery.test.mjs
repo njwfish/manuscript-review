@@ -9,7 +9,7 @@ function fixture(options={}){
   async request(path){if(path==='/summary')return this.data();if(captured)return {source:'agent-version',files:[]};return {source:'agent-version',revision:this.review.revision,files:[{file:'main.tex',before:'Author words.',after:'Author clear words.',edits:[{from:7,to:7,text:'clear '}]}]};}};
  const vscode={Uri:{file:fsPath=>({scheme:'file',fsPath})},Range:class{constructor(start,end){Object.assign(this,{start,end});}},TextEdit:class{constructor(range,text){Object.assign(this,{range,text});}},WorkspaceEdit:class{set(uri,edits){this.edits=edits;}},
   workspace:{async openTextDocument(uri){events.push('open');document.uri=uri;await options.open?.(document,runtime);return document;},
-   async applyEdit(edit){events.push('edit');for(const item of edit.edits)document.text=document.text.slice(0,item.range.start)+item.text+document.text.slice(item.range.end);document.isDirty=true;return true;}}};
+   async applyEdit(edit){events.push('edit');for(const item of edit.edits)document.text=document.text.slice(0,item.range.start)+item.text+document.text.slice(item.range.end);document.isDirty=true;await options.applied?.(document);return true;}}};
  const delivery=createDelivery(vscode,runtime,{openDocument:file=>vscode.workspace.openTextDocument(vscode.Uri.file('/paper/'+file)),sourceEdits:{async flush(){events.push('flush');},async delivered(files,source){events.push({files,source});await options.staging?.(document,runtime);},async save(){captured=true;events.push('capture');},async completeDelivery(_files,_source,applied){if(!applied)events.push('cancel');}},onDelivered:async()=>events.push('highlight')});
  return {delivery,document,runtime,events};
 }
@@ -18,6 +18,16 @@ test('delivery uses exact native edits, records their source, saves, and enables
  const f=fixture();await f.delivery.refresh();
  assert.equal(f.document.text,'Author clear words.');
  assert.deepEqual(f.events,['flush','open',{files:[{file:'main.tex',before:'Author words.',after:'Author clear words.',edits:[{from:7,to:7,text:'clear '}],version:1}],source:'agent-version'},'edit','save','flush','highlight']);
+});
+
+test('only exact managed edits belong to delivery while concurrent author typing does not',async()=>{
+ let f;f=fixture({applied(document){
+  assert.equal(f.delivery.ownsChange(document),true);
+  document.text+='My typing';assert.equal(f.delivery.ownsChange(document),false);
+  document.text=document.text.replace('My typing','');
+ }});
+ assert.equal(Boolean(f.delivery.ownsChange(f.document)),false);
+ await f.delivery.refresh();assert.equal(Boolean(f.delivery.ownsChange(f.document)),false);
 });
 test('dirty or externally changed buffers wait for Save',async()=>{
  for(const options of [{open:doc=>doc.isDirty=true},{open:doc=>doc.text='New saved wording.'},{open:(_doc,runtime)=>runtime.review={id:'other'}}]){

@@ -36,7 +36,7 @@ function fixture(history=[source('root')]) {
     const thread={uri,range,comments,dispose(){this.disposed=true;}};created.push(thread);return thread;}};
   const vscode={Uri:{file:uri},Range,Selection,CommentMode:{Preview:0,Editing:1},
     CommentThreadCollapsibleState:{Collapsed:0,Expanded:1},CommentThreadState:{Unresolved:0,Resolved:1},TextEditorRevealType:{InCenterIfOutsideViewport:2},
-    comments:{createCommentController:()=>controller},commands:{registerCommand(name,handler){
+    comments:{createCommentController:()=>controller},commands:{async executeCommand(){},registerCommand(name,handler){
       handlers.set(name,handler);return {dispose(){handlers.delete(name);}};}},
     workspace:{textDocuments:documents,async openTextDocument(uri){
       const result=documents.find(document=>document.uri.toString()===uri.toString());
@@ -750,10 +750,82 @@ test('a removed-file change can receive one new native discussion against its pi
  const f=fixture([]),document=f.documents[0];document.uri={scheme:'manuscript-review-source',authority:'review',path:'/main.tex',query:'version=original',fsPath:'/main.tex',toString:()=> 'manuscript-review-source://review/main.tex?version=original'};
  f.vscode.window.activeTextEditor=f.editor;f.openDocument(async()=>document);
  const selected={editor:f.editor,source:{reviewId:'review',revision:1,file:'main.tex',text:document.text},span:{from:6,to:20}};
- const thread=await f.comments.discuss(selected);assert.equal(thread.canReply,true);assert.equal(f.created.length,1);
+ const thread=await f.comments.discuss(selected);assert.equal(thread.canReply,false);assert.equal(thread.comments[0].mode,f.vscode.CommentMode.Editing);assert.equal(f.created.length,1);
  assert.equal(await f.comments.discuss(selected),thread);assert.equal(f.created.length,1);
  await f.command('reply',{thread,text:'Keep this deleted wording.'});
  assert.equal(f.requests.find(request=>request.route==='/note').body.source,'selected-source');
  assert.equal(f.requests.find(request=>request.route==='/note').body.text,document.text);
  f.comments.dispose();
+});
+
+test('commenting an exact deletion creates an editable input without widening its anchor',async()=>{
+ const f=fixture([]);f.vscode.window.activeTextEditor=f.editor;
+ const selected={editor:f.editor,source:{reviewId:'review',revision:1,file:'main.tex',text:f.documents[0].text},span:{from:6,to:6}};
+ const thread=await f.comments.discuss(selected),draft=thread.comments[0];
+ assert.equal(draft.mode,f.vscode.CommentMode.Editing);assert.equal(thread.canReply,false);
+ assert.equal(thread.reviewState.start,6);assert.equal(thread.reviewState.end,6);
+ assert.equal(await f.command('sendDraft',{...draft,body:'Explain this deletion.'}),true);
+ const note=f.requests.find(request=>request.route==='/note').body;
+ assert.equal(note.start,6);assert.equal(note.end,6);assert.equal(note.comment,'Explain this deletion.');
+ assert.equal(thread.comments.length,1);assert.equal(thread.comments[0].mode,f.vscode.CommentMode.Preview);
+ assert.deepEqual(f.sent,['note-1']);f.comments.dispose();
+});
+
+test('opening a current note enters its native editor instead of an unavailable reply',async()=>{
+ const f=fixture([]);f.data.files=[{path:'main.tex',edits:[{id:'edit'}],hunks:[{id:'passage',edits:[{id:'edit'}]}]}];
+ f.data.comments={edit:'Please clarify.'};await f.comments.refresh();
+ const selected={editor:f.editor,source:{reviewId:'review',revision:1,file:'main.tex',text:f.documents[0].text},span:{from:6,to:20}};
+ const thread=await f.comments.discuss(selected);
+ assert.equal(f.created.length,1);assert.equal(thread.canReply,false);
+ assert.equal(thread.comments[0].mode,f.vscode.CommentMode.Editing);
+ assert.equal(thread.comments[0].body,'Please clarify.');f.comments.dispose();
+});
+
+test('a new follow-up input survives response refresh and sends through the existing thread',async()=>{
+ const f=fixture([source('draft-1','main.tex','Feedback',{replies:[{id:'response',text:'Addressed.'}]})]);
+ const selected={editor:f.editor,source:{reviewId:'review',revision:1,file:'main.tex',text:f.documents[0].text},span:{from:6,to:20}};
+ const thread=await f.comments.discuss(selected),draft=thread.comments.at(-1);
+ assert.equal(new Set(thread.comments.map(comment=>comment.id)).size,thread.comments.length);
+ draft.body='My follow-up';f.data.revision++;f.data.history[0].replies.push({id:'response-2',text:'More context.'});
+ await f.comments.refresh();assert.equal(thread.comments.at(-1),draft);assert.equal(draft.body,'My follow-up');
+ assert.equal(await f.command('sendDraft',draft),true);
+ assert.equal(f.requests.find(request=>request.route==='/note').body.parent,'draft-1');
+ assert.equal(f.data.history.at(-1).origin_id,'draft-1');
+ assert.equal(thread.comments.at(-1).body,'My follow-up');
+ assert.equal(thread.comments.at(-1).mode,f.vscode.CommentMode.Preview);f.comments.dispose();
+});
+
+test('opening an already edited note cannot clear its external conflict',async()=>{
+ const f=fixture();await f.comments.refresh();
+ const thread=f.created[0],comment=thread.comments[0];
+ await f.command('editComment',comment);comment.body='My unsaved edit';
+ f.data.history[0].comment='External correction';f.data.revision++;
+ await f.comments.refresh();assert.equal(comment.conflict,true);
+ const selected={editor:f.editor,source:{reviewId:'review',revision:2,file:'main.tex',text:f.documents[0].text},span:{from:6,to:20}};
+ assert.equal(await f.comments.discuss(selected),thread);
+ assert.equal(comment.conflict,true);assert.equal(comment.editRevision,1);
+ assert.equal(await f.command('saveComment',comment),false);
+ assert.equal(f.data.history[0].comment,'External correction');f.comments.dispose();
+});
+
+test('a failed native submission recreates the input with its exact unsaved wording',async()=>{
+ const f=fixture([]),thread=await f.comments.annotate(f.editor),draft=thread.comments[0];
+ f.failNote(true);
+ assert.equal(await f.command('sendDraft',{...draft,body:'My unsaved feedback.\nSecond line.'}),false);
+ const retained=thread.comments[0];
+ assert.notEqual(retained,draft);assert.equal(retained,thread.reviewState.draft);
+ assert.equal(retained.mode,f.vscode.CommentMode.Editing);
+ assert.equal(retained.body,'My unsaved feedback.\nSecond line.');assert.equal(f.data.history.length,0);
+ f.failNote(false);assert.equal(await f.command('sendDraft',retained),true);
+ assert.equal(f.data.history[0].comment,'My unsaved feedback.\nSecond line.');f.comments.dispose();
+});
+
+test('changing review while native source focus waits cannot open an obsolete input',async()=>{
+ const f=fixture([]);let entered,release;
+ const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);
+ f.vscode.commands.executeCommand=async()=>{entered();await gate;};
+ const opening=f.comments.annotate(f.editor);await started;
+ f.runtime.review.id='another-review';release();
+ await assert.rejects(opening,/source comparison changed/);assert.equal(f.created.length,0);
+ assert.equal(f.requests.some(request=>request.route==='/note'),false);f.comments.dispose();
 });
