@@ -5,10 +5,9 @@ import {createInterface} from 'node:readline';
 import {setTimeout as delay} from 'node:timers/promises';
 
 const identifier = /^[a-f0-9]{24}$/;
-const scopes = new Set(['round', 'baseline', 'manuscript']);
 const libraryWrites = new Set(['/inspect', '/source', '/agent-models', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
-const reviewWrites = new Set(['/editor', '/workspace', '/capture', '/authoring', '/delivery', '/agents', '/note', '/thread', '/save', '/apply', '/draft', '/ui', '/responses', '/retain', '/agent-request', '/agent']);
-const reviewReads = new Set(['/editor', '/delivery', '/agents', '/agent-request']);
+const reviewWrites = new Set(['/editor', '/capture', '/authoring', '/delivery', '/agents', '/note', '/thread', '/save', '/apply', '/draft', '/agent']);
+const reviewReads = new Set(['/editor', '/delivery', '/agents']);
 const libraryReads = new Set(['/inspect', '/source', '/agent-models', '/open']);
 
 function localURL(value) {
@@ -22,11 +21,8 @@ function localURL(value) {
 
 function reviewRoute(path, writing) {
     if (writing) return reviewWrites.has(path);
-    if (path === '/feedback.json' || path === '/status' || path === '/summary') return true;
-    if (/^\/data\?scope=(?:round|baseline|manuscript)&file=[^#]*$/.test(path)) return true;
-    if (/^\/previews\?scope=(?:round|baseline|manuscript|selected)$/.test(path)) return true;
-    if (/^\/(?:data|selected\.patch)(?:\?scope=(?:round|baseline|manuscript))?$/.test(path)) return true;
-    return /^\/editor\?file=[^#]*$/.test(path);
+    return path === '/status' || path === '/summary' || path === '/previews?scope=selected'
+        || /^\/data\?scope=round(?:&file=[^#]*)?$/.test(path);
 }
 
 function publicData(value) {
@@ -259,9 +255,8 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
         });
     }
 
-    function data(scope = 'round', file) {
-        if (!scopes.has(scope)) throw new Error('Choose a manuscript comparison.');
-        return request(`/data?scope=${scope}${file ? '&file='+encodeURIComponent(file) : ''}`);
+    function data(file) {
+        return request(`/data?scope=round${file ? '&file='+encodeURIComponent(file) : ''}`);
     }
 
     async function prepare(path, body) {
@@ -295,19 +290,10 @@ export function createRuntime({extensionPath, python = 'python3', home = '', out
     }
 
     async function asset(path) {
-        if (!/^\/(?:assets|baseline-assets|selected-assets)\/[A-Za-z0-9_-]+\.(?:svg|pdf)$/.test(path)) throw new Error('Choose a manuscript preview asset.');
-        return resource(path, path.endsWith('.svg') ? 'image/svg+xml' : 'application/pdf');
+        if (!/^\/selected-assets\/[A-Za-z0-9_-]+\.pdf$/.test(path)) throw new Error('Choose a manuscript preview asset.');
+        return resource(path, 'application/pdf');
     }
 
-    async function download(path) {
-        if (path === '/feedback.json') {
-            const value = await request(path);
-            return {bytes: Buffer.from(JSON.stringify(value, null, 2) + '\n'), mime: 'application/json'};
-        }
-        if (!/^\/selected\.patch\?scope=(?:round|baseline)$/.test(path)) throw new Error('Choose a manuscript review export.');
-        return resource(path, 'text/plain');
-    }
-
-    return {start, library, open, data, request, prepare, asset, download, dispose,
+    return {start, library, open, data, request, prepare, asset, dispose,
         get review() { return selected ? {...selected} : undefined; }};
 }

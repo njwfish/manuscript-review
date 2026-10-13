@@ -105,6 +105,79 @@ test('typing projects only changed buffers and reuses review data and unchanged 
  f.comments.dispose();
 });
 
+test('unchanged source refreshes reuse document versions without reading whole buffers',async t=>{
+ const f=fixture([source('main'),source('other','other.tex')]);
+ await f.comments.refresh();
+ const reads=f.documents.map(document=>t.mock.method(document,'getText'));
+ const count=f.requests.length;
+ for(let i=0;i<20;i++)await f.comments.refresh({sourceOnly:true});
+ assert.equal(f.requests.length,count);
+ assert.deepEqual(reads.map(read=>read.mock.callCount()),[0,0]);
+ // An undo still changes the native document version, even with identical text.
+ f.documents[0].change(f.documents[0].text);
+ await f.comments.refresh({sourceOnly:true});
+ assert.equal(f.requests.length,count+1);
+ assert.equal(reads[1].mock.callCount(),0);
+ f.comments.dispose();
+});
+
+test('cancelling a conflicted comment edit restores the latest saved wording',async()=>{
+ const f=fixture();await f.comments.refresh();
+ const comment=f.created[0].comments[0];
+ await f.command('editComment',comment);comment.body='My unsaved change';
+ f.data.history[0].comment='Edited in another interface';f.data.revision++;
+ await f.comments.refresh();
+ assert.equal(comment.conflict,true);assert.equal(comment.body,'My unsaved change');
+ await f.command('cancelComment',comment);
+ assert.equal(comment.body,'Edited in another interface');
+ assert.equal(comment.savedBody,comment.body);assert.equal(comment.conflict,false);
+ assert.equal(comment.mode,f.vscode.CommentMode.Preview);
+ f.comments.dispose();
+});
+
+test('a saved comment remains current when typing interrupts its source refresh',async()=>{
+ for(const current of [false,true]){
+  const f=fixture(current?[]:undefined);
+  if(current){
+   f.data.files=[{path:'main.tex',hunks:[{id:'passage',before:'selected words',after:'selected words',line:1,edits:[{id:'edit',old:'selected words',new:'selected words'}]}],edits:[{id:'edit'}]}];
+   f.data.comments={edit:'Current note'};
+  }
+  await f.comments.refresh();
+  const comment=f.created[0].comments[0];
+  await f.command('editComment',comment);comment.body='My saved correction';
+  f.beforeProjection(()=>f.documents[0].change(f.documents[0].text+'!'));
+  assert.equal(await f.command('saveComment',comment),true);
+  assert.equal(comment.entry.comment,'My saved correction');
+  await f.command('editComment',comment);comment.body='Another unfinished edit';
+  await f.command('cancelComment',comment);
+  assert.equal(comment.body,'My saved correction');
+  assert.equal(comment.editRevision,f.data.revision);
+  f.comments.dispose();
+ }
+});
+
+test('carried discussion origins cannot move unfinished replies into another round',async()=>{
+ const f=fixture();await f.comments.refresh();
+ const original=f.created[0];original.input='Unfinished reply in the first round';
+ original.collapsibleState=f.vscode.CommentThreadCollapsibleState.Expanded;
+ f.runtime.review.id='following-round';f.data.revision++;
+ await f.comments.refresh();
+ assert.equal(f.created.length,2);
+ const following=f.created[1];
+ assert.equal(original.reviewState.reviewId,'review');assert.equal(original.label,'Other review');
+ assert.equal(following.reviewState.reviewId,'following-round');
+ assert.equal(await f.command('reply',{thread:original,text:original.input}),false);
+ assert.equal(f.data.history.length,1);
+ f.runtime.review.id='review';f.data.revision++;
+ await f.comments.refresh();
+ assert.equal(f.created.length,2);assert.equal(original.label,undefined);
+ assert.equal(original.input,'Unfinished reply in the first round');
+ assert.equal(original.collapsibleState,f.vscode.CommentThreadCollapsibleState.Expanded);
+ assert.equal(following.label,'Other review');
+ assert.equal(await f.command('reply',{thread:original,text:original.input}),true);
+ f.comments.dispose();
+});
+
 test('overlapping typing refreshes coalesce and publish only the newest buffer',async()=>{
  const f=fixture();await f.comments.refresh();
  let release,entered;const gate=new Promise(resolve=>{release=resolve;}),began=new Promise(resolve=>{entered=resolve;});

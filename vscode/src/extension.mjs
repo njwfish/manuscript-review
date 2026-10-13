@@ -367,9 +367,8 @@ export function activate(context){
   if(!vscode.workspace.isTrusted)return sidebarState(undefined,undefined,commentsEnabled(),selectedAgent().label,highlightsEnabled());
   try{
    const epoch=comparisonEpoch;
-   let data;
-   if(!comparison&&runtime?.review){data=await runtime.request('/summary');comparison=reviewComparison(undefined,data);}
-   else{await currentComparison();data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.request('/summary'):undefined;}
+   await currentComparison();
+   const data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.request('/summary'):undefined;
    if(epoch!==comparisonEpoch)return loadSidebar();
    if(data&&!comparison.pending)comparison=reviewComparison(comparison,data);
    return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default',removalsEnabled(),editingIntent());
@@ -394,7 +393,7 @@ export function activate(context){
    repository:async()=>{await start();const info=await chooseComparisonRepository();if(info)setComparison({...comparisonState(vscode,info),pending:true});},
    base:()=>editComparison('base'),proposed:()=>editComparison('proposed'),entry:()=>editComparison('entry'),
    review:()=>navigateReview(()=>openComparison(expected)),
-   apply:async()=>{if(!await ensureReview())return;const review=runtime.review.id;await sourceEdits.flush();const data=await runtime.data('round');
+   apply:async()=>{if(!await ensureReview())return;const review=runtime.review.id;await sourceEdits.flush();const data=await runtime.data();
     if(data.id!==review||expected?.review&&expected.review!==data.id||!comparisonMatches(comparison,data)||expected?.revision!==undefined&&expected.revision!==data.revision)throw new Error('The review changed. Check the current choices before applying.');
     await applyReview({revision:data.revision,decisions:data.decisions,comments:data.comments});await refreshSource();void pdf.refresh().catch(fail);}
   };
@@ -416,7 +415,7 @@ export function activate(context){
   checkSidebar(expected);await start();await currentComparison();if(!comparison)return;
   const current=comparison,epoch=comparisonEpoch;
   const check=()=>{checkSidebar(expected);if(epoch!==comparisonEpoch)throw new Error('The comparison changed. Use the current sidebar controls.');};
-  const data=runtime?.review?await runtime.data('round'):undefined;
+  const data=runtime?.review?await runtime.data():undefined;
   check();if(comparisonMatches(current,data)){await showReview();return;}
   await prepareTools();
   check();if([current.base.revision,current.proposed.revision].includes('working'))requireRepositorySaved(current.info.workspace||current.info.repo);

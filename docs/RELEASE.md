@@ -1,14 +1,15 @@
-Manuscript Review 0.18.1 includes VS Code extension 0.4.1 and the standalone macOS app.
+Manuscript Review 0.18.2 includes VS Code extension 0.4.2 and the standalone macOS app.
 
-The native editor remains the sole text review surface, with an optional synchronized
-PDF. This release removes the retired embedded review client, bridge, hidden controls
-and message protocol. The standalone client uses the review service directly.
+Focused navigation reuses word highlights and hovers. Only focus shading changes,
+using a few continuous ranges shared across split editors. Unchanged comment
+projections use native document versions without rereading whole buffers.
 
-Cursor movement reuses validated source and the review index. Inline controls refresh
-when their edit changes; unchanged focus modes do not repeat external updates.
-Background editor events cannot cancel focused review, and leaving review cancels
-navigation waiting for source capture. Decisions retain revision, source and save checks.
+Delayed sidebar loads preserve newly staged comparisons. Unfinished comment replies
+stay with their original review round, even when a later round carries the same
+discussion. Cancelling a comment edit restores current saved wording; successful
+saves remain visible when source typing interrupts the anchor refresh.
 
-Standard LaTeX equation excerpts compile without requiring an extra math package.
+The VS Code runtime exposes only the operations used by its native editor and PDF.
+Retired review-tab export routes and asset modes have been removed.
 
 Review records, earlier decisions, comments, replies and manuscript files are preserved.
