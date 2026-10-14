@@ -78,7 +78,7 @@ async function fixture(t,options={}) {
   const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
   let sidebarCallbacks;
   const adapters={
-    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},edit(){callbacks.onMode(false);},update(){},clear(){},refresh(){},dispose(){}};}},
+    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},finishComment(){calls.push({kind:'finish-comment'});},edit(){callbacks.onMode(false);},update(){},clear(){},refresh(){},dispose(){}};}},
     'test-sidebar':{createSidebar(_vscode,_context,callbacks){sidebarCallbacks=callbacks;return {async refresh(){calls.push({kind:'sidebar-refresh'});},async show(){calls.push({kind:'sidebar-show'});},dispose(){}};},sidebarState:(...values)=>values},
     'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},

@@ -31,7 +31,7 @@ function fixture(options={}){
  function update(){const file=files.find(file=>docs.get(file.path)===editor.document);controls.update({document:editor.document,reviewId:data.id,file:file.path,revision:data.revision,text:editor.document.text,ranges:file.edits.map(edit=>({id:edit.id,from:edit.from,to:edit.to}))},data);}
  controls=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>options.enabled!==false,
   async onOpen({file,edit}){calls.push({open:[file,edit]});editor.document=docs.get(file);callbacks.active();editor.selection.active=files.find(item=>item.path===file).edits.find(item=>item.id===edit)?.from??0;update();return editor;},
-  onChange:async()=>{calls.push('changed');update();},onComment:selected=>calls.push({comment:selected.span.id}),onFocus:(file,edit,_selected,mode)=>calls.push({focus:[file,edit],mode}),onMode:mode=>calls.push({mode}),onError:error=>errors.push(error.message)});
+  onChange:async()=>{calls.push('changed');update();},onComment:selected=>{calls.push({comment:selected.span.id});return options.thread||editor;},onFocus:(file,edit,_selected,mode)=>calls.push({focus:[file,edit],mode}),onMode:mode=>calls.push({mode}),onError:error=>errors.push(error.message)});
  update();calls.length=0;metrics.reads=metrics.scans=metrics.lenses=0;
  return {controls,update,metrics,doc:editor.document,editor,runtime,get data(){return data;},vscode,calls,errors,callbacks,status,decide:(...args)=>commands.get('manuscriptReview.decideSource')(...args),lenses:()=>callbacks.provider.provideCodeLenses(editor.document)};
 }
@@ -125,11 +125,25 @@ test('clicking another edit during a saved decision preserves that selection',as
  assert.deepEqual(f.data.decisions,{first:'accept'});assert.deepEqual(f.errors,[]);
 });
 
-test('opening a comment leaves keyboard review before its native input renders',async()=>{
+test('comment input pauses keyboard review and completing it restores the same edit',async()=>{
  const f=fixture();await f.controls.begin();f.calls.length=0;
- f.controls.comment();
+ await f.controls.comment();
  assert.equal(f.calls.findIndex(call=>call.mode===false)<f.calls.findIndex(call=>call.comment==='first'),true);
  assert.equal(f.status.text,'0/2');assert.equal(f.lenses().at(-1).command.title,'Review');
+ await f.controls.comment();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};f.callbacks.active();
+ f.runtime.review.revision++;f.callbacks.active();f.data.revision++;f.update();
+ f.vscode.window.activeTextEditor=f.editor;f.callbacks.active();await f.controls.finishComment(f.editor,async()=>true);
+ assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses().at(-1).command.title,'Edit E');
+});
+
+test('completing comment input cannot resume review after manual source movement or editing',async()=>{
+ for(const action of ['move','edit','clear']){
+  const f=fixture();await f.controls.begin();await f.controls.comment();
+  if(action==='move'){f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});}
+  else f.controls[action]();
+  await f.controls.finishComment(f.editor,async()=>true);assert.equal(f.calls.filter(call=>call.mode!==undefined).at(-1).mode,false);
+ }
 });
 
 test('native Undo and explicit editing leave focused mode while retaining highlights',async()=>{
@@ -218,4 +232,57 @@ test('leaving or disposing review during a comparison read cannot reopen source'
   const moving=f.controls.move(1);await started;f.controls[cancel]();release();
   assert.equal(await moving,false);assert.equal(f.calls.some(call=>call.open),false);
  }
+});
+
+
+test('a stale or unrelated comment completion cannot resume a newer input',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ let release;const gate=new Promise(resolve=>release=resolve);
+ const completion=f.controls.finishComment(f.editor,async()=>{await gate;return true;});
+ await f.controls.comment();release();assert.equal(await completion,false);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
+ assert.equal(await f.controls.finishComment({},async()=>true),false);
+ assert.equal(await f.controls.finishComment(f.editor,async()=>false),false);
+ assert.equal(await f.controls.finishComment(f.editor,async()=>true),true);
+});
+
+
+test('source keyboard movement invalidates the comment return intent, including the next C',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Keyboard});
+ assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
+});
+
+test('switching to another native comment input cancels the original review return',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};f.callbacks.active();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};f.callbacks.active();
+ let prepared=false;
+ assert.equal(await f.controls.finishComment(f.editor,async()=>{prepared=true;return true;}),false);
+ assert.equal(prepared,false);assert.equal(f.status.text,'0/2');
+});
+
+test('switching source editors cancels paused review before commenting there',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.vscode.window.activeTextEditor={...f.editor,viewColumn:2};f.callbacks.active();
+ assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
+});
+
+test('recreated source editor handles retain the same document and column return',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.vscode.window.activeTextEditor={...f.editor};f.callbacks.active();
+ assert.equal(await f.controls.finishComment(f.editor,async ready=>ready()),true);
+});
+
+test('reopening an input captures its already active document without another focus event',async()=>{
+ const f=fixture();await f.controls.begin();
+ const opening=f.controls.comment();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};await opening;
+ assert.equal(await f.controls.finishComment(f.editor,async ready=>{
+  assert.equal(ready(),true);f.vscode.window.activeTextEditor=f.editor;return true;
+ }),true);
 });

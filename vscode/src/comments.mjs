@@ -15,10 +15,10 @@ export function sourceFile(review,document){
   ?relative.split(path.sep).join('/'):null;
 }
 
-export function createComments(vscode,getRuntime,{openDocument,onChange,onReview,onProjection,onAgent,onSource,canComment=document=>sourceDocument(document)||document?.uri.scheme==='manuscript-review-source'}={}) {
+export function createComments(vscode,getRuntime,{openDocument,onChange,onReview,onProjection,onAgent,onSource,onInputComplete,canComment=document=>sourceDocument(document)||document?.uri.scheme==='manuscript-review-source'}={}) {
   const controller=vscode.comments.createCommentController('manuscript-review','Manuscript Review');
   const subscriptions=[controller],threads=new Map(),pending=new Set();
-  let generation=0,disposed=false,activeThread,includeResolved=false,enabled=true;
+  let generation=0,inputEpoch=0,disposed=false,activeThread,includeResolved=false,enabled=true;
   let refreshing,requested=false,needsData=false,cachedData,cachedRuntime,cachedFile,selectedFile;
   const projected=new WeakMap();
 
@@ -32,9 +32,18 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
 
   function command(name,handler) {
     subscriptions.push(vscode.commands.registerCommand(`manuscriptReview.${name}`,async(...args)=>{
+      const thread=args[0]?.parent,state=thread?.reviewState,ticket=state?.inputEpoch;
+      const complete=()=>!disposed&&ticket!==undefined&&ticket===inputEpoch&&state
+        &&state.reviewId===getRuntime()?.review?.id
+        &&!thread.comments.some(comment=>comment.mode===vscode.CommentMode.Editing);
       const retain=()=>{if(['saveComment','sendDraft'].includes(name))retainInput(args[0]);};
       try{const result=await handler(...args);if(result===false)retain();return result;}
       catch(error){retain();await vscode.window.showErrorMessage(error.message);return false;}
+      finally{
+        if(['saveComment','sendDraft','cancelComment'].includes(name)&&complete())
+          try{await onInputComplete?.(thread,complete);}
+          catch(error){if(!disposed)await vscode.window.showErrorMessage('Could not return to review: '+error.message);}
+      }
     }));
   }
 
@@ -106,6 +115,13 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     const status=resolved?vscode.CommentThreadState.Resolved:vscode.CommentThreadState.Unresolved;
     if(resolved&&state.thread.state!==status)state.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
     state.thread.state=status;
+  }
+
+  function updateReply(state) {
+    // The latest author note is edited directly; replies follow an agent response.
+    state.thread.canReply=Boolean(state.entry&&!state.entry.current
+      &&!state.thread.comments.at(-1)?.editable
+      &&!state.thread.comments.some(comment=>comment.mode===vscode.CommentMode.Editing));
   }
 
   function commentsFor(state,entries) {
@@ -194,8 +210,8 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       Object.assign(state,{entry,origin,key,data,projection,range,reviewId:review.id});
       resumeThread(state);
       state.thread.range=markerRange(projection.document,range);
-      state.thread.canReply=!entry.current&&!state.draft;
       commentsFor(state,groups.get(origin));
+      updateReply(state);
       present.add(key);
     }
     for(const [key,state] of threads)if(!present.has(key)) {
@@ -222,6 +238,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   }
 
   async function annotate(editor=vscode.window.activeTextEditor,explicitRange) {
+    const ticket=++inputEpoch;
     if(!editor)throw new Error('Select text in a source editor to leave a comment.');
     const saved=editor.document.uri.scheme==='manuscript-review-source'&&fileFor(editor.document);
     if(!sourceDocument(editor.document)&&!saved)throw new Error('Choose a manuscript source file to leave a comment.');
@@ -236,7 +253,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       throw new Error('The source comparison changed while opening comments. Select the text again.');
     const draft=newCommentInput();
     const thread=makeThread(editor.document,range,[draft]);draft.parent=thread;
-    const state={thread,draft,projection,reviewId:projection.reviewId,
+    const state={thread,draft,projection,reviewId:projection.reviewId,inputEpoch:ticket,
       start:editor.document.offsetAt(range.start),end:editor.document.offsetAt(range.end)};
     thread.reviewState=state;thread.canReply=false;
     thread.contextValue='manuscriptReview.pending';
@@ -246,6 +263,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
   }
 
   function openInput(state) {
+    state.inputEpoch=++inputEpoch;
     state.thread.collapsibleState=vscode.CommentThreadCollapsibleState.Expanded;
     const latest=state.thread.comments.at(-1);
     if(state.thread.comments.some(comment=>comment.mode===vscode.CommentMode.Editing))return state.thread;
@@ -316,15 +334,17 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     const messages=state.thread.comments.filter(comment=>comment.entry&&comment.id===comment.entry.id).map(comment=>comment.entry);
     state.entry={...result.entry,resolved:state.data.resolved?.includes(result.entry.origin_id)||state.entry.resolved};
     commentsFor(state,[...messages,state.entry]);
-    resumeThread(state);state.thread.canReply=!state.entry.current;
+    resumeThread(state);updateReply(state);
     void changed().catch(error=>{if(!disposed)void vscode.window.showErrorMessage('Comment saved. Could not refresh its source: '+error.message);});
     return result.entry.id;
   }
 
   function editComment(comment) {
     if(!comment.editable)return false;
+    comment.parent.reviewState.inputEpoch=++inputEpoch;
     comment.mode=vscode.CommentMode.Editing;comment.contextValue='manuscriptReview.editing';
     comment.editRevision=comment.parent.reviewState.data.revision;comment.conflict=false;
+    updateReply(comment.parent.reviewState);
     comment.parent.comments=[...comment.parent.comments];
     return true;
   }
@@ -346,6 +366,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     state.data={...state.data,revision:result.revision};
     if(comment.current)state.data.comments={...state.data.comments,[comment.entry.id]:text};
     comment.body=comment.savedBody=text;comment.mode=vscode.CommentMode.Preview;
+    updateReply(state);
     await changed();
     return true;
   }
@@ -354,13 +375,14 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     const state=comment.parent.reviewState;
     if(state.draft?.id===comment.id){
       delete state.draft;
-      if(!state.entry){pending.delete(state);state.thread.dispose();}
-      else{state.thread.comments=state.thread.comments.filter(item=>item.id!==comment.id);state.thread.canReply=!state.entry.current;}
+      if(!state.entry){pending.delete(state);state.thread.comments=[];state.thread.dispose();}
+      else{state.thread.comments=state.thread.comments.filter(item=>item.id!==comment.id);updateReply(state);}
       return;
     }
     comment.body=comment.savedBody=comment.entry.comment;comment.mode=vscode.CommentMode.Preview;comment.conflict=false;
     comment.contextValue=comment.editable?'manuscriptReview.editable':undefined;
     comment.parent.comments=[...comment.parent.comments];
+    updateReply(state);
   }
 
   async function move(direction) {

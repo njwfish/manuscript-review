@@ -11,6 +11,11 @@ const root=await realpath(await mkdtemp(path.join(tmpdir(),'mr-native-')));
 const python=process.env.MR_TEST_PYTHON||path.join(app,'.venv/bin/python');
 const repo=path.join(root,'paper'),home=path.join(root,'library'),fixture=path.join(root,'extension');
 await mkdir(repo);await mkdir(fixture);await mkdir(path.join(root,'bin'));
+await mkdir(path.join(root,'profile/User'),{recursive:true});
+// Startup chat can take focus after the synthetic comment input is created.
+await writeFile(path.join(root,'profile/User/settings.json'),JSON.stringify({
+ 'workbench.startupEditor':'none','chat.disableAIFeatures':true
+}));
 const git=(...args)=>execFileSync('git',args,{cwd:repo,encoding:'utf8'}).trim();
 git('init','-q');git('config','user.name','Review Test');git('config','user.email','test@localhost');
 const text='We score measured leaves. '+
@@ -43,7 +48,8 @@ await build({entryPoints:[path.join(source,'extension.mjs')],bundle:true,platfor
       Object.defineProperty(proxy,'window',{value:window});
       Object.defineProperty(window,'showErrorMessage',{value(message,...rest){
         globalThis.nativeReviewTest.commentErrors.push(message);return platform.window.showErrorMessage(message,...rest);
-      }});args[0]=proxy;`:''}
+      }});
+      args[0]=proxy;`:''}
     ${args.path==='pdf-panel.mjs'?`const platform=args[0];globalThis.nativeReviewTest.pdfMessages=[];
       const proxy=Object.create(platform),window=Object.create(platform.window);
       Object.defineProperty(proxy,'window',{value:window});

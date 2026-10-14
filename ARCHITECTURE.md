@@ -96,6 +96,9 @@ Opening a discussion creates or resumes one native comment editor. Its unsent in
 is local to that thread; submission uses the same discussion operation as a reply.
 If saving fails after VS Code closes its input, the controller restores an editable
 comment with the unsaved wording. Review letter shortcuts exclude comment editors.
+A focused review pauses for its comment input and resumes at the same edit on completion.
+The return is pinned to that thread and input generation; reopening input, moving the
+source cursor or editing cancels an older return before it can take focus.
 `source-edits.mjs` captures ordered native saves through `ReviewSession.capture_file`
 and refreshes the same comparison without replacing the buffer or taking focus.
 Unsaved typing stays in VS Code. Decisions and comments use the same transactions

@@ -4,14 +4,17 @@ export function createNativeReview(vscode, {
   onComment, onError, isPDFActive = () => false
 }) {
   let projections = new WeakMap(), indexes = new WeakMap();
-  let focused, lastFocus, sourceEditor, focusMode = false;
+  let focused, lastFocus, sourceEditor, commentFocus, focusMode = false;
   let actions = Promise.resolve(), navigationEpoch = 0, generation = 0;
   let openingSource = false, disposed = false, lensKey, lensDocument;
   const changed = new vscode.EventEmitter();
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 60);
   status.command = 'manuscriptReview.focusedReview';
+  const commentEditor = editor => editor?.document.uri?.scheme === 'comment';
+  const sameSource = (left, right) => left?.document === right?.document && left?.viewColumn === right?.viewColumn;
   const activeEditor = () =>
-    vscode.window.activeTextEditor || (isPDFActive() ? sourceEditor : undefined);
+    (!commentEditor(vscode.window.activeTextEditor) && vscode.window.activeTextEditor) || ((isPDFActive() || commentFocus)
+      && sourceEditor?.document && !sourceEditor.document.isClosed ? sourceEditor : undefined);
   const current = (nearest = false) => {
     if (disposed || !enabled()) return;
     const editor = activeEditor(),
@@ -285,6 +288,7 @@ export function createNativeReview(vscode, {
   function edit() {
     generation++;
     navigationEpoch++;
+    commentFocus = undefined;
     setMode(false);
     lastFocus = undefined;
     onFocus?.();
@@ -349,7 +353,15 @@ export function createNativeReview(vscode, {
       refresh();
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
-      if (!current(true) && !isPDFActive() && !openingSource) edit();
+      const editor = vscode.window.activeTextEditor;
+      if (commentFocus && commentEditor(editor)) {
+        if (commentFocus.input && commentFocus.input !== editor.document) edit();
+        else commentFocus.input = editor.document;
+      } else if (commentFocus && editor && !sameSource(editor, commentFocus.editor)) edit();
+      // Inline input temporarily replaces source focus; its save also advances the
+      // revision before the refreshed projection reaches this owner.
+      const commentInput = commentFocus && (!editor || commentEditor(editor) || editor.document === sourceEditor?.document);
+      if (!current(true) && !isPDFActive() && !openingSource && !commentInput) edit();
       refresh();
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
@@ -371,11 +383,41 @@ export function createNativeReview(vscode, {
     move: (...args) => enqueue(() => move(...args)),
     edit,
     decide: (...args) => enqueue(() => decideCurrent(...args)),
-    comment: () => {
+    comment: async () => {
       const selected = current();
       if (!selected) throw new Error('Select a current change first.');
+      const resume = focusMode || commentFocus?.epoch === navigationEpoch;
       edit();
-      return onComment(selected);
+      const pending = resume ? { review: selected.data.id, file: selected.source.file,
+        edit: selected.span.id, epoch: navigationEpoch, editor: selected.editor } : undefined;
+      commentFocus = pending;
+      const thread = await onComment(selected);
+      if (pending === commentFocus && pending) {
+        pending.thread = thread;
+        if (!pending.input && commentEditor(vscode.window.activeTextEditor))
+          pending.input = vscode.window.activeTextEditor.document;
+      }
+      return thread;
+    },
+    async finishComment(thread, prepare) {
+      const pending = commentFocus;
+      const owns = () => !disposed && enabled() && pending && pending === commentFocus
+        && pending.thread === thread && pending.epoch === navigationEpoch
+        && runtime()?.review?.id === pending.review && sameSource(activeEditor(), pending.editor)
+        && (!commentEditor(vscode.window.activeTextEditor)
+          || vscode.window.activeTextEditor.document === pending.input);
+      const ready = () => {
+        const selected = current();
+        return owns() && selected?.source.file === pending.file && selected.span.id === pending.edit;
+      };
+      if (!owns() || !await prepare(ready) || !ready()) return false;
+      const selected = current();
+      if (selected?.source.file !== pending.file || selected.span.id !== pending.edit) return false;
+      commentFocus = undefined;
+      setMode(true);
+      select(selected);
+      refresh();
+      return true;
     },
     selection() {
       const selected = current(true);
@@ -402,7 +444,7 @@ export function createNativeReview(vscode, {
       navigationEpoch++;
       projections = new WeakMap();
       indexes = new WeakMap();
-      focused = lastFocus = sourceEditor = undefined;
+      focused = lastFocus = sourceEditor = commentFocus = undefined;
       setMode(false);
       refresh();
     },

@@ -33,7 +33,7 @@ export function activate(context){
  const nativeReview=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>highlightsEnabled()&&!comparison?.pending,
   onOpen:openSource,isPDFActive:()=>pdf?.active,onComment:async selected=>{
    await vscode.commands.executeCommand('editor.action.hideHover');
-   await vscode.window.showTextDocument(selected.editor.document,{preserveFocus:false});
+   await vscode.window.showTextDocument(selected.editor.document,{viewColumn:selected.editor.viewColumn,preserveFocus:false});
    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
    return comments.discuss(selected);
   },
@@ -102,6 +102,12 @@ export function activate(context){
  const sources=createSourceDocuments(vscode,async()=>{await start();return runtime;});
  const subscriptions=[output,sources,nativeReview];
  const comments=createComments(vscode,()=>runtime,{onSource:ensureCommentSource,canComment,
+  onInputComplete:(thread,complete)=>nativeReview.finishComment(thread,async owns=>{
+   await comments.refresh();
+   if(!complete()||!owns())return false;
+   await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+   return complete();
+  }),
   openDocument:sources.open,
   onChange:async()=>{await sidebar.refresh();},onReview:entry=>showReview(entry),
   onProjection:(projection,data)=>{if(!comparison?.pending){decorations.update(projection,data);nativeReview.update(projection,data);}},onAgent:sendToAgent});

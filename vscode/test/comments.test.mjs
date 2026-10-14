@@ -29,9 +29,9 @@ function document(file,text) {
 const source=(id,file='main.tex',comment='Please clarify this.',extra={})=>({id,origin_id:id,
   file,line:1,author:'user',kind:'source',comment,before:'selected words',replies:[],target:null,...extra});
 
-function fixture(history=[source('root')]) {
+function fixture(history=[source('root')],options={}) {
   const documents=[document('main.tex','First selected words.'),document('other.tex','Other selected words.')];
-  const handlers=new Map(),created=[],errors=[],requests=[],opened=[],projections=[],sent=[];
+  const handlers=new Map(),created=[],errors=[],requests=[],opened=[],projections=[],sent=[],completed=[];
   const controller={dispose(){this.disposed=true;},createCommentThread(uri,range,comments){
     const thread={uri,range,comments,dispose(){this.disposed=true;}};created.push(thread);return thread;}};
   const vscode={Uri:{file:uri},Range,Selection,CommentMode:{Preview:0,Editing:1},
@@ -84,9 +84,9 @@ function fixture(history=[source('root')]) {
     }};
   Object.defineProperty(runtime.review,'revision',{get:()=>data.revision,set:value=>{data.revision=value;},configurable:true});
   let openDocument=async file=>{const target=uri((runtime.review.workspace||runtime.review.repo)+'/'+file);return vscode.workspace.textDocuments.find(document=>document.uri.toString()===target.toString())||vscode.workspace.openTextDocument(target);};
-  const comments=createComments(vscode,()=>runtime,{openDocument:file=>openDocument(file),onChange:()=>changes++,onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
+  const comments=createComments(vscode,()=>runtime,{openDocument:file=>openDocument(file),onChange:()=>changes++,onInputComplete:options.onInputComplete||((thread,complete)=>completed.push({thread,complete})),onReview:entry=>entry,onProjection:(projection,data)=>projections.push({projection,data}),onAgent:async(id,save,sourceUri)=>{assert.equal(sourceUri.fsPath,documents[0].uri.fsPath);if(save)id=await save();if(!id)return false;sent.push(id);return true;}});
   const editor={document:documents[0],selection:new Selection(new Position(0,6),new Position(0,20))};
-  return {comments,vscode,runtime,data,documents,created,requests,errors,opened,editor,controller,projections,sent,
+  return {comments,vscode,runtime,data,documents,created,requests,errors,opened,editor,controller,projections,sent,completed,
     command:(name,...args)=>handlers.get(`manuscriptReview.${name}`)(...args),
     beforeProjection:handler=>beforeProjection=handler,openDocument:handler=>openDocument=handler,failNote:value=>failNote=value,changes:()=>changes};
 }
@@ -816,8 +816,9 @@ test('a failed native submission recreates the input with its exact unsaved word
  assert.notEqual(retained,draft);assert.equal(retained,thread.reviewState.draft);
  assert.equal(retained.mode,f.vscode.CommentMode.Editing);
  assert.equal(retained.body,'My unsaved feedback.\nSecond line.');assert.equal(f.data.history.length,0);
+ assert.equal(f.completed.length,0);
  f.failNote(false);assert.equal(await f.command('sendDraft',retained),true);
- assert.equal(f.data.history[0].comment,'My unsaved feedback.\nSecond line.');f.comments.dispose();
+ assert.equal(f.data.history[0].comment,'My unsaved feedback.\nSecond line.');assert.equal(f.completed.length,1);f.comments.dispose();
 });
 
 test('changing review while native source focus waits cannot open an obsolete input',async()=>{
@@ -828,4 +829,45 @@ test('changing review while native source focus waits cannot open an obsolete in
  f.runtime.review.id='another-review';release();
  await assert.rejects(opening,/source comparison changed/);assert.equal(f.created.length,0);
  assert.equal(f.requests.some(request=>request.route==='/note'),false);f.comments.dispose();
+});
+
+test('comment completion belongs to its thread and is invalidated by any newer input',async()=>{
+ const f=fixture();await f.comments.refresh();
+ const thread=f.created[0],root=thread.comments[0];
+ await f.command('editComment',root);root.body='Revised feedback';
+ await f.command('saveComment',root);
+ const completed=f.completed.at(-1);
+ assert.equal(completed.thread,thread);assert.equal(completed.complete(),true);
+ await f.command('editComment',root);assert.equal(completed.complete(),false);
+ await f.command('cancelComment',root);
+ const cancelled=f.completed.at(-1);assert.equal(cancelled.complete(),true);
+ await f.comments.annotate(f.editor);assert.equal(cancelled.complete(),false);
+ f.comments.dispose();
+});
+
+test('saving or cancelling an older input cannot adopt a newer thread’s return intent',async()=>{
+ for(const action of ['saveComment','cancelComment']){
+  const f=fixture([source('a'),source('b','other.tex')]);await f.comments.refresh();
+  const a=f.created[0].comments[0],b=f.created[1].comments[0];
+  await f.command('editComment',a);await f.command('editComment',b);
+  await f.command(action,a);assert.equal(f.completed.length,0);
+  assert.equal(b.mode,f.vscode.CommentMode.Editing);f.comments.dispose();
+ }
+});
+
+
+test('a failed focus return reports the error without rejecting an already saved comment',async()=>{
+ const f=fixture(undefined,{onInputComplete:async()=>{throw new Error('Focus unavailable');}});
+ await f.comments.refresh();const comment=f.created[0].comments[0];
+ await f.command('editComment',comment);comment.body='Saved wording';
+ assert.equal(await f.command('saveComment',comment),true);
+ assert.equal(f.data.history[0].comment,'Saved wording');
+ assert.deepEqual(f.errors,['Could not return to review: Focus unavailable']);f.comments.dispose();
+});
+
+test('an editable author note has one input, and an agent response enables replies',async()=>{
+ const f=fixture();await f.comments.refresh();const thread=f.created[0];
+ assert.equal(thread.canReply,false);assert.equal(thread.comments[0].editable,true);
+ f.data.history[0].replies.push({id:'response',text:'Addressed.'});f.data.revision++;
+ await f.comments.refresh();assert.equal(thread.canReply,true);f.comments.dispose();
 });

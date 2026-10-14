@@ -156,7 +156,8 @@ CLI; **Shift+Enter** adds a newline. The sidebar chooses **Agent** (Codex or Cla
 Code) and **Model**; **CLI default** uses that provider's own settings. The arrow in
 a native comment toolbar also chooses the provider. Both choices are remembered. **Add comment**
 saves without dispatching; **Send to agent** also works on a saved comment.
-Editing a saved comment uses **Save comment**; Enter saves that correction.
+Editing a saved comment uses **Save comment**; Enter saves that correction. Completing
+a comment returns to the same focused review edit unless you moved or edited elsewhere.
 
 [Install and sign in to the CLI](../docs/INSTALL.md#agent-clis) first. No provider tab
 opens and focus stays in your manuscript. Several agents can work while you continue
