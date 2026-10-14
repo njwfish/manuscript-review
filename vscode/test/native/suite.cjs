@@ -118,7 +118,7 @@ exports.run=async()=>{
  await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
  await vscode.commands.executeCommand('undo');
- assert.ok(document.getText().includes('recorded'),'Undo must target the native source editor, not the adjacent webview');
+ await until(()=>document.getText()===authorText.replace('measured','recorded'));
  await document.save();
  await until(()=>document.getText().includes('recorded')&&!document.isDirty);
  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
