@@ -21,7 +21,7 @@ git('init','-q');git('config','user.name','Review Test');git('config','user.emai
 const text='We score measured leaves. '+
  'This synthetic paragraph provides enough surrounding prose to inspect wrapping and focused review in a narrow editor. '.repeat(5)+
  '\n\nWe retain the explanation.\n\n\\begin{equation}\nx = a + b\n\\end{equation}\n';
-await writeFile(path.join(repo,'pdf.tex'),'\\documentclass{article}\n\\begin{document}Synthetic PDF root.\\end{document}\n');
+await writeFile(path.join(repo,'pdf.tex'),'\\documentclass{article}\n\\begin{document}Synthetic PDF root.\\input{main.tex}\\input{second.tex}\\end{document}\n');
 await writeFile(path.join(repo,'main.tex'),text);await writeFile(path.join(repo,'second.tex'),'We retain additional context.\n');git('add','.');git('commit','-qm','Starting draft');
 const head=git('rev-parse','HEAD');
 const review=execFileSync(python,['-c',`import sys;from manuscript_review.library import Library
@@ -60,7 +60,7 @@ await build({entryPoints:[path.join(source,'extension.mjs')],bundle:true,platfor
         const post=panel.webview.postMessage.bind(panel.webview);
         Object.defineProperty(panel.webview,'postMessage',{value:async message=>{
           const delivered=await post(message);
-          globalThis.nativeReviewTest.pdfMessages.push({direction:'out',type:message.type,url:message.url,document:message.document,selection:message.selection,marks:message.marks,delivered});
+          globalThis.nativeReviewTest.pdfMessages.push({direction:'out',type:message.type,url:message.url,document:message.document,selection:message.selection,marks:message.marks,focus:message.focus,side:message.side,delivered});
           return delivered;
         }});
         return panel;
@@ -74,7 +74,7 @@ try{
  await runTests({extensionDevelopmentPath:fixture,extensionTestsPath:path.join(fixture,'suite.cjs'),
   ...(process.env.MR_TEST_CODE?{vscodeExecutablePath:process.env.MR_TEST_CODE}:{}),version:'stable',
   launchArgs:[repo,'--disable-renderer-backgrounding','--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-workspace-trust','--disable-extensions','--skip-welcome','--skip-release-notes','--user-data-dir',path.join(root,'profile'),'--extensions-dir',path.join(root,'extensions')],
-  extensionTestsEnv:{MR_NATIVE_FIXTURE:root,MR_NATIVE_VISUAL:process.env.MR_NATIVE_VISUAL||''}});
+  extensionTestsEnv:{MR_NATIVE_FIXTURE:root,MR_NATIVE_VISUAL:process.env.MR_NATIVE_VISUAL||'',MR_TEST_NO_TEX:process.env.MR_TEST_NO_TEX||''}});
  const result=JSON.parse(await readFile(path.join(root,'passed.json'),'utf8'));console.log(JSON.stringify(result,null,2));
  await rm(root,{recursive:true,force:true});
 }catch(error){console.error('Native fixture retained at '+root);throw error;}

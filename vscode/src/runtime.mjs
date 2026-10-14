@@ -22,6 +22,7 @@ function localURL(value) {
 function reviewRoute(path, writing) {
     if (writing) return reviewWrites.has(path);
     return path === '/status' || path === '/summary' || path === '/pdf-entry' || path === '/previews?scope=selected'
+        || /^\/pdf-entry\?file=[^#]+$/.test(path)
         || /^\/data\?scope=round(?:&file=[^#]*)?$/.test(path);
 }
 

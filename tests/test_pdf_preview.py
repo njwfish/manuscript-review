@@ -215,6 +215,11 @@ class CompiledPDFTests(unittest.TestCase):
             render_document(directory, selected, directory / 'sources')
         self.assertFalse(any(call.args[0][0] == 'pdftocairo' for call in commands.call_args_list))
         manifest = json.loads((directory / 'renders/manifest.json').read_text())
+        self.assertEqual(set(manifest['documents']), {'before', 'after'})
+        for side in ('before', 'after'):
+            pdf = manifest['documents'][side]
+            self.assertTrue((directory / 'renders' / pdf['pdf']).exists())
+            self.assertTrue(pdf['contexts'][edit['id']])
         document = manifest['documents']['after']
         words = pdf_words(directory / 'renders/after-pdf-words.html')
         self.assertIn('count', [word['text'] for page in words for word in page['words']])

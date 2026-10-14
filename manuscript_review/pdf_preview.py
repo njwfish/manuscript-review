@@ -190,7 +190,7 @@ def document_preview(data, directory, side, root, run, page_images=True):
         _, _, width, height = map(float, ET.parse(directory / page['asset']).getroot().attrib['viewBox'].split())
         page['transformed'] = number in rotated or (page['width'], page['height']) != (width, height)
         page.update(width=width, height=height)
-    edits = {}
+    edits, contexts = {}, {}
     for file in data['files']:
         source = file['before' if side == 'before' else 'after']
         if not source or not file['path'].endswith('.tex'):
@@ -221,6 +221,9 @@ def document_preview(data, directory, side, root, run, page_images=True):
             # Each source occurrence has its own text alignment, including repeated inputs.
             locations = [] if edit['math'] or (not page_images and any(pages[page-1]['transformed'] for page, _ in regions)) else [box for number in sorted({page for page, _ in regions})
                          for box in word_locations(source, span, units, pages, [(page, bounds) for page, bounds in regions if page == number], line_regions)]
+            contexts[edit['id']] = [{'page': page, 'bounds': bounds}
+                                    for page, bounds in outer_boxes(regions)
+                                    if 1 <= page <= len(pages) and not pages[page-1]['transformed']]
             precision = 'words' if locations else 'region'
             selected_start, selected_end = math_span or span
             selected_regions = [region for line in range(source[:selected_start].count('\n')+1, source[:max(selected_start, selected_end-1)].count('\n')+2)
@@ -235,4 +238,4 @@ def document_preview(data, directory, side, root, run, page_images=True):
                     if mark not in edits.setdefault(edit['id'], []):
                         edits[edit['id']].append(mark)
     return {'pdf': prefix + '.pdf', 'pages': [{key: value for key, value in page.items() if key not in ('words', 'transformed')} for page in pages],
-            'edits': edits, 'location_error': location_error}
+            'edits': edits, 'contexts': contexts, 'location_error': location_error}

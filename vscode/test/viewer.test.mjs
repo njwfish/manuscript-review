@@ -95,11 +95,17 @@ test('PDF focus scrolls the viewer viewport rather than its page content', t => 
     const page = {
         pdfPage: {getViewport: () => ({width: 100, height: 100, convertToPdfPoint: (x, y) => [x, y]})},
         viewport: {convertToViewportPoint: (x, y) => [x * 5, y * 8]},
-        div: {getBoundingClientRect: () => ({top: 20, left: 20}), append() {}}
+        div: {classList:{toggle(){}},getBoundingClientRect: () => ({top: 20, left: 20}), append() {}}
     };
     const highlights = createHighlights({pdfViewer: {container: scroll, pagesCount: 1, getPageView: () => page},
         appConfig: {viewerContainer: content}, eventBus: {on() {}, off() {}}, isInitialViewSet: true});
+    highlights.set([{page: 1, bounds: [.2, .4, .3, .45], selected:true}]);
+    draw();
+    scroll.scrollTop=0;
     highlights.set([{page: 1, bounds: [.2, .4, .3, .45]}]);
+    draw();
+    assert.equal(scroll.scrollTop,0,"An unmapped selection cannot scroll to an unrelated mark");
+    highlights.set([{page: 1, bounds: [.2, .4, .3, .45], selected:true}]);
     draw();
     assert.equal(scroll.scrollTop, 260);
     assert.equal(content.scrollTop, 0);
@@ -126,11 +132,11 @@ test('a queued document keeps its bytes when a newer selection arrives during a 
     initial.resolve();
     await Promise.all([first, next, latest]);
     assert.deepEqual(opens, [[1], [2]]);
-    assert.deepEqual(selections.at(-1), [marks, 'removed', true]);
+    assert.deepEqual(selections.at(-1), [marks, 'removed', true, []]);
     assert.deepEqual(errors, []);
     await update({document: '/assets/next.pdf', marks, active: false});
     assert.deepEqual(opens, [[1], [2]]);
-    assert.deepEqual(selections.at(-1), [marks, undefined, false]);
+    assert.deepEqual(selections.at(-1), [marks, undefined, false, []]);
 });
 
 test('only the latest document opens after a pending document and its obsolete load failure', async () => {
@@ -152,7 +158,7 @@ test('only the latest document opens after a pending document and its obsolete l
     initial.reject(new Error('The obsolete PDF failed.'));
     await Promise.all([first, skipped, final, selection]);
     assert.deepEqual(opens, [[1], [3]]);
-    assert.deepEqual(selections.at(-1), [marks, 'added', true]);
+    assert.deepEqual(selections.at(-1), [marks, 'added', true, []]);
     assert.deepEqual(errors, []);
 });
 
@@ -169,7 +175,7 @@ test('PDF failures identify their document and do not poison later document load
     assert.deepEqual(errors, [{type: 'review-pdf-error', document: '/assets/invalid.pdf', error: 'Invalid historical PDF.'}]);
     const marks = [{page: 1, bounds: [0, 0, .1, .1]}];
     await update({document: '/assets/valid.pdf', data: Uint8Array.of(2), marks});
-    assert.deepEqual(selections.at(-1), [marks, undefined, true]);
+    assert.deepEqual(selections.at(-1), [marks, undefined, true, []]);
     assert.equal(errors.length, 1);
 });
 

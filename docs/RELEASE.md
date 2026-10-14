@@ -1,9 +1,9 @@
-The VS Code sidebar now provides a compact comment composer with readable feedback and responses beside the manuscript. The source remains the only text review editor.
+Focused source review now uses VS Code’s native inline diff, with wrapped word changes and struck-out deletions beside additions. The optional PDF view shows both manuscript versions and follows the selected change.
 
-- Quieter comparison fields, fewer persistent controls, and a prominent Apply review action when decisions are complete.
-- One comment input for annotations, corrections, and follow-ups, with monospace text and automatic sizing.
-- Enter sends to the selected agent; Cmd/Ctrl+Enter saves; Shift+Enter adds a line; Escape returns to the source.
-- Drafts retain their identity and anchor through failed saves, review switches, and arriving responses. Stale actions cannot replace or submit a newer draft.
-- A successful save closes its input before background refresh, preventing duplicate comments if that refresh fails.
+- One source tab with keyboard controls; decisions clear markup while typing edits the actual file.
+- No forced Original/Proposed popup. Deleted text can be toggled in Display options.
+- Original and proposed PDFs use red and green change marks and focus on the selected passage. Narrow panes stack the PDFs; wide panes show them side by side.
+- PDF setup follows the active source’s LaTeX root, replacing stale document choices. Unresolved includes retain a root picker.
+- Source view transitions and PDF load retries retain the current comparison and focus. Navigation reuses cached PDF bytes.
 
-The update preserves saved reviews, decisions, comments, and source files. After updating the VS Code extension, save your work and run Developer: Reload Window.
+Saved reviews, choices, comments, and manuscript files retain their existing format. After updating, save your work and run Developer: Reload Window.

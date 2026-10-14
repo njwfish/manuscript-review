@@ -18,7 +18,7 @@ from .comparison import git
 from .latex_highlight import highlight_changes
 from .pdf_preview import document_preview
 
-RENDER_VERSION = 4
+RENDER_VERSION = 5
 
 SCAN = re.compile(r'%[^\n]*|\\(?:begin|end)\{[^}]+\}|\\[\[\]{}%$]|'
                   r'\\(?:begingroup|endgroup|bgroup|egroup)\b|\\[A-Za-z@]+|[{}]|\$\$?|\n[ \t]*\n')
@@ -289,12 +289,20 @@ def render(directory, data_override=None, source_cache=None):
 
 
 def render_document(directory, data_override, source_cache):
-    """Render the selected PDF with the round's source locations, without excerpts."""
+    """Render both comparison PDFs with edit locations, without excerpt images."""
     output = Path(directory) / 'renders'
     output.mkdir(exist_ok=True)
-    root = prepare_sources(data_override, output, 'after', source_cache)
-    document = document_preview(data_override, output, 'after', root, run, page_images=False)
-    atomic_json(output / 'manifest.json', {'documents': {'after': document}, 'passages': {}})
+
+    def document(side):
+        try:
+            root = prepare_sources(data_override, output, side, source_cache)
+            return document_preview(data_override, output, side, root, run, page_images=False)
+        except (OSError, ValueError, RuntimeError, ParseError, subprocess.SubprocessError) as error:
+            return {'pages': [], 'edits': {}, 'error': str(error)}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        results = dict(zip(('before', 'after'), executor.map(document, ('before', 'after'))))
+    atomic_json(output / 'manifest.json', {'documents': results, 'passages': {}})
 
 
 def main():

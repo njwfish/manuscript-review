@@ -2,11 +2,11 @@ export function reviewMarks(value) {
     if (!Array.isArray(value)) throw new Error('PDF highlights need a list of page locations.');
     return value.map(mark => {
         if (!Number.isInteger(mark.page) || mark.page < 1) throw new Error('Invalid PDF highlight page.');
-        if (mark.bounds == null) return {page: mark.page, bounds: null};
+        if (mark.bounds == null) return {...mark,page: mark.page, bounds: null};
         const bounds = mark.bounds;
         if (!Array.isArray(bounds) || bounds.length !== 4 || bounds.some(number => !Number.isFinite(number) || number < 0 || number > 1)
                 || bounds[0] > bounds[2] || bounds[1] > bounds[3]) throw new Error('Invalid PDF highlight bounds.');
-        return {page: mark.page, bounds: [...bounds]};
+        return {...mark,page: mark.page, bounds: [...bounds]};
     });
 }
 
@@ -22,7 +22,7 @@ export function viewportBounds(bounds, pageView) {
 
 export function createHighlights(application) {
     const {pdfViewer, eventBus} = application;
-    let marks = [], color = 'added', frame, focused = false;
+    let marks = [], contexts=[], color = 'added', frame, focused = false, active=false;
 
     function draw() {
         frame = undefined;
@@ -34,11 +34,25 @@ export function createHighlights(application) {
             overlay.className = 'review-highlights';
             for (const mark of marks.filter(mark => mark.page === page && mark.bounds)) {
                 const rectangle = viewportBounds(mark.bounds, view), box = document.createElement('span');
-                box.className = 'review-highlight ' + color;
+                box.className = 'review-highlight ' + color+(mark.selected?' selected':'')+(mark.location?' location':'')+(mark.precision==='words'?' words':'');
                 for (const [name, value] of Object.entries(rectangle)) box.style[name] = value + 'px';
                 overlay.append(box);
             }
             view.div.append(overlay);
+        }
+        for(let index=0;index<pdfViewer.pagesCount;index++){
+            const view=pdfViewer.getPageView(index);
+            if(!view?.pdfPage)continue;
+            const regions=contexts.filter(mark=>mark.page===index+1&&mark.bounds);
+            view.div.classList.toggle('review-distant',active&&contexts.length>0&&!regions.length);
+            if(!active||!regions.length)continue;
+            const rectangles=regions.map(mark=>viewportBounds(mark.bounds,view));
+            const left=Math.min(...rectangles.map(box=>box.left)),top=Math.min(...rectangles.map(box=>box.top))-8;
+            const right=Math.max(...rectangles.map(box=>box.left+box.width)),bottom=Math.max(...rectangles.map(box=>box.top+box.height))+8;
+            const overlay=document.createElement('div');overlay.className='review-highlights';
+            const box=document.createElement('span');box.className='review-context';
+            Object.assign(box.style,{left:left+'px',top:top+'px',width:(right-left)+'px',height:(bottom-top)+'px'});
+            overlay.append(box);view.div.append(overlay);
         }
         if (focused) focus();
     }
@@ -48,7 +62,7 @@ export function createHighlights(application) {
     }
 
     function focus() {
-        const selected = marks[0];
+        const selected = contexts[0]||marks.find(mark=>mark.selected);
         if (!selected) { focused = false; return; }
         if (!pdfViewer.pagesCount || application.isInitialViewSet === false) return;
         if (selected.page > pdfViewer.pagesCount) { focused = false; return; }
@@ -71,10 +85,12 @@ export function createHighlights(application) {
     observer.observe(pdfViewer.container);
 
     return {
-        set(value, nextColor = 'added', active = true) {
+        set(value, nextColor = 'added', nextActive = true, context=[]) {
             marks = reviewMarks(value);
             color = nextColor === 'removed' ? 'removed' : 'added';
-            focused = active;
+            contexts = reviewMarks(context);
+            active = nextActive;
+            focused = nextActive;
             redraw();
         },
         dispose() {

@@ -43,8 +43,8 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                         session.previews.queue('round' if scope == 'manuscript' else scope)
                 except ValueError as error:
                     self.response({'error': str(error)}, status=400)
-            elif self.path == '/pdf-entry':
-                self.response(session.pdf_entries())
+            elif urlsplit(self.path).path == '/pdf-entry':
+                self.response(session.pdf_entries(parse_qs(urlsplit(self.path).query).get('file', [None])[0]))
             elif self.path == '/summary':
                 self.response(session.summary())
             elif self.path == '/status':

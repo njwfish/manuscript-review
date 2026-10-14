@@ -1,6 +1,7 @@
 """Selected manuscript files and comments anchored to exact source versions."""
 import re
-from .comparison import compare, enrich_snapshot, git, read_blob
+import posixpath
+from .comparison import compare, enrich_snapshot, git, read_blob, read_blobs
 from .previews import preview_assets
 from .editing import project_source
 
@@ -74,19 +75,72 @@ def manuscript_files(record):
 def latex_entries(record):
     """Find regular LaTeX roots in the selected version, including renamed files."""
     snapshot = record['snapshot']
-    entries = []
+    files = {}
     for item in filter(None, git(snapshot['repo'], 'ls-tree', '-rz', record['result']).split(b'\0')):
         header, filename = item.split(b'\t', 1)
+        mode, _, object_id = header.decode().split()
         path = filename.decode()
-        if not header.startswith(b'100644 ') or not path.endswith('.tex'):
-            continue
+        if mode == '100644' and path.endswith('.tex'):
+            files[path] = object_id
+    blobs = read_blobs(snapshot['repo'], files.values())
+    entries = []
+    for path, identifier in files.items():
         try:
-            source = read_blob(snapshot['repo'], record['result'], path)
+            source = blobs[identifier].decode('utf-8')
         except UnicodeError:
             continue
-        if source is not None and '\\documentclass' in source:
+        if '\\documentclass' in source:
             entries.append(path)
     return sorted(entries, key=lambda path: (path not in ('main.tex', 'paper.tex', 'manuscript.tex'), len(path), path))
+
+
+def latex_roots(record, file, entries):
+    """Roots that contain this source in the selected Git version."""
+    if not file:
+        return entries
+    snapshot = record['snapshot']
+    repo, version = snapshot['repo'], record['result']
+    paths = set(filter(None, git(repo, 'ls-tree', '-r', '--name-only', '-z', version).decode().split('\0')))
+    if file not in paths:
+        return []
+    source = read_blob(repo, version, file) or ''
+    hint = re.search(r'^\s*%\s*!TEX\s+root\s*=\s*(.+)$', source, re.MULTILINE | re.IGNORECASE)
+    if hint:
+        root = posixpath.normpath(posixpath.join(posixpath.dirname(file), hint[1].strip()))
+        if root in entries:
+            return [root]
+    if file in entries:
+        return [file]
+    sources = {}
+
+    def children(path, directory):
+        if path not in sources:
+            sources[path] = re.sub(r'(?<!\\)%[^\n]*', '', read_blob(repo, version, path) or '')
+        names = re.findall(r'\\(input|include|subfile)\s*(?:\{([^{}]+)\}|([^\s\\{}]+))', sources[path])
+        result = []
+        for command, braced, bare in names:
+            name = (braced or bare).strip()
+            if not name.endswith('.tex'):
+                name += '.tex'
+            parent = posixpath.dirname(path) if command == 'subfile' else directory
+            candidate = posixpath.normpath(posixpath.join(parent, name))
+            if candidate in paths:
+                result.append(candidate)
+        return result
+
+    def contains(root):
+        directory = posixpath.dirname(root)
+        seen, pending = set(), [root]
+        while pending:
+            path = pending.pop()
+            if path == file:
+                return True
+            if path not in seen:
+                seen.add(path)
+                pending.extend(children(path, directory))
+        return False
+
+    return [entry for entry in entries if contains(entry)]
 
 
 def source_point(text, offset):

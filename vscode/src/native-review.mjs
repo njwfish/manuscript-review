@@ -1,7 +1,7 @@
 /** One source selection drives decisions, keyboard review and PDF navigation. */
 export function createNativeReview(vscode, {
   runtime, enabled, sourceEdits, delivery, onOpen, onChange, onFocus, onMode,
-  onComment, onError, isPDFActive = () => false
+  onComment, onError, isPDFActive = () => false, getEditor=()=>vscode.window.activeTextEditor,getColumn=editor=>editor?.viewColumn
 }) {
   let projections = new WeakMap(), indexes = new WeakMap();
   let focused, lastFocus, sourceEditor, commentFocus, focusMode = false;
@@ -10,9 +10,9 @@ export function createNativeReview(vscode, {
   const changed = new vscode.EventEmitter();
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 60);
   status.command = 'manuscriptReview.focusedReview';
-  const sameSource = (left, right) => left?.document === right?.document && left?.viewColumn === right?.viewColumn;
+  const sameSource = (left, right) => left?.document === right?.document && getColumn(left) === getColumn(right);
   const activeEditor = () =>
-    vscode.window.activeTextEditor || ((isPDFActive() || commentFocus)
+    getEditor() || ((isPDFActive() || commentFocus)
       && sourceEditor?.document && !sourceEditor.document.isClosed ? sourceEditor : undefined);
   const current = (nearest = false) => {
     if (disposed || !enabled()) return;
@@ -352,7 +352,7 @@ export function createNativeReview(vscode, {
       refresh();
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
-      const editor = vscode.window.activeTextEditor;
+      const editor = getEditor();
       if (commentFocus && editor && !sameSource(editor, commentFocus.editor)) edit();
       if (!current(true) && !isPDFActive() && !openingSource && !commentFocus) edit();
       refresh();

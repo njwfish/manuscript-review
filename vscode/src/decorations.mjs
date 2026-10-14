@@ -38,18 +38,13 @@ export function createDecorations(vscode) {
   }
 
   function changesFor(state) {
-    const { projection, edits } = state;
+    const { projection } = state;
     const groups = { changed: [], rejected: [], point: [] };
-    state.decorated = new Map();
     for (const span of state.spans.values()) {
-      const edit = edits.get(span.id);
       if (!reviewed && ['accept', 'reject'].includes(state.data.decisions?.[span.id])) continue;
-      const hover = changeHover(vscode, edit, projection.document.languageId);
       const decoration = {
-        range: new vscode.Range(projection.document.positionAt(span.from), projection.document.positionAt(span.to)),
-        hoverMessage: hover
+        range: new vscode.Range(projection.document.positionAt(span.from), projection.document.positionAt(span.to))
       };
-      state.decorated.set(span.id, decoration);
       groups[span.from === span.to ? 'point' : span.rejected ? 'rejected' : 'changed'].push(decoration);
     }
     return groups;
@@ -73,8 +68,7 @@ export function createDecorations(vscode) {
         }
         const [from, to] = visibleSpan(projection.text, span);
         if (from < to) state.focusGroups.selected.push({
-          range: new vscode.Range(projection.document.positionAt(from), projection.document.positionAt(to)),
-          hoverMessage: state.decorated.has(id) ? undefined : changeHover(vscode, state.edits.get(id), projection.document.languageId)
+          range: new vscode.Range(projection.document.positionAt(from), projection.document.positionAt(to))
         });
       }
       state.selected = id;
@@ -203,18 +197,6 @@ export function focusBands(text, from, to, starts = lineStarts(text)) {
     if (start !== undefined && end > 0 && start < stop) result[kind].push([start, stop]);
   }
   return result;
-}
-
-function changeHover(vscode, edit, language) {
-  const hover = new vscode.MarkdownString();
-  hover.isTrusted = false;
-  if (!edit) return hover;
-  for (const [label, text] of [['Original', edit.old], ['Proposed', edit.new]]) {
-    hover.appendMarkdown(`**${label}**\n\n`);
-    hover.appendCodeblock(text, language);
-    hover.appendMarkdown('\n\n');
-  }
-  return hover;
 }
 
 // A deletion needs a visible hover target, while its review anchor stays empty.

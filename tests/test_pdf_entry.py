@@ -79,3 +79,43 @@ class PDFEntryTests(ReviewFixture):
         for scope in PREVIEW_SCOPES:
             self.assertEqual(self.session.preview(scope)['documents'], {})
             self.assertEqual(self.session.preview(scope)['preview_status'], 'queued')
+
+    def test_active_root_wins_over_a_valid_deprecated_root(self):
+        from manuscript_review.comparison import git
+        (self.repo / 'main.tex').write_text('\\documentclass{article}\n\\begin{document}Current.\\end{document}\n')
+        self.commit()
+        record = self.session.store.read()
+        record['result'] = git(self.repo, 'rev-parse', 'HEAD').decode().strip()
+        record['snapshot']['entry'] = 'root.tex'
+        self.session.store.commit(record)
+        result = self.session.pdf_entries('main.tex')
+        self.assertEqual(result['matching'], ['main.tex'])
+        self.assertIn('root.tex', result['entries'])
+        self.assertEqual(result['entry'], 'root.tex', 'discovery never mutates the chosen root')
+
+    def test_nested_inputs_use_root_directory_and_ignore_commented_or_cyclic_inputs(self):
+        from manuscript_review.comparison import git
+        (self.repo / 'paper/sections').mkdir(parents=True)
+        (self.repo / 'paper/main.tex').write_text('\\documentclass{article}\n\\input{sections/first}\n% \\input{unrelated}\n')
+        (self.repo / 'paper/sections/first.tex').write_text('\\input{body}\n\\input{sections/first}\n')
+        (self.repo / 'paper/body.tex').write_text('Body')
+        (self.repo / 'body.tex').write_text('Unrelated top-level file')
+        (self.repo / 'paper/unrelated.tex').write_text('Not actually included')
+        self.commit()
+        record = self.session.store.read()
+        record['result'] = git(self.repo, 'rev-parse', 'HEAD').decode().strip()
+        self.session.store.commit(record)
+        self.assertEqual(self.session.pdf_entries('paper/body.tex')['matching'], ['paper/main.tex'])
+        self.assertEqual(self.session.pdf_entries('body.tex')['matching'], [])
+        self.assertEqual(self.session.pdf_entries('paper/unrelated.tex')['matching'], [])
+        (self.repo / 'paper/main.tex').unlink()
+        self.assertEqual(self.session.pdf_entries('paper/body.tex')['matching'], ['paper/main.tex'])
+
+    def test_tex_root_hint_selects_the_author_declared_root(self):
+        from manuscript_review.comparison import git
+        (self.repo / 'body.tex').write_text('% !TEX root = root.tex\nBody')
+        self.commit()
+        record = self.session.store.read()
+        record['result'] = git(self.repo, 'rev-parse', 'HEAD').decode().strip()
+        self.session.store.commit(record)
+        self.assertEqual(self.session.pdf_entries('body.tex')['matching'], ['root.tex'])

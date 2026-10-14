@@ -48,6 +48,7 @@ exports.run=async()=>{
  assert.equal(document.getText(),authorText);assert.equal(document.isDirty,true);
  await document.save();
  await until(()=>document.getText().includes('observed')&&!document.isDirty);
+ editor=vscode.window.visibleTextEditors.find(editor=>editor.document===document);
  // Automatic highlights must not silently turn subsequent drafting into refinement.
  typing=document.getText().indexOf('the concise explanation');
  await editor.edit(builder=>builder.replace(new vscode.Range(document.positionAt(typing),document.positionAt(typing+23)),'the concise, explicit explanation'));
@@ -57,14 +58,15 @@ exports.run=async()=>{
  const authorBase=(await record()).snapshot.base;
  assert.equal(execFileSync('git',['show',authorBase+':main.tex'],{cwd:fixture.repo,encoding:'utf8'}),authorText);
  await until(async()=> (await record()).metadata.workspace_version!==(await record()).snapshot.base);
- await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');editor=vscode.window.activeTextEditor;
  await vscode.commands.executeCommand('manuscriptReview.refresh');
  assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false,'Review must use native source without another text tab');
  // C opens the same sidebar composer for edits and anchored follow-ups.
  const root=(await record()).history.find(entry=>entry.comment==='Keep this surgical.');
  await state.comments.refresh();
  editor.selection=new vscode.Selection(document.positionAt(document.getText().indexOf('observed')),document.positionAt(document.getText().indexOf('observed')));
- await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');editor=vscode.window.activeTextEditor;
+ if(process.env.MR_NATIVE_VISUAL==='source')await inspect('review');
  await vscode.commands.executeCommand('manuscriptReview.commentChange');
  const originalInput=state.comments.input();assert.equal(originalInput.editing,true);
  assert.equal(originalInput.body,'Keep this surgical.');
@@ -76,7 +78,7 @@ exports.run=async()=>{
  await until(async()=> (await vscode.commands.executeCommand('vscode.executeCodeLensProvider',document.uri))?.some(lens=>lens.command?.title==='Next F'));
  engine("import sys,json;from manuscript_review.library import Library;from manuscript_review.session import ReviewSession;s=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));r=s.store.read();s.import_responses([{'id':sys.argv[3],'text':'Updated the wording.'}],r['revision']);print(json.dumps({'ready':True}))",root.id);
  await state.comments.refresh();
- await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');editor=vscode.window.activeTextEditor;
  const discussion=await vscode.commands.executeCommand('manuscriptReview.commentChange');
  const followup=state.comments.input();assert.equal(followup.editing,false);
  state.comments.editInput(followup.id,'Additional');
@@ -94,7 +96,7 @@ exports.run=async()=>{
   discussion.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
   editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
   await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
-  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+  await vscode.commands.executeCommand('manuscriptReview.focusedReview');editor=vscode.window.activeTextEditor;
   await inspect('review');
  }
  editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
@@ -118,29 +120,33 @@ exports.run=async()=>{
  await until(()=>document.getText()===authorText.replace('measured','recorded'));
  await document.save();
  await until(()=>document.getText().includes('recorded')&&!document.isDirty);
- await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');editor=vscode.window.activeTextEditor;
  await vscode.commands.executeCommand('manuscriptReview.nextChange');
  await state.runtime.request('/pdf-entry',{entry:'pdf.tex'});
- // Verify real webview transport and PDF.js rendering with a synthetic selected PDF.
- const selected=await record(),edit=selected.snapshot.files.find(file=>file.path==='main.tex').edits[0];
- const lines=document.getText().trim().split('\n').filter(Boolean),content='BT /F1 12 Tf 36 700 Td '+lines.map((line,index)=>(index?'0 -24 Td ':'')+'('+line.replace(/[\\()]/g,'\\$&')+') Tj').join(' ')+' ET';
- const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>','<< /Length '+Buffer.byteLength(content)+' >>\nstream\n'+content+'\nendstream'];
- let bytes='%PDF-1.4\n',offsets=[0];objects.forEach((value,index)=>{offsets.push(Buffer.byteLength(bytes));bytes+=(index+1)+' 0 obj\n'+value+'\nendobj\n';});
- const xref=Buffer.byteLength(bytes);bytes+='xref\n0 6\n0000000000 65535 f \n'+offsets.slice(1).map(value=>String(value).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
- const preview=fixture.home+'/reviews/'+fixture.review+'/selected-renders';await fs.mkdir(preview,{recursive:true});await fs.writeFile(preview+'/native-test.pdf',bytes);
- engine("import sys,json;from pathlib import Path;from manuscript_review.library import Library;from manuscript_review.storage import atomic_json;from manuscript_review.render_latex import RENDER_VERSION;from manuscript_review.session import ReviewSession;session=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));record=session.store.read();atomic_json(session.directory/'selected-renders/manifest.json',{'base':record['snapshot']['base'],'proposed':record['result'],'proposal':record['snapshot']['proposed'],'entry':record['snapshot']['entry'],'renderer':RENDER_VERSION,'documents':{'after':{'pdf':'native-test.pdf','pages':[{'width':612,'height':792}],'edits':{edit['id']:[{'page':1,'bounds':[90,80,138,96]}] for file in record['snapshot']['files'] for edit in file['edits']}}}});record['metadata']['selected_preview_status']='ready';session.store.patch({'metadata':record['metadata']});print(json.dumps({'ready':True}))",edit.id);
- const pairedSource=vscode.window.activeTextEditor.document.uri.fsPath,pairedColumn=vscode.window.activeTextEditor.viewColumn;
+ // Local TeX checks real compilation; minimal CI images still check paired PDF transport.
+ const compiledPDF=process.env.MR_TEST_NO_TEX!=='1'&&engine("import sys,json,shutil;print(json.dumps({'available':all(shutil.which(tool) for tool in ('latexmk','pdflatex','pdftotext','pdfinfo'))}))").available;
+ if(compiledPDF){
+  engine("import sys,json;from manuscript_review.library import Library;from manuscript_review.session import ReviewSession;session=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));session.previews.render('selected');p=session.preview('selected');assert all(p['documents'][side].get('pdf') for side in ('before','after')),p;print(json.dumps({'ready':True}))");
+ }else{
+  const content='BT /F1 12 Tf 36 700 Td (Synthetic manuscript comparison.) Tj ET';
+  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>','<< /Length '+Buffer.byteLength(content)+' >>\nstream\n'+content+'\nendstream'];
+  let bytes='%PDF-1.4\n',offsets=[0];objects.forEach((value,index)=>{offsets.push(Buffer.byteLength(bytes));bytes+=(index+1)+' 0 obj\n'+value+'\nendobj\n';});
+  const xref=Buffer.byteLength(bytes);bytes+='xref\n0 6\n0000000000 65535 f \n'+offsets.slice(1).map(value=>String(value).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+  const preview=fixture.home+'/reviews/'+fixture.review+'/selected-renders';await fs.mkdir(preview,{recursive:true});await fs.writeFile(preview+'/native-test.pdf',bytes);
+  engine("import sys,json;from manuscript_review.library import Library;from manuscript_review.storage import atomic_json;from manuscript_review.render_latex import RENDER_VERSION;from manuscript_review.session import ReviewSession;s=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));r=s.store.read();marks={edit['id']:[{'page':1,'bounds':[36,80,250,96]}] for file in r['snapshot']['files'] for edit in file['edits']};atomic_json(s.directory/'selected-renders/manifest.json',{'base':r['snapshot']['base'],'proposed':r['result'],'proposal':r['snapshot']['proposed'],'entry':r['snapshot']['entry'],'renderer':RENDER_VERSION,'documents':{side:{'pdf':'native-test.pdf','pages':[{'width':612,'height':792}],'edits':marks,'contexts':marks} for side in ('before','after')}});s.store.patch({'metadata':{**r['metadata'],'selected_preview_status':'ready'}});print(json.dumps({'ready':True}))");
+ }
+ const pairedSource=vscode.window.activeTextEditor.document.uri.fsPath,pairedColumn=vscode.window.tabGroups.activeTabGroup.viewColumn;
  await vscode.commands.executeCommand('manuscriptReview.reviewPDF');
- await until(()=>state.pdfMessages.some(message=>message.type==='rendered')).catch(async error=>{await fs.writeFile(fixture.root+'/pdf-messages.json',JSON.stringify(state.pdfMessages));throw error;});
+ await until(()=>['before','after'].every(side=>state.pdfMessages.some(message=>message.type==='rendered'&&message.side===side))).catch(async error=>{await fs.writeFile(fixture.root+'/pdf-messages.json',JSON.stringify(state.pdfMessages));throw error;});
  const pdfGroup=vscode.window.tabGroups.all.find(group=>group.tabs.some(tab=>tab.label.startsWith('PDF: ')));
- assert.equal(vscode.window.visibleTextEditors.some(editor=>editor.document.uri.fsPath===pairedSource&&editor.viewColumn===pairedColumn),true,'Paired PDF must keep source visible');
- assert.equal(state.pdfMessages.filter(message=>message.direction==='out'&&message.type==='document').at(-1).marks.length,1,'Selected edit must be highlighted in PDF');
+ assert.equal(vscode.window.visibleTextEditors.some(editor=>editor.document.uri.fsPath===pairedSource),true,'Paired PDF must keep source visible');
+ for(const side of ['before','after'])assert.equal(state.pdfMessages.filter(message=>message.direction==='out'&&message.type==='document'&&message.side===side).at(-1).marks.some(mark=>mark.selected),true,'Selected edit must be highlighted in both PDFs');
  assert.equal(pdfGroup.viewColumn,pairedColumn+1,'PDF must sit beside source');
- if(process.env.MR_NATIVE_VISUAL==='pdf')await inspect('pdf');
+ if(['pdf','source','review'].includes(process.env.MR_NATIVE_VISUAL))await inspect('pdf');
  assert.equal(state.pdfMessages.some(message=>message.type==='error'),false,'The real PDF webview must decode and render selected PDF bytes');
  assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false);
  assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:fixture.repo,encoding:'utf8'}).trim(),fixture.head);
  assert.equal(execFileSync('git',['diff','--cached','--name-only'],{cwd:fixture.repo,encoding:'utf8'}).trim(),'');
  await state.actual.deactivate();
- await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,singleNativeReviewEditor:true,selectedPDFRendered:true,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
+ await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,singleNativeReviewEditor:true,selectedPDFRendered:true,realTeXCompiled:compiledPDF,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
 };

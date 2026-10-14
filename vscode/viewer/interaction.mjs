@@ -32,7 +32,7 @@ export function createPDFReview(application, highlights, onError) {
         else if (message.data !== undefined) pending.data = message.data;
         loading = loading.then(async () => {
             if (ticket !== generation) return;
-            const marks = reviewMarks(message.marks || []);
+            const marks = reviewMarks(message.marks || []), focus = reviewMarks(message.focus || []);
             if (!application.pdfDocument || key === undefined || key !== documentKey) {
                 const data = pending.data;
                 if (!(data instanceof Uint8Array || data instanceof ArrayBuffer)) throw new Error('PDF review data is missing.');
@@ -41,7 +41,7 @@ export function createPDFReview(application, highlights, onError) {
                 await application.open({data: data instanceof Uint8Array ? data : new Uint8Array(data), isEvalSupported: false});
                 documentKey = key;
             }
-            if (ticket === generation) highlights.set(marks, message.color, message.active !== false);
+            if (ticket === generation) highlights.set(marks, message.color, message.active !== false, focus);
             return ticket === generation;
         }).catch(error => {
             if (ticket === generation) onError({type: 'review-pdf-error', document: key, error: error.message});
