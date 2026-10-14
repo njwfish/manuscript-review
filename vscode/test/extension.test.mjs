@@ -327,7 +327,7 @@ test('live source PDF navigation delegates to Workshop without starting the revi
 test('review shortcuts and the comment context menu require the active manuscript source',async()=>{
   const manifest=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
   assert.equal(manifest.contributes.keybindings.filter(binding=>!binding.when.includes('commentEditorFocused')).every(binding=>binding.when.includes('manuscriptReview.source')),true);
-  const enter=manifest.contributes.keybindings.find(binding=>binding.key==='enter');assert.match(enter.when,/commentController == manuscript-review/);assert.match(enter.when,/!inComposition/);
+  const enter=manifest.contributes.keybindings.find(binding=>binding.key==='enter');assert.match(enter.when,/commentController == manuscript-review/);assert.match(enter.when,/!inComposition/);assert.doesNotMatch(enter.when,/commentIsEmpty/);
   const actions=manifest.contributes.menus['comments/commentThread/context'];assert.equal(actions.find(item=>item.group==='inline@0').command,'manuscriptReview.sendComment');
   const action=manifest.contributes.menus['editor/context'].find(action=>action.command==='manuscriptReview.comment');
   assert.match(action.when,/manuscriptReview\.source/);

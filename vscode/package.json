@@ -477,7 +477,7 @@
       {
         "command": "editor.action.submitComment",
         "key": "enter",
-        "when": "commentEditorFocused && commentController == manuscript-review && !commentIsEmpty && !suggestWidgetVisible && !inComposition"
+        "when": "commentEditorFocused && commentController == manuscript-review && !suggestWidgetVisible && !inComposition"
       },
       {
         "command": "manuscriptReview.comment",

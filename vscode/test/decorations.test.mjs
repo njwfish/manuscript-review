@@ -281,3 +281,15 @@ test('continuous focus ranges preserve exact line coverage at newline and file b
   }
  }
 });
+
+test('focused changes have exactly one original/proposed hover across reviewed-display toggles',()=>{
+ const f=fixture();
+ const hovers=()=>[...f.first.decorations.values()].flat().filter(item=>item.hoverMessage);
+ f.decorations.update(f.projection,f.data);f.decorations.focus('main.tex','edit');
+ assert.equal(hovers().length,1);
+ f.data.decisions={edit:'accept'};f.data.revision++;f.projection.revision++;
+ f.decorations.update(f.projection,f.data);assert.equal(hovers().length,1);
+ f.decorations.setReviewed(true);assert.equal(hovers().length,1);
+ f.decorations.setReviewed(false);assert.equal(hovers().length,1);
+ f.decorations.dispose();
+});

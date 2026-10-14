@@ -74,7 +74,7 @@ export function createDecorations(vscode) {
         const [from, to] = visibleSpan(projection.text, span);
         if (from < to) state.focusGroups.selected.push({
           range: new vscode.Range(projection.document.positionAt(from), projection.document.positionAt(to)),
-          hoverMessage: state.decorated.get(id)?.hoverMessage || changeHover(vscode, state.edits.get(id), projection.document.languageId)
+          hoverMessage: state.decorated.has(id) ? undefined : changeHover(vscode, state.edits.get(id), projection.document.languageId)
         });
       }
       state.selected = id;
@@ -149,12 +149,13 @@ export function createDecorations(vscode) {
     reviewed = value;
     prune();
     for (const state of new Set([...editors.values()].map(entry => entry.state))) {
-      if (valid(state)) { state.changes = changesFor(state); state.reviewed = reviewed; }
+      if (valid(state)) { state.changes = changesFor(state); state.reviewed = reviewed; state.focusGroups = undefined; }
     }
     for (const [editor, { state }] of editors) {
       if (valid(state)) paint(editor, state.changes);
       else erase(editor);
     }
+    repaintFocus();
   }
 
   function clear() {

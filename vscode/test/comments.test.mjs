@@ -871,3 +871,12 @@ test('an editable author note has one input, and an agent response enables repli
  f.data.history[0].replies.push({id:'response',text:'Addressed.'});f.data.revision++;
  await f.comments.refresh();assert.equal(thread.canReply,true);f.comments.dispose();
 });
+
+
+test('clearing an editable saved note removes that note without dispatching an agent',async()=>{
+ const f=fixture();await f.comments.refresh();const thread=f.created[0],comment=thread.comments[0];
+ await f.command('editComment',comment);comment.body='';
+ assert.equal(await f.command('saveComment',comment),true);
+ assert.deepEqual(f.data.history,[]);assert.equal(thread.disposed,true);
+ assert.deepEqual(f.sent,[]);assert.deepEqual(f.errors,[]);f.comments.dispose();
+});
