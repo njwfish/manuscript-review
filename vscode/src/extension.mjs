@@ -135,7 +135,7 @@ export function activate(context){
  async function pdfAction(action,scope){
   const actions={accept:()=>nativeReview.decide('accept',scope),reject:()=>nativeReview.decide('reject',scope),
    reset:()=>nativeReview.decide('reset'),previous:()=>nativeReview.move(-1),next:()=>nativeReview.move(1),
-  edit:async()=>{const editor=nativeReview.edit();if(editor)await vscode.window.showTextDocument(editor.document,{preserveFocus:false});},
+  edit:async()=>{const editor=nativeReview.edit();if(!editor)return;if(highlightsEnabled()&&removalsEnabled())return sourceReview.show(editor);await vscode.window.showTextDocument(editor.document,{viewColumn:sourceReview.column(editor),preserveFocus:false});},
   comment:()=>nativeReview.comment(),focus:()=>highlightsEnabled()?nativeReview.begin():undefined};
   if(!Object.hasOwn(actions,action))throw new Error('Choose a manuscript review action.');
   return actions[action]();
