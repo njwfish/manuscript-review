@@ -27,16 +27,22 @@ export function activate(context){
  const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',false);
  const editingIntent=()=>context.workspaceState.get('editingIntent','author');
  const removalsEnabled=()=>context.workspaceState.get('removalsEnabled',true);
- decorations.setRemovals(removalsEnabled());
+ const reviewedEnabled=()=>context.workspaceState.get('reviewedEnabled',false);
+ decorations.setReviewed(reviewedEnabled());
  decorations.setEnabled(highlightsEnabled());
  const nativeReview=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>highlightsEnabled()&&!comparison?.pending,
   onOpen:openSource,isPDFActive:()=>pdf?.active,onComment:async selected=>{
-   nativeReview.edit();await vscode.window.showTextDocument(selected.editor.document,{preserveFocus:false});return comments.discuss(selected);
+   await vscode.commands.executeCommand('editor.action.hideHover');
+   await vscode.window.showTextDocument(selected.editor.document,{viewColumn:selected.editor.viewColumn,preserveFocus:false});
+   await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+   return comments.discuss(selected);
   },
   onMode:value=>{void vscode.commands.executeCommand('setContext','manuscriptReview.focused',value);pdf?.setMode(value);if(!value)decorations.reveal();},
   onChange:refreshSource,onFocus:(file,edit,selected,focused)=>{
    if(focused)decorations.focus(file,edit);else decorations.reveal();
-   void pdf?.select(file,edit,selected?.data.revision,selected?.span.rejected).catch(fail);
+   if(focused&&removalsEnabled()&&selected?.data.files.find(item=>item.path===file)?.edits.find(item=>item.id===edit)?.old)
+    void vscode.commands.executeCommand('editor.action.showHover',{focus:'noAutoFocus'}).catch(fail);
+   void pdf?.select(file,edit,selected?.data.revision,selected?.span.rejected,['accept','reject'].includes(selected?.data.decisions?.[edit])).catch(fail);
    void followWorkshopPDF(vscode,selected).catch(error=>output.appendLine(error.message));
   },onError:error=>void fail(error)});
  const canComment=document=>commentsEnabled()&&vscode.workspace.isTrusted&&(sourceDocument(document)||document?.uri.scheme===sourceScheme&&sourceFile(runtime?.review,document));
@@ -96,6 +102,12 @@ export function activate(context){
  const sources=createSourceDocuments(vscode,async()=>{await start();return runtime;});
  const subscriptions=[output,sources,nativeReview];
  const comments=createComments(vscode,()=>runtime,{onSource:ensureCommentSource,canComment,
+  onInputComplete:(thread,complete)=>nativeReview.finishComment(thread,async owns=>{
+   await comments.refresh();
+   if(!complete()||!owns())return false;
+   await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+   return complete();
+  }),
   openDocument:sources.open,
   onChange:async()=>{await sidebar.refresh();},onReview:entry=>showReview(entry),
   onProjection:(projection,data)=>{if(!comparison?.pending){decorations.update(projection,data);nativeReview.update(projection,data);}},onAgent:sendToAgent});
@@ -141,7 +153,7 @@ export function activate(context){
    agentTools=createAgentTools({extensionPath:context.extensionPath,storagePath:context.globalStorageUri.fsPath,version:context.extension.packageJSON.version,python});
    runtime=createRuntime({extensionPath:path.join(context.extensionPath,'dist'),python,home:config.get('libraryDirectory',''),output});
    viewer=createViewer(path.join(context.extensionPath,'dist','viewer'));
-   pdf=createPDFPanel(vscode,context,runtime,{viewer,onAction:pdfAction,onError:error=>output.appendLine(error.stack||error.message)});
+   pdf=createPDFPanel(vscode,context,runtime,{viewer,showReviewed:reviewedEnabled,onAction:pdfAction,onError:error=>output.appendLine(error.stack||error.message)});
    sourceEdits=createSourceEdits(runtime,{state:context.workspaceState,intent:editingIntent,onChange:refreshSource,
     recoverDelivery:async({file})=>{
      const applied='Agent changes were applied',authored='They were not applied';
@@ -386,7 +398,7 @@ export function activate(context){
   if(!['comments','agent','model','sessions','agentChanges','repository','highlights','removals'].includes(action))checkSidebar(expected);
   const actions={
    editing:chooseEditing,
-   removals:async()=>{const value=!removalsEnabled();await context.workspaceState.update('removalsEnabled',value);decorations.setRemovals(value);},
+   removals:async()=>{const value=!removalsEnabled();await context.workspaceState.update('removalsEnabled',value);if(!value)await vscode.commands.executeCommand('editor.action.hideHover');},
    highlights:async()=>{const enabled=!highlightsEnabled();await setHighlights(enabled);nativeReview.refresh();if(!enabled)nativeReview.edit();if(enabled)await comments.refresh();},
    comments:async()=>{const enabled=!commentsEnabled();await context.globalState.update('commentsEnabled',enabled);comments.setEnabled(enabled);updateSourceContext();if(enabled)await restoreSourceReview(vscode.window.activeTextEditor?.document);},
    agent:chooseAgent,model:chooseModel,sessions:openAgentSession,agentChanges:showAgentChanges,previous:()=>comments.move(-1),next:()=>comments.move(1),
@@ -484,6 +496,7 @@ export function activate(context){
  command('previousChange',()=>nativeReview.move(-1));
  command('nextChange',()=>nativeReview.move(1));
  command('commentChange',()=>nativeReview.comment());
+ command('toggleReviewedChanges',async()=>{const value=!reviewedEnabled();await context.workspaceState.update('reviewedEnabled',value);decorations.setReviewed(value);await pdf?.refresh();});
  command('editSource',()=>nativeReview.edit());
  command('exitReview',async()=>{nativeReview.edit();await setHighlights(false);await refreshSource();});
  command('reviewPDF',async()=>{if(await ensureReview()){await sourceEdits.flush();await pdf.show();}});

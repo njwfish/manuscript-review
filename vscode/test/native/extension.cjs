@@ -5,6 +5,7 @@ exports.activate=async context=>{
  const config=vscode.workspace.getConfiguration('manuscriptReview');
  await config.update('libraryDirectory',fixture.home,vscode.ConfigurationTarget.Global);
  await config.update('pythonPath',fixture.python,vscode.ConfigurationTarget.Global);
+ await vscode.workspace.getConfiguration('editor').update('wordWrap','on',vscode.ConfigurationTarget.Global);
  globalThis.nativeReviewTest={};
  await context.globalState.update('commentAgent','codex');
  const document=await vscode.workspace.openTextDocument(vscode.Uri.file(fixture.repo+'/main.tex'));

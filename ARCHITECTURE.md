@@ -92,6 +92,13 @@ caret at the original start without selecting the quoted passage. Native comment
 ranges stay empty to avoid a persistent stripe down the file; source annotation uses
 the selection action, keyboard shortcut, and context menu. Without an adjacent break,
 VS Code can still repeat its native glyph on wrapped rows.
+Opening a discussion creates or resumes one native comment editor. Its unsent input
+is local to that thread; submission uses the same discussion operation as a reply.
+If saving fails after VS Code closes its input, the controller restores an editable
+comment with the unsaved wording. Review letter shortcuts exclude comment editors.
+A focused review pauses for its comment input and resumes at the same edit on completion.
+The return is pinned to that thread and input generation; reopening input, moving the
+source cursor or editing cancels an older return before it can take focus.
 `source-edits.mjs` captures ordered native saves through `ReviewSession.capture_file`
 and refreshes the same comparison without replacing the buffer or taking focus.
 Unsaved typing stays in VS Code. Decisions and comments use the same transactions
@@ -107,6 +114,11 @@ Cursor movement within an edit does not rebuild its CodeLens controls. Backgroun
 editor events cannot change the active source review. Review selection drains delivery
 and saved source, invalidates queued native actions, then selects the next record. An interrupted mutation is never
 replayed automatically.
+Focused controls display the decision, navigation, comment and editing shortcuts.
+An exact active span is outlined while surrounding source is dimmed. Native typing
+leaves keyboard review; delivery-owned changes are identified by their exact expected
+text while applying the WorkspaceEdit. Decisions retain their records but clear source
+and PDF markup by default; reviewed highlights are an independent display preference.
 
 `pdf-panel.mjs` owns an optional read-only PDF webview and delegates review keys to
 the native owner. It displays the selected result, including rejected wording, with
@@ -218,6 +230,10 @@ unchanged document projections, coalescing overlapping refreshes. Document versi
 validate unchanged projections without rereading the buffer. `decorations.mjs` caches
 word highlights and hovers per exact projection; navigation updates only focus shading,
 using at most two continuous ranges at each opacity. Split editors share those values.
+Original and proposed wording appear as exact monospace source in the native hover.
+Deleted prose is not injected into editor lines because native decoration content
+cannot wrap with the surrounding source. Focus, highlights and hovers share the same
+validated spans; empty deletions use an adjacent visible glyph only for display.
 A changed document version, review revision or loaded file invalidates the cache. Background reads wait
 for prior writes without joining the write queue; review epochs and monotonic revisions
 reject obsolete results. Record watchers read the small status endpoint rather than

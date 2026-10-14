@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createPDFPanel,followWorkshopPDF} from '../src/pdf-panel.mjs';
 
-function fixture(){
+function fixture(options={}){
  const messages=[],calls=[],errors=[],handlers={},actions=[];
  const disposable=()=>({dispose(){}});
  const view={active:false,webview:{cspSource:'vscode-resource:',html:'',asWebviewUri:uri=>uri.fsPath,
@@ -12,10 +12,21 @@ function fixture(){
  let data={id:'review',revision:1,result:'selected',proposed:'proposal',entry:'main.tex'};
  const preview=()=>({proposed:data.result,proposal:data.proposed,entry:data.entry,preview_status:'ready',documents:{after:{pdf:'after.pdf',pages:[{width:100,height:200}],edits:{edit:[{page:1,bounds:[10,20,30,40]}],next:[{page:1,bounds:null}]}}}});
  const runtime={review:{id:'review',repo:'/manuscript',revision:1},async request(route){calls.push(route);await handlers.request?.(route);return route==='/summary'?{...data}:preview();},async asset(route){calls.push(route);await handlers.asset?.();return {bytes:Buffer.from('%PDF-fixture')};}};
- const panel=createPDFPanel(vscode,{extensionPath:'/extension'},runtime,{viewer:{start:async()=> 'http://127.0.0.1:1234'},onAction:async(...args)=>actions.push(args),onError:error=>errors.push(error.message)});
+ const panel=createPDFPanel(vscode,{extensionPath:'/extension'},runtime,{viewer:{start:async()=> 'http://127.0.0.1:1234'},showReviewed:()=>Boolean(options.reviewed),onAction:async(...args)=>actions.push(args),onError:error=>errors.push(error.message)});
  const send=message=>handlers.message({...message,instance:view.webview.html.match(/data-instance="([^"]+)/)[1]});
  return {panel,runtime,data,view,messages,calls,errors,handlers,actions,send,async ready(){await panel.show();await send({type:'loaded'});await send({type:'ready'});},switch(){data={...data,id:'other',revision:2,result:'other-result'};runtime.review={id:'other',repo:'/other',revision:2};panel.reset();}};
 }
+
+test('decided PDF marks disappear by default and reviewed display reuses the same PDF',async()=>{
+ const options={},f=fixture(options);await f.ready();
+ await f.panel.select('main.tex','edit',1,false,true);
+ assert.deepEqual(f.messages.at(-1).marks,[]);
+ const reads=f.calls.length;options.reviewed=true;
+ await f.panel.select('main.tex','edit',1,false,true);
+ assert.equal(f.messages.at(-1).marks.length,1);assert.equal(f.calls.length,reads);
+ options.reviewed=false;await f.panel.select('main.tex','edit',1,false,false);
+ assert.equal(f.messages.at(-1).marks.length,1);f.panel.dispose();
+});
 
 test('PDF opens only explicitly and displays selected source with one normalized change',async()=>{
  const f=fixture();await f.panel.select('main.tex','edit',1,true);assert.deepEqual(f.calls,[]);

@@ -26,21 +26,46 @@ function fixture(options={}){
   languages:{registerCodeLensProvider(_selector,provider){callbacks.provider=provider;return disposable();}},
   window:{activeTextEditor:editor,createStatusBarItem:()=>status,onDidChangeTextEditorSelection(fn){callbacks.selection=event=>fn({textEditor:editor,...event});return disposable();},onDidChangeActiveTextEditor(fn){callbacks.active=fn;return disposable();}},
   workspace:{onDidChangeTextDocument(fn){callbacks.change=event=>fn({document:editor.document,...event});return disposable();}},commands:{registerCommand(name,fn){commands.set(name,fn);return disposable();}}};
- const sourceEdits={flush:async()=>options.flushing?.()},delivery={flush:async()=>{},refresh:async options=>{calls.push({delivery:options});for(const file of files){const doc=docs.get(file.path);doc.text=file.after;for(const edit of [...file.edits].reverse())if(data.decisions[edit.id]==='reject')doc.text=doc.text.slice(0,edit.from)+edit.old+doc.text.slice(edit.to);}}};
+ const sourceEdits={flush:async()=>options.flushing?.()},delivery={ownsChange:()=>false,flush:async()=>{},refresh:async options=>{calls.push({delivery:options});for(const file of files){const doc=docs.get(file.path);doc.text=file.after;for(const edit of [...file.edits].reverse())if(data.decisions[edit.id]==='reject')doc.text=doc.text.slice(0,edit.from)+edit.old+doc.text.slice(edit.to);}}};
  let controls;
  function update(){const file=files.find(file=>docs.get(file.path)===editor.document);controls.update({document:editor.document,reviewId:data.id,file:file.path,revision:data.revision,text:editor.document.text,ranges:file.edits.map(edit=>({id:edit.id,from:edit.from,to:edit.to}))},data);}
  controls=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>options.enabled!==false,
   async onOpen({file,edit}){calls.push({open:[file,edit]});editor.document=docs.get(file);callbacks.active();editor.selection.active=files.find(item=>item.path===file).edits.find(item=>item.id===edit)?.from??0;update();return editor;},
-  onChange:async()=>{calls.push('changed');update();},onFocus:(file,edit,_selected,mode)=>calls.push({focus:[file,edit],mode}),onMode:mode=>calls.push({mode}),onError:error=>errors.push(error.message)});
+  onChange:async()=>{calls.push('changed');update();},onComment:selected=>{calls.push({comment:selected.span.id});return options.thread||editor;},onFocus:(file,edit,_selected,mode)=>calls.push({focus:[file,edit],mode}),onMode:mode=>calls.push({mode}),onError:error=>errors.push(error.message)});
  update();calls.length=0;metrics.reads=metrics.scans=metrics.lenses=0;
  return {controls,update,metrics,doc:editor.document,editor,runtime,get data(){return data;},vscode,calls,errors,callbacks,status,decide:(...args)=>commands.get('manuscriptReview.decideSource')(...args),lenses:()=>callbacks.provider.provideCodeLenses(editor.document)};
 }
 
 test('native controls use the single source delivery owner and immediately advance',async()=>{
- const f=fixture(),lenses=f.lenses();assert.deepEqual(lenses.map(lens=>lens.command.title),['Accept','Reject','Comment']);
+ const f=fixture(),lenses=f.lenses();assert.deepEqual(lenses.map(lens=>lens.command.title),['Accept','Reject','Previous','Next','Comment','Review']);
  await f.decide(...lenses[1].command.arguments);
  assert.deepEqual(f.calls.filter(call=>call.route||call.delivery||call==='changed'),[{route:'/save',body:{revision:1,decisions:{first:'reject'},comments:{thread:'Keep context.'}}},{delivery:{force:true}},'changed']);
  assert.equal(f.doc.text,'A old then clear sentence.');assert.equal(f.editor.selection.active,11);assert.deepEqual(f.errors,[]);
+});
+
+test('focused inline controls expose the keyboard workflow and clicking another edit retains it',async()=>{
+ const f=fixture();await f.controls.begin();
+ assert.deepEqual(f.lenses().map(lens=>lens.command.title),['Accept A','Reject S','Previous D','Next F','Comment C','Edit E']);
+ f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});
+ assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses()[0].command.arguments[3],'second');
+ f.controls.edit();assert.equal(f.status.text,'0/2');assert.equal(f.lenses().at(-1).command.title,'Review');
+ assert.doesNotMatch(f.status.tooltip,/A accept/);
+});
+
+test('typing leaves keyboard review and next from ordinary text finds the nearest forward edit',async()=>{
+ const f=fixture();await f.controls.begin();f.doc.text='A edited draft';f.doc.isDirty=true;
+ f.callbacks.change({contentChanges:[{text:'edited'}]});
+ assert.equal(f.calls.filter(call=>call.mode!==undefined).at(-1).mode,false);
+ f.doc.text=f.data.files[0].after;f.doc.isDirty=false;f.update();f.editor.selection.active=8;
+ await f.controls.move(1);assert.equal(f.editor.selection.active,11);
+ f.controls.edit();f.editor.selection.active=8;
+ await f.controls.move(-1);assert.equal(f.editor.selection.active,2);
+});
+
+test('an unsuccessful entry cannot enable invisible keyboard review',async()=>{
+ const f=fixture();
+ await assert.rejects(f.controls.begin({file:'missing.tex',target:{kind:'edit',id:'missing'}}));
+ assert.equal(f.calls.some(call=>call.mode===true),false);
 });
 
 test('dirty, stale, disabled and mismatched source controls cannot decide another wording',async()=>{
@@ -58,10 +83,10 @@ test('selection and decision remain pinned across pending canonical writes',asyn
  await other.decide(...other.lenses()[0].command.arguments);assert.equal(other.calls.some(call=>call.delivery),false);assert.equal(other.errors.length,1);
 });
 
-test('focus synchronization is once per edit and mouse editing exits keyboard review',async()=>{
+test('focus synchronization is once per edit and clicking ordinary text exits keyboard review',async()=>{
  const f=fixture();f.callbacks.selection();f.callbacks.selection();assert.equal(f.calls.filter(call=>call.focus).length,0);
  await f.controls.begin();assert.ok(f.calls.some(call=>call.focus&&call.mode));
- f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});assert.equal(f.calls.filter(call=>call.mode!==undefined).at(-1).mode,false);
+ f.editor.selection.active=0;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});assert.equal(f.calls.filter(call=>call.mode!==undefined).at(-1).mode,false);
  f.controls.clear();assert.deepEqual(f.lenses(),[]);f.controls.dispose();
 });
 
@@ -90,9 +115,40 @@ test('moving the cursor during a saved decision cancels automatic advance',async
  assert.equal(f.editor.selection.active,0);assert.deepEqual(f.errors,[]);
 });
 
+test('clicking another edit during a saved decision preserves that selection',async()=>{
+ let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ const f=fixture({multiple:true,saving:async()=>{entered();await gate;}});await f.controls.begin();
+ const pending=f.controls.decide('accept');await started;
+ f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});
+ release();await pending;
+ assert.equal(f.controls.selection().target.id,'second');assert.equal(f.editor.selection.active,11);
+ assert.deepEqual(f.data.decisions,{first:'accept'});assert.deepEqual(f.errors,[]);
+});
+
+test('comment input pauses keyboard review and completing it restores the same edit',async()=>{
+ const f=fixture();await f.controls.begin();f.calls.length=0;
+ await f.controls.comment();
+ assert.equal(f.calls.findIndex(call=>call.mode===false)<f.calls.findIndex(call=>call.comment==='first'),true);
+ assert.equal(f.status.text,'0/2');assert.equal(f.lenses().at(-1).command.title,'Review');
+ await f.controls.comment();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};f.callbacks.active();
+ f.runtime.review.revision++;f.callbacks.active();f.data.revision++;f.update();
+ f.vscode.window.activeTextEditor=f.editor;f.callbacks.active();await f.controls.finishComment(f.editor,async()=>true);
+ assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses().at(-1).command.title,'Edit E');
+});
+
+test('completing comment input cannot resume review after manual source movement or editing',async()=>{
+ for(const action of ['move','edit','clear']){
+  const f=fixture();await f.controls.begin();await f.controls.comment();
+  if(action==='move'){f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});}
+  else f.controls[action]();
+  await f.controls.finishComment(f.editor,async()=>true);assert.equal(f.calls.filter(call=>call.mode!==undefined).at(-1).mode,false);
+ }
+});
+
 test('native Undo and explicit editing leave focused mode while retaining highlights',async()=>{
  const f=fixture();await f.controls.begin();f.callbacks.change({reason:f.vscode.TextDocumentChangeReason.Undo});
- assert.equal(f.calls.filter(call=>call.mode!==undefined).at(-1).mode,false);assert.equal(f.lenses().length,3);
+ assert.equal(f.calls.filter(call=>call.mode!==undefined).at(-1).mode,false);assert.equal(f.lenses().length,6);
 });
 
 
@@ -145,7 +201,7 @@ test('changed source is checked once per native version and invalidates inline c
  const f=fixture();f.doc.text='Author is editing.';f.doc.isDirty=true;
  for(let i=0;i<100;i++){f.callbacks.selection();assert.deepEqual(f.lenses(),[]);}
  assert.equal(f.metrics.reads,1);assert.equal(f.metrics.lenses,1);assert.equal(f.status.visible,false);
- f.doc.text=f.data.files[0].after;f.callbacks.change();assert.equal(f.lenses().length,3);assert.equal(f.metrics.reads,2);
+ f.doc.text=f.data.files[0].after;f.callbacks.change();assert.equal(f.lenses().length,6);assert.equal(f.metrics.reads,2);
 });
 
 test('projection updates refresh progress even when lazy-loaded data retains its identity',()=>{
@@ -176,4 +232,57 @@ test('leaving or disposing review during a comparison read cannot reopen source'
   const moving=f.controls.move(1);await started;f.controls[cancel]();release();
   assert.equal(await moving,false);assert.equal(f.calls.some(call=>call.open),false);
  }
+});
+
+
+test('a stale or unrelated comment completion cannot resume a newer input',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ let release;const gate=new Promise(resolve=>release=resolve);
+ const completion=f.controls.finishComment(f.editor,async()=>{await gate;return true;});
+ await f.controls.comment();release();assert.equal(await completion,false);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
+ assert.equal(await f.controls.finishComment({},async()=>true),false);
+ assert.equal(await f.controls.finishComment(f.editor,async()=>false),false);
+ assert.equal(await f.controls.finishComment(f.editor,async()=>true),true);
+});
+
+
+test('source keyboard movement invalidates the comment return intent, including the next C',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Keyboard});
+ assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
+});
+
+test('switching to another native comment input cancels the original review return',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};f.callbacks.active();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};f.callbacks.active();
+ let prepared=false;
+ assert.equal(await f.controls.finishComment(f.editor,async()=>{prepared=true;return true;}),false);
+ assert.equal(prepared,false);assert.equal(f.status.text,'0/2');
+});
+
+test('switching source editors cancels paused review before commenting there',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.vscode.window.activeTextEditor={...f.editor,viewColumn:2};f.callbacks.active();
+ assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
+});
+
+test('recreated source editor handles retain the same document and column return',async()=>{
+ const f=fixture();await f.controls.begin();await f.controls.comment();
+ f.vscode.window.activeTextEditor={...f.editor};f.callbacks.active();
+ assert.equal(await f.controls.finishComment(f.editor,async ready=>ready()),true);
+});
+
+test('reopening an input captures its already active document without another focus event',async()=>{
+ const f=fixture();await f.controls.begin();
+ const opening=f.controls.comment();
+ f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};await opening;
+ assert.equal(await f.controls.finishComment(f.editor,async ready=>{
+  assert.equal(ready(),true);f.vscode.window.activeTextEditor=f.editor;return true;
+ }),true);
 });

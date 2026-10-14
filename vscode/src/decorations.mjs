@@ -7,12 +7,16 @@ export function createDecorations(vscode) {
       backgroundColor: new vscode.ThemeColor('diffEditor.removedTextBackground') }),
     point: vscode.window.createTextEditorDecorationType({ ...fixed, borderWidth: '0 0 0 2px', borderStyle: 'solid',
       borderColor: new vscode.ThemeColor('editorGutter.modifiedBackground') }),
-    near: vscode.window.createTextEditorDecorationType({ ...fixed, opacity: '.68' }),
+    near: vscode.window.createTextEditorDecorationType({ ...fixed, opacity: '.7' }),
     middle: vscode.window.createTextEditorDecorationType({ ...fixed, opacity: '.4' }),
-    far: vscode.window.createTextEditorDecorationType({ ...fixed, opacity: '.2' })
+    far: vscode.window.createTextEditorDecorationType({ ...fixed, opacity: '.22' }),
+    context: vscode.window.createTextEditorDecorationType({ ...fixed, opacity: '.62' }),
+    selected: vscode.window.createTextEditorDecorationType({ ...fixed, opacity: '1',
+      border: '1px solid', borderRadius: '3px', borderColor: new vscode.ThemeColor('focusBorder'),
+      backgroundColor: new vscode.ThemeColor('editor.wordHighlightStrongBackground') })
   };
   const editors = new Map(), prepared = new WeakMap();
-  let disposed = false, focused, enabled = true, removals = true;
+  let disposed = false, focused, enabled = true, reviewed = false;
 
   function paint(editor, groups) {
     for (const [kind, values] of Object.entries(groups)) editor.setDecorations(types[kind], values);
@@ -34,31 +38,18 @@ export function createDecorations(vscode) {
   }
 
   function changesFor(state) {
-    const { projection, file } = state;
+    const { projection, edits } = state;
     const groups = { changed: [], rejected: [], point: [] };
-    const edits = new Map((file?.edits || []).map(edit => [edit.id, edit]));
-    for (const span of projection.ranges) {
+    state.decorated = new Map();
+    for (const span of state.spans.values()) {
       const edit = edits.get(span.id);
-      if (!edit || !Number.isInteger(span.from) || !Number.isInteger(span.to)
-        || span.from < 0 || span.to < span.from || span.to > projection.text.length) continue;
-      if (projection.text.slice(span.from, span.to) !== (span.rejected ? edit.old : edit.new)) continue;
-      const hover = new vscode.MarkdownString();
-      hover.isTrusted = false;
-      for (const [label, text] of [['Original', edit.old], ['Proposed', edit.new]]) {
-        hover.appendMarkdown(`**${label}**\n\n`);
-        hover.appendCodeblock(text, projection.document.languageId);
-        hover.appendMarkdown('\n\n');
-      }
+      if (!reviewed && ['accept', 'reject'].includes(state.data.decisions?.[span.id])) continue;
+      const hover = changeHover(vscode, edit, projection.document.languageId);
       const decoration = {
         range: new vscode.Range(projection.document.positionAt(span.from), projection.document.positionAt(span.to)),
         hoverMessage: hover
       };
-      if (removals && !span.rejected && edit.old) {
-        decoration.renderOptions = { before: { contentText: edit.old.replace(/\s+/g, ' '),
-          color: new vscode.ThemeColor('gitDecoration.deletedResourceForeground'),
-          backgroundColor: new vscode.ThemeColor('diffEditor.removedTextBackground'),
-          textDecoration: 'line-through', margin: '0 .3em 0 0' } };
-      }
+      state.decorated.set(span.id, decoration);
       groups[span.from === span.to ? 'point' : span.rejected ? 'rejected' : 'changed'].push(decoration);
     }
     return groups;
@@ -67,13 +58,26 @@ export function createDecorations(vscode) {
   function paintFocus(editor, entry) {
     const { state } = entry, { projection } = state;
     if (!valid(state)) { erase(editor); return; }
-    const context = focused?.file === projection.file ? state.contexts.get(focused.edit) : undefined;
-    if (!state.focusGroups || state.context !== context) {
+    const id = focused?.file === projection.file ? focused.edit : undefined;
+    const span = state.spans.get(id), context = state.contexts.get(id);
+    if (!state.focusGroups || state.selected !== id) {
       const bands = context ? focusBands(projection.text, context.from, context.to, state.starts ??= lineStarts(projection.text))
         : { near: [], middle: [], far: [] };
       state.focusGroups = Object.fromEntries(Object.entries(bands).map(([kind, spans]) =>
         [kind, spans.map(([from, to]) => new vscode.Range(projection.document.positionAt(from), projection.document.positionAt(to)))]));
-      state.context = context;
+      state.focusGroups.context = [];
+      state.focusGroups.selected = [];
+      if (context && span) {
+        for (const [from, to] of [[context.from, span.from], [span.to, context.to]]) {
+          if (from < to) state.focusGroups.context.push(new vscode.Range(projection.document.positionAt(from), projection.document.positionAt(to)));
+        }
+        const [from, to] = visibleSpan(projection.text, span);
+        if (from < to) state.focusGroups.selected.push({
+          range: new vscode.Range(projection.document.positionAt(from), projection.document.positionAt(to)),
+          hoverMessage: state.decorated.has(id) ? undefined : changeHover(vscode, state.edits.get(id), projection.document.languageId)
+        });
+      }
+      state.selected = id;
     }
     if (entry.focusGroups !== state.focusGroups) {
       paint(editor, state.focusGroups);
@@ -88,20 +92,26 @@ export function createDecorations(vscode) {
     if (!visible.length) return false;
     const file = data.files.find(file => file.path === projection.file);
     let state = prepared.get(projection);
-    if (!state || !valid(state) || state.file !== file || state.revision !== data.revision || state.removals !== removals) {
+    if (!state || !valid(state) || state.file !== file || state.revision !== data.revision || state.reviewed !== reviewed) {
       if (projection.revision !== data.revision || projection.document.getText() !== projection.text) {
         for (const editor of visible) erase(editor);
         return false;
       }
       const passages = new Map((projection.passages || []).map(span => [span.id, span]));
-      const ids = new Set((file?.edits || []).map(edit => edit.id));
-      const contexts = new Map(projection.ranges.filter(span => ids.has(span.id)).map(span => [span.id, span]));
+      const edits = new Map((file?.edits || []).map(edit => [edit.id, edit]));
+      const spans = new Map(projection.ranges.filter(span => {
+        const edit = edits.get(span.id);
+        return edit && Number.isInteger(span.from) && Number.isInteger(span.to)
+          && span.from >= 0 && span.to >= span.from && span.to <= projection.text.length
+          && projection.text.slice(span.from, span.to) === (span.rejected ? edit.old : edit.new);
+      }).map(span => [span.id, span]));
+      const contexts = new Map(spans);
       for (const passage of file?.hunks || []) {
         const context = passages.get(passage.id);
-        if (context) for (const edit of passage.edits) if (ids.has(edit.id)) contexts.set(edit.id, context);
+        if (context) for (const edit of passage.edits) if (spans.has(edit.id)) contexts.set(edit.id, context);
       }
       state = { projection, data, file, revision: data.revision, version: projection.document.version,
-        contexts, removals };
+        contexts, edits, spans, reviewed };
       state.changes = changesFor(state);
       prepared.set(projection, state);
     }
@@ -134,17 +144,18 @@ export function createDecorations(vscode) {
     repaintFocus();
   }
 
-  function setRemovals(value) {
-    if (disposed || value === removals) return;
-    removals = value;
+  function setReviewed(value) {
+    if (disposed || value === reviewed) return;
+    reviewed = value;
     prune();
     for (const state of new Set([...editors.values()].map(entry => entry.state))) {
-      if (valid(state)) { state.changes = changesFor(state); state.removals = removals; }
+      if (valid(state)) { state.changes = changesFor(state); state.reviewed = reviewed; state.focusGroups = undefined; }
     }
     for (const [editor, { state }] of editors) {
       if (valid(state)) paint(editor, state.changes);
       else erase(editor);
     }
+    repaintFocus();
   }
 
   function clear() {
@@ -159,7 +170,7 @@ export function createDecorations(vscode) {
     for (const type of Object.values(types)) type.dispose();
   }
 
-  return { update, focus, reveal, clear, dispose, setRemovals,
+  return { update, focus, reveal, clear, dispose, setReviewed,
     setEnabled(value) { enabled = value; if (!enabled) clear(); } };
 }
 
@@ -192,4 +203,29 @@ export function focusBands(text, from, to, starts = lineStarts(text)) {
     if (start !== undefined && end > 0 && start < stop) result[kind].push([start, stop]);
   }
   return result;
+}
+
+function changeHover(vscode, edit, language) {
+  const hover = new vscode.MarkdownString();
+  hover.isTrusted = false;
+  if (!edit) return hover;
+  for (const [label, text] of [['Original', edit.old], ['Proposed', edit.new]]) {
+    hover.appendMarkdown(`**${label}**\n\n`);
+    hover.appendCodeblock(text, language);
+    hover.appendMarkdown('\n\n');
+  }
+  return hover;
+}
+
+// A deletion needs a visible hover target, while its review anchor stays empty.
+function visibleSpan(text, { from, to }) {
+  if (from !== to || !text.length) return [from, to];
+  let after = from, before = from;
+  while (after < text.length && /\s/u.test(text[after])) after++;
+  while (before > 0 && /\s/u.test(text[before - 1])) before--;
+  if (after < text.length && (!before || after - from <= from - before))
+    return [after, after + (text.codePointAt(after) > 0xffff ? 2 : 1)];
+  if (!before) return [from, to];
+  const previous = text.charCodeAt(before - 1);
+  return [before - (previous >= 0xdc00 && previous <= 0xdfff ? 2 : 1), before];
 }

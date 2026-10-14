@@ -2,14 +2,15 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 
 /** PDF is a view of selected source; every review action belongs to the editor. */
-export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError}){
+export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError,showReviewed=()=>false}){
  let panel,instance,ready=false,selection,reviewing=false,documentKey,displayed,cached,timer,refreshing,opening,again=false,generation=0,disposed=false;
  const post=message=>panel?.webview.postMessage({...message,instance});
  const keys=new Map([['a','accept'],['s','reject'],['d','previous'],['f','next'],['e','edit'],['c','comment'],['u','reset'],['escape','edit']]);
  function schedule(){clearTimeout(timer);timer=setTimeout(()=>void refresh().catch(onError),500);}
  function publish(data,document,key,bytes){
   const selected=selection?.review===data.id&&selection.revision===data.revision?selection:undefined;
-  const marks=(document.edits[selected?.edit]||[]).map(mark=>{
+  const decided=selected?.decided;
+  const marks=(!decided||showReviewed()?document.edits[selected?.edit]||[]:[]).map(mark=>{
    const page=document.pages[mark.page-1];
    return {page:mark.page,bounds:mark.bounds?.map((value,index)=>Math.max(0,Math.min(1,value/(index%2?page.height:page.width))))??null};
   });
@@ -91,9 +92,9 @@ export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError})
    panel.onDidDispose(()=>{if(panel!==current)return;panel=undefined;ready=false;generation++;cached=documentKey=displayed=undefined;clearTimeout(timer);for(const item of subscriptions)item.dispose();})
   ];
  }
- return {show,refresh,select(file,edit,revision,removed=false){
-   const review=runtime.review.id,token=review+'/'+revision+'/'+file+'/'+edit;
-   selection=file?{file,edit,revision,removed,review,token}:undefined;return updateSelection();
+ return {show,refresh,select(file,edit,revision,removed=false,decided=false){
+   const review=runtime.review?.id;if(!review)return;const token=review+'/'+revision+'/'+file+'/'+edit;
+   selection=file?{file,edit,revision,removed,decided,review,token}:undefined;return updateSelection();
   },
   reset(){generation++;cached=selection=documentKey=displayed=undefined;clearTimeout(timer);post({type:'status',text:'Updating PDF…'});},
   setMode(value){reviewing=value;void updateSelection()?.catch(onError);},get active(){return Boolean(panel?.active);},

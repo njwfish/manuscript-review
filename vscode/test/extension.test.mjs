@@ -78,7 +78,7 @@ async function fixture(t,options={}) {
   const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
   let sidebarCallbacks;
   const adapters={
-    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},edit(){callbacks.onMode(false);},update(){},clear(){},refresh(){},dispose(){}};}},
+    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},finishComment(){calls.push({kind:'finish-comment'});},edit(){callbacks.onMode(false);},update(){},clear(){},refresh(){},dispose(){}};}},
     'test-sidebar':{createSidebar(_vscode,_context,callbacks){sidebarCallbacks=callbacks;return {async refresh(){calls.push({kind:'sidebar-refresh'});},async show(){calls.push({kind:'sidebar-show'});},dispose(){}};},sidebarState:(...values)=>values},
     'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
@@ -87,7 +87,7 @@ async function fixture(t,options={}) {
     'test-runtime':{createRuntime(configuration){calls.push({kind:'create-runtime',configuration});return runtime;}},
     'test-pdf-panel':{createPDFPanel(){return pdf;},async followWorkshopPDF(){}},
     'test-comments':{sourceFile,sourceDocument,createComments(_vscode,_runtime,callbacks){commentsCallbacks=callbacks;return comments;}},
-    'test-decorations':{createDecorations(){return {setRemovals(){},setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
+    'test-decorations':{createDecorations(){return {setReviewed(){},setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
   };
   const preferences=new Map([['commentAgent',options.agent],...(options.commentsEnabled===undefined?[]:[['commentsEnabled',options.commentsEnabled]])]);
   const module={exports:{}},context={globalState:{get:(key,fallback)=>preferences.has(key)?preferences.get(key):fallback,async update(key,value){preferences.set(key,value);}},extensionPath:'/test/extension',globalStorageUri:uri(path.join(directory,'storage')),extension:{packageJSON:{version:'0.1.2'}},subscriptions:[]};
@@ -327,7 +327,7 @@ test('live source PDF navigation delegates to Workshop without starting the revi
 test('review shortcuts and the comment context menu require the active manuscript source',async()=>{
   const manifest=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
   assert.equal(manifest.contributes.keybindings.filter(binding=>!binding.when.includes('commentEditorFocused')).every(binding=>binding.when.includes('manuscriptReview.source')),true);
-  const enter=manifest.contributes.keybindings.find(binding=>binding.key==='enter');assert.match(enter.when,/commentController == manuscript-review/);assert.match(enter.when,/!inComposition/);
+  const enter=manifest.contributes.keybindings.find(binding=>binding.key==='enter');assert.match(enter.when,/commentController == manuscript-review/);assert.match(enter.when,/!inComposition/);assert.doesNotMatch(enter.when,/commentIsEmpty/);
   const actions=manifest.contributes.menus['comments/commentThread/context'];assert.equal(actions.find(item=>item.group==='inline@0').command,'manuscriptReview.sendComment');
   const action=manifest.contributes.menus['editor/context'].find(action=>action.command==='manuscriptReview.comment');
   assert.match(action.when,/manuscriptReview\.source/);
@@ -653,7 +653,7 @@ test('a comment sent while navigation waits cannot move silently into another ro
 });
 
 test('focused review dims context and entering the manuscript editor reveals it',async t=>{
- const f=await fixture(t);await f.command('open');f.nativeCallbacks.onFocus('main.tex','edit',{data:{revision:1},span:{}},true);
+ const f=await fixture(t);await f.command('open');f.nativeCallbacks.onFocus('main.tex','edit',{data:await f.runtime.data(),span:{}},true);
  assert.equal(f.calls.at(-1).kind,'focus-source');
  f.nativeCallbacks.onMode(false);assert.equal(f.calls.at(-1).kind,'reveal-source');
 });

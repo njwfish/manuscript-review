@@ -1,18 +1,40 @@
 const vscode=require('vscode'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),{execFileSync}=require('node:child_process');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(predicate){for(let i=0;i<300;i++){if(await predicate())return;await delay(30);}throw new Error('Native workflow timed out.');}
+async function editCommentInput(text){
+ const input=vscode.window.activeTextEditor;
+ assert.equal(input?.document.uri.scheme,'comment','The native comment editor must own input');
+ assert.equal(await input.edit(builder=>builder.insert(input.document.positionAt(input.document.getText().length),text)),true);
+}
 exports.run=async()=>{
  const state=await vscode.extensions.getExtension('review-test.native-workflow').activate();
- const {fixture,document,editor}=state;
+ const {fixture,document}=state;let editor=state.editor;
+ const sourceColumn=editor.viewColumn;
  const engine=(script,...args)=>JSON.parse(execFileSync(fixture.python,['-c',script,fixture.home,fixture.review,...args],{cwd:fixture.package+'/dist/runtime',encoding:'utf8'}));
  const record=async()=>JSON.parse(await fs.readFile(fixture.home+'/reviews/'+fixture.review+'/review.json','utf8'));
+ const inspect=async(stage)=>{
+  await fs.writeFile(fixture.root+'/visual-'+stage+'-ready','');console.log('Visual '+stage+' fixture ready: '+fixture.root);
+  for(let i=0;i<2400;i++){
+   try{await fs.access(fixture.root+'/continue-'+stage);break;}catch{}
+   await delay(200);
+  }
+ };
  assert.equal(document.getText(),fixture.text);
+ if(process.env.MR_NATIVE_VISUAL==='review')await inspect('startup');
  // Dispatch is detached, saves the native thread, and preserves dirty source.
  editor.selection=new vscode.Selection(document.positionAt(0),document.positionAt(24));
  const thread=await state.comments.annotate(editor);
  await until(()=>state.runtime?.review?.id===fixture.review);await state.comments.refresh();
  assert.equal(thread.range.isEmpty,true);
  assert.equal(thread.range.start.line,1);
+ if(process.env.MR_NATIVE_VISUAL==='comment')await inspect('comment');
+ // Wait for the actual native input, rather than merely a clean source buffer.
+ await until(()=>vscode.window.activeTextEditor?.document.uri.scheme==='comment');
+ const firstInput=vscode.window.activeTextEditor.document;
+ await editCommentInput('Typing in a comment');
+ await until(()=>firstInput.getText()==='Typing in a comment').catch(async error=>{await fs.writeFile(fixture.root+'/first-input-debug.json',JSON.stringify({input:firstInput.uri.toString(),text:firstInput.getText(),active:vscode.window.activeTextEditor?.document.uri.toString(),documents:vscode.workspace.textDocuments.map(doc=>({uri:doc.uri.toString(),text:doc.getText()}))}));throw error;});
+ assert.equal(document.getText(),fixture.text,'Comment input must take keyboard focus without typing into source');
+ assert.equal(document.isDirty,false);
  const began=performance.now();
  assert.equal(await vscode.commands.executeCommand('manuscriptReview.sendComment',{thread,text:'Keep this surgical.'}),true);
  const dispatchMs=performance.now()-began;
@@ -45,7 +67,61 @@ exports.run=async()=>{
  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
  await vscode.commands.executeCommand('manuscriptReview.refresh');
  assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false,'Review must use native source without another text tab');
- await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ // C must open the native input, including a follow-up to a replied discussion.
+ const root=(await record()).history.find(entry=>entry.comment==='Keep this surgical.');
+ await state.comments.refresh();
+ editor.selection=new vscode.Selection(document.positionAt(document.getText().indexOf('observed')),document.positionAt(document.getText().indexOf('observed')));
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ const originalComment=await vscode.commands.executeCommand('manuscriptReview.commentChange');
+ assert.equal(originalComment.comments[0].mode,vscode.CommentMode.Editing);
+ const sourceBeforeRootEdit=document.getText();
+ await until(()=>vscode.window.activeTextEditor?.document.uri.scheme==='comment'
+  &&vscode.window.activeTextEditor.document.getText()==='Keep this surgical.');
+ const rootInput=vscode.window.activeTextEditor.document;
+ await editCommentInput(' Add context.');
+ await until(()=>rootInput.getText()==='Keep this surgical. Add context.');
+ assert.equal(document.getText(),sourceBeforeRootEdit,'Editing an existing comment must not type into source');
+ // Native typing commands depend on OS window focus. Automated runs invoke the
+ // contributed action with its actual input; visual runs verify physical Enter.
+ if(process.env.MR_NATIVE_VISUAL==='review')await inspect('root-submit');
+ else await vscode.commands.executeCommand('manuscriptReview.saveComment',{...originalComment.comments[0],body:rootInput.getText()});
+ await until(async()=> (await record()).history.find(entry=>entry.id===root.id)?.comment==='Keep this surgical. Add context.').catch(async error=>{await fs.writeFile(fixture.root+'/root-debug.json',JSON.stringify({errors:globalThis.nativeReviewTest.commentErrors,comments:originalComment.comments.map(comment=>({id:comment.id,body:comment.body,mode:comment.mode,contextValue:comment.contextValue})),documents:vscode.workspace.textDocuments.map(doc=>({uri:doc.uri.toString(),text:doc.getText()}))}));throw error;});
+ await until(async()=> (await vscode.commands.executeCommand('vscode.executeCodeLensProvider',document.uri))?.some(lens=>lens.command?.title==='Next F'));
+ engine("import sys,json;from manuscript_review.library import Library;from manuscript_review.session import ReviewSession;s=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));r=s.store.read();s.import_responses([{'id':sys.argv[3],'text':'Updated the wording.'}],r['revision']);print(json.dumps({'ready':True}))",root.id);
+ await state.comments.refresh();
+ editor.selection=new vscode.Selection(document.positionAt(document.getText().indexOf('observed')),document.positionAt(document.getText().indexOf('observed')));
+ await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ const discussion=await vscode.commands.executeCommand('manuscriptReview.commentChange');
+ assert.equal(discussion.comments.at(-1).mode,vscode.CommentMode.Editing);
+ const sourceBeforeComment=document.getText();
+ await until(()=>vscode.window.activeTextEditor?.document.uri.scheme==='comment'
+  &&vscode.window.activeTextEditor.document.getText()==='');
+ const followupInput=vscode.window.activeTextEditor.document;
+ await editCommentInput('Additional');
+ await until(()=>followupInput.getText()==='Additional');
+ assert.equal(document.getText(),sourceBeforeComment,'C must put typing into the comment input');
+ editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
+ await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+ await vscode.commands.executeCommand('manuscriptReview.commentChange');
+ await until(()=>vscode.window.activeTextEditor?.document===followupInput);
+ await editCommentInput(' feedback from C');
+ assert.equal(document.getText(),sourceBeforeComment,'C must refocus unfinished input without typing into source');
+ await vscode.commands.executeCommand('manuscriptReview.sendDraft',{...discussion.comments.at(-1),body:followupInput.getText()});
+ await until(async()=> (await record()).history.some(entry=>entry.comment==='Additional feedback from C')).catch(async error=>{
+  await fs.writeFile(fixture.root+'/comment-debug.json',JSON.stringify({errors:globalThis.nativeReviewTest.commentErrors,
+   comments:discussion.comments.map(comment=>({id:comment.id,body:comment.body,mode:comment.mode,contextValue:comment.contextValue})),
+   source:document.getText(),documents:vscode.workspace.textDocuments.map(doc=>({uri:doc.uri.toString(),text:doc.getText()}))}));throw error;
+ });
+ assert.equal((await record()).history.at(-1).origin_id,root.origin_id);
+ await until(async()=> (await vscode.commands.executeCommand('vscode.executeCodeLensProvider',document.uri))?.some(lens=>lens.command?.title==='Next F'));
+ if(process.env.MR_NATIVE_VISUAL==='review'){
+  discussion.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
+  editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
+  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+  await inspect('review');
+ }
+ editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
  let at=document.getText().indexOf('observed');
  await editor.edit(builder=>builder.replace(new vscode.Range(document.positionAt(at),document.positionAt(at+8)),'recorded'));
  await document.save();
@@ -59,11 +135,11 @@ exports.run=async()=>{
  await vscode.commands.executeCommand(reject.command.command,...reject.command.arguments);
  await until(()=>document.getText()===authorText&&!document.isDirty);
  assert.equal((await record()).snapshot.base,authorBase);
- assert.equal((await record()).history.find(entry=>entry.comment==='Keep this surgical.').comment,'Keep this surgical.');
- await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ assert.equal((await record()).history.find(entry=>entry.id===root.id).comment,'Keep this surgical. Add context.');
+ editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
  await vscode.commands.executeCommand('undo');
- assert.ok(document.getText().includes('recorded'),'Undo must target the native source editor, not the adjacent webview');
+ await until(()=>document.getText()===authorText.replace('measured','recorded'));
  await document.save();
  await until(()=>document.getText().includes('recorded')&&!document.isDirty);
  await vscode.commands.executeCommand('manuscriptReview.focusedReview');

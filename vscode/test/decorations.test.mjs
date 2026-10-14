@@ -111,6 +111,17 @@ test('a changed dirty buffer clears its obsolete ranges rather than clamping old
   f.decorations.dispose();
 });
 
+test('focused deletions use a visible adjacent glyph at paragraph breaks and EOF',()=>{
+ for(const [text,offset,start,end] of [['🙂\n\nNext.',2,0,2],['\n\nNext.',0,2,3],['Last.\n\n',7,4,5]]){
+  const f=fixture(text);f.projection.ranges=[{id:'edit',from:offset,to:offset}];
+  f.data.files[0].edits=[{id:'edit',old:'Deleted paragraph.',new:''}];
+  f.decorations.update(f.projection,f.data);f.decorations.focus('main.tex','edit');
+  assert.deepEqual(f.first.decorations.get(f.types[7])[0].range,new Range(f.doc.positionAt(start),f.doc.positionAt(end)));
+  assert.equal(f.projection.ranges[0].from,offset);assert.equal(f.projection.ranges[0].to,offset);
+  assert.equal(f.doc.getText(),text);f.decorations.dispose();
+ }
+});
+
 test('a mismatched review revision clears stale highlights',()=>{
   const f=fixture();f.decorations.update(f.projection,f.data);f.data.revision++;
   assert.equal(f.decorations.update(f.projection,f.data),false);
@@ -145,18 +156,45 @@ test('a projection for a closed document does not decorate a reopened instance w
   f.decorations.dispose();
 });
 
-test('Show removals renders original wording as transient strikethrough and toggles without changing source',()=>{
+test('original source stays in the exact hover without unwrappable injected prose',()=>{
  const f=fixture();f.decorations.update(f.projection,f.data);
- const before=f.first.decorations.get(f.types[0])[0].renderOptions.before;
- assert.equal(before.contentText,'Old words');assert.equal(before.textDecoration,'line-through');
- f.decorations.setRemovals(false);assert.equal(f.first.decorations.get(f.types[0])[0].renderOptions,undefined);
- f.decorations.setRemovals(true);assert.equal(f.first.decorations.get(f.types[0])[0].renderOptions.before.contentText,'Old words');
+ const change=f.first.decorations.get(f.types[0])[0];
+ assert.equal(change.renderOptions,undefined);
+ assert.equal(change.hoverMessage.blocks.find(block=>block.code==='Old words').language,'latex');
  assert.equal(f.doc.getText(),'🙂 New words.');f.decorations.dispose();
+});
+
+test('decided changes become plain source and reviewed markup is an explicit display choice',()=>{
+ const f=fixture();f.data.decisions={edit:'accept'};
+ f.decorations.update(f.projection,f.data);
+ assert.equal(f.types.every(type=>f.first.decorations.get(type).length===0),true);
+ f.decorations.setReviewed(true);assert.equal(f.first.decorations.get(f.types[0]).length,1);
+ f.decorations.setReviewed(false);assert.equal(f.first.decorations.get(f.types[0]).length,0);
+ f.doc.text='🙂 Old words.';f.doc.version++;f.projection={...f.projection,text:f.doc.text,ranges:[{id:'edit',from:3,to:12,rejected:true}]};
+ f.data.decisions={edit:'reject'};f.data.revision++;f.projection.revision=f.data.revision;
+ f.decorations.update(f.projection,f.data);
+ assert.equal(f.types.every(type=>f.first.decorations.get(type).length===0),true);
+ f.decorations.setReviewed(true);assert.equal(f.first.decorations.get(f.types[1]).length,1);
+ assert.equal(f.doc.getText(),'🙂 Old words.');f.decorations.dispose();
+});
+
+test('a selected change stands out inside a long wrapped passage without synthetic text',()=>{
+ const f=fixture('Before New words after.');f.data.files[0].hunks=[{id:'passage',edits:f.data.files[0].edits}];
+ f.projection.ranges=[{id:'edit',from:7,to:16}];f.projection.passages=[{id:'passage',from:0,to:23}];
+ f.decorations.update(f.projection,f.data);f.decorations.focus('main.tex','edit');
+ const selected=f.first.decorations.get(f.types[7])[0];
+ assert.deepEqual(selected.range,new Range(new Position(0,7),new Position(0,16)));
+ assert.equal(f.types[7].options.opacity,'1');assert.equal(f.types[7].options.borderColor.id,'focusBorder');
+ assert.equal(f.first.decorations.get(f.types[6]).length,2);
+ assert.equal(f.first.decorations.get(f.types[0])[0].renderOptions,undefined);
+ f.decorations.reveal();assert.equal(f.types.slice(3).every(type=>f.first.decorations.get(type).length===0),true);
+ f.decorations.dispose();
 });
 
 test('a projection onto another saved wording never paints it as the displayed proposal',()=>{
  const f=fixture('🙂 My wording.');f.projection.ranges[0].to=13;
  f.decorations.update(f.projection,f.data);assert.equal(f.first.decorations.get(f.types[0]).length,0);
+ f.decorations.focus('main.tex','edit');assert.equal(f.types.every(type=>f.first.decorations.get(type).length===0),true);
  f.decorations.dispose();
 });
 
@@ -171,7 +209,7 @@ test('navigation reuses all change decorations and paints only bounded focus ran
  const first=t.mock.method(f.first,'setDecorations'),split=t.mock.method(f.split,'setDecorations');
  for(let i=100;i<200;i++)f.decorations.focus('main.tex',String(i));
  assert.equal(reads.mock.callCount(),0);
- assert.ok(positions.mock.callCount()<=1200);
+ assert.ok(positions.mock.callCount()<=1800);
  for(const editor of [f.first,f.split]){
   assert.equal(editor.decorations.get(f.types[0]),changed);
   assert.equal(f.types.slice(3).every(type=>editor.decorations.get(type).length<=2),true);
@@ -183,7 +221,7 @@ test('navigation reuses all change decorations and paints only bounded focus ran
  f.decorations.dispose();
 });
 
-test('focus keeps the whole passage clear and shares its ranges between neighboring edits',t=>{
+test('focus distinguishes neighboring edits while keeping their passage visible',t=>{
  const f=fixture('Before\nOne\nTwo\nThree\nAfter');
  f.data.files[0].edits=[{id:'one',old:'First',new:'One'},{id:'two',old:'Second',new:'Two'}];
  f.data.files[0].hunks=[{id:'passage',edits:f.data.files[0].edits}];
@@ -194,7 +232,10 @@ test('focus keeps the whole passage clear and shares its ranges between neighbor
  assert.deepEqual(ranges.map(range=>range.start.line),[0,4]);
  const calls=t.mock.method(f.first,'setDecorations');
  f.decorations.focus('main.tex','two');
- assert.equal(calls.mock.callCount(),0);assert.equal(f.first.decorations.get(f.types[3]),ranges);
+ assert.equal(calls.mock.callCount(),5);
+ assert.deepEqual(f.first.decorations.get(f.types[3]),ranges);
+ const selected=f.first.decorations.get(f.types[7])[0];
+ assert.equal(selected.range.start.line,2);assert.equal(selected.range.end.line,2);
  f.data.files=[];f.decorations.update(f.projection,f.data);
  assert.equal(f.types.every(type=>f.first.decorations.get(type).length===0),true);
  f.decorations.dispose();
@@ -210,9 +251,9 @@ test('a newly visible split gets cached highlights without repainting existing e
  f.decorations.dispose();
 });
 
-test('disabled removal changes and restored source versions invalidate cached decoration state',()=>{
+test('disabled reviewed-display changes and restored source versions invalidate cached decoration state',()=>{
  const f=fixture();f.decorations.update(f.projection,f.data);
- f.decorations.setEnabled(false);f.decorations.setRemovals(false);
+ f.decorations.setEnabled(false);f.decorations.setReviewed(true);
  f.decorations.setEnabled(true);f.decorations.update(f.projection,f.data);
  assert.equal(f.first.decorations.get(f.types[0])[0].renderOptions,undefined);
  f.doc.text='Changed source';f.doc.version++;
@@ -239,4 +280,16 @@ test('continuous focus ranges preserve exact line coverage at newline and file b
    assert.equal(shown,expected,`span ${from}:${to}, line ${line}`);
   }
  }
+});
+
+test('focused changes have exactly one original/proposed hover across reviewed-display toggles',()=>{
+ const f=fixture();
+ const hovers=()=>[...f.first.decorations.values()].flat().filter(item=>item.hoverMessage);
+ f.decorations.update(f.projection,f.data);f.decorations.focus('main.tex','edit');
+ assert.equal(hovers().length,1);
+ f.data.decisions={edit:'accept'};f.data.revision++;f.projection.revision++;
+ f.decorations.update(f.projection,f.data);assert.equal(hovers().length,1);
+ f.decorations.setReviewed(true);assert.equal(hovers().length,1);
+ f.decorations.setReviewed(false);assert.equal(hovers().length,1);
+ f.decorations.dispose();
 });

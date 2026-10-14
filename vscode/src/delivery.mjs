@@ -1,6 +1,6 @@
 /** Deliver to saved native buffers with undo; source capture owns the comparison. */
 export function createDelivery(vscode,runtime,{sourceEdits,onDelivered,onConflict,openDocument}){
- let active,again=false,forced=false,disposed=false;
+ let active,again=false,forced=false,disposed=false,applying;
  async function deliver(force){
   const review=runtime.review?.id;
   if(disposed||!review)return;
@@ -29,7 +29,10 @@ export function createDelivery(vscode,runtime,{sourceEdits,onDelivered,onConflic
   try{
    await sourceEdits.delivered(files,plan.source,review);
    staged=true;
-   if(current())applied=await vscode.workspace.applyEdit(edits);else if(available())again=true;
+   if(current()){
+    applying=new Map(eligible.map(({document,file})=>[document,file.after]));
+    try{applied=await vscode.workspace.applyEdit(edits);}finally{applying=undefined;}
+   }else if(available())again=true;
   }finally{if(staged)await sourceEdits.completeDelivery(files,plan.source,applied,review);}
   if(!applied)return;
   for(const {file,document} of eligible){
@@ -38,5 +41,5 @@ export function createDelivery(vscode,runtime,{sourceEdits,onDelivered,onConflic
   await sourceEdits.flush();
   if(runtime.review?.id===review)await onDelivered();
  }
- return {refresh({force=false}={}){forced ||= force;again=true;return active??=((async()=>{do{again=false;const requested=forced;forced=false;await deliver(requested);}while(again&&!disposed);})().finally(()=>{active=undefined;}));},flush:()=>active,get pending(){return Boolean(active);},dispose(){disposed=true;}};
+ return {refresh({force=false}={}){forced ||= force;again=true;return active??=((async()=>{do{again=false;const requested=forced;forced=false;await deliver(requested);}while(again&&!disposed);})().finally(()=>{active=undefined;}));},flush:()=>active,get pending(){return Boolean(active);},ownsChange(document){return applying?.has(document)&&applying.get(document)===document.getText();},dispose(){disposed=true;}};
 }
