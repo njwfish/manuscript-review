@@ -67,18 +67,6 @@ test('a multiline change keeps every changed line clear and malformed focus span
  for(const [from,to] of [[-1,3],[2,99],[4,3],[1.5,2]])assert.deepEqual(focusBands(text,from,to),{near:[],middle:[],far:[]});
 });
 
-test('hover retains exact original/proposed LaTeX as untrusted monospace code',()=>{
-  const f=fixture();f.data.files[0].edits[0]={id:'edit',old:'Old \\alpha + x\n```',new:'New \\beta + y\n[link](command:run)'};
-  f.doc.text='🙂 '+f.data.files[0].edits[0].new;f.projection.text=f.doc.text;f.projection.ranges[0].to=f.doc.text.length;
-  f.decorations.update(f.projection,f.data);
-  const hover=f.first.decorations.get(f.types[0])[0].hoverMessage;
-  assert.equal(hover.isTrusted,false);
-  assert.deepEqual(hover.blocks.filter(block=>'code' in block),[
-    {code:'Old \\alpha + x\n```',language:'latex'},
-    {code:'New \\beta + y\n[link](command:run)',language:'latex'}]);
-  assert.equal(hover.blocks.filter(block=>block.markdown?.startsWith('**')).length,2);
-  f.decorations.dispose();
-});
 
 test('rejected edits replace prior changed highlighting while retaining their exact hover',()=>{
   const f=fixture();f.decorations.update(f.projection,f.data);
@@ -89,14 +77,14 @@ test('rejected edits replace prior changed highlighting while retaining their ex
   f.decorations.dispose();
 });
 
-test('deletions retain a zero-width marker and hover without inserting synthetic text',()=>{
+test('deletions retain a zero-width marker without injecting source text or a popup',()=>{
   const f=fixture('🙂 Unchanged.');
   f.projection.ranges=[{id:'edit',from:3,to:3,rejected:false}];
   f.data.files[0].edits=[{id:'edit',old:'Removed words',new:''}];
   f.decorations.update(f.projection,f.data);
   const [point]=f.first.decorations.get(f.types[2]);
   assert.deepEqual(point.range.start,point.range.end);
-  assert.equal(point.hoverMessage.blocks.find(block=>block.code==='Removed words').language,'latex');
+  assert.equal(point.hoverMessage,undefined);
   assert.equal(f.types[2].options.before,undefined);assert.equal(f.types[2].options.after,undefined);
   assert.equal(f.doc.getText(),'🙂 Unchanged.');
   f.decorations.dispose();
@@ -156,13 +144,6 @@ test('a projection for a closed document does not decorate a reopened instance w
   f.decorations.dispose();
 });
 
-test('original source stays in the exact hover without unwrappable injected prose',()=>{
- const f=fixture();f.decorations.update(f.projection,f.data);
- const change=f.first.decorations.get(f.types[0])[0];
- assert.equal(change.renderOptions,undefined);
- assert.equal(change.hoverMessage.blocks.find(block=>block.code==='Old words').language,'latex');
- assert.equal(f.doc.getText(),'🙂 New words.');f.decorations.dispose();
-});
 
 test('decided changes become plain source and reviewed markup is an explicit display choice',()=>{
  const f=fixture();f.data.decisions={edit:'accept'};
@@ -280,16 +261,4 @@ test('continuous focus ranges preserve exact line coverage at newline and file b
    assert.equal(shown,expected,`span ${from}:${to}, line ${line}`);
   }
  }
-});
-
-test('focused changes have exactly one original/proposed hover across reviewed-display toggles',()=>{
- const f=fixture();
- const hovers=()=>[...f.first.decorations.values()].flat().filter(item=>item.hoverMessage);
- f.decorations.update(f.projection,f.data);f.decorations.focus('main.tex','edit');
- assert.equal(hovers().length,1);
- f.data.decisions={edit:'accept'};f.data.revision++;f.projection.revision++;
- f.decorations.update(f.projection,f.data);assert.equal(hovers().length,1);
- f.decorations.setReviewed(true);assert.equal(hovers().length,1);
- f.decorations.setReviewed(false);assert.equal(hovers().length,1);
- f.decorations.dispose();
 });

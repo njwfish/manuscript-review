@@ -92,12 +92,14 @@ the next change in that file. Clicking ordinary source or pressing **E/Escape**
 returns to typing. Clicking a highlighted change selects it. The review toolbar
 button resumes keyboard review.
 
-Source remains a normal VS Code document with saving, undo, syntax highlighting, and
-LaTeX Workshop compilation. Change backgrounds show replacements against the exact current editor buffer.
-**Original on focus** opens a hover with the exact original and proposed source in
-monospace. You can also hover over a change yourself. Removed prose stays in the
-hover so source wrapping and line breaks remain intact. Review decorations never
-enter your file or Undo history.
+The modified side is the actual manuscript, with saving, undo, syntax highlighting,
+and LaTeX Workshop compilation. **Deleted text** uses VS Code’s native inline diff:
+word replacements show struck-out deletions beside additions, with native wrapping.
+Multiline replacements can use native removed blocks.
+The read-only original is built by reversing only undecided changes in the exact
+current buffer. Accepting or rejecting clears that edit’s markup. Turning review
+highlights off returns to the ordinary editor. Native inline-view and CodeLens
+preferences are restored when review ends; preferences you change yourself are retained.
 
 If a reviewed file has been removed or moved, its saved source opens in a read-only
 editor. Existing comments remain accessible there. Opening saved source never
@@ -132,13 +134,15 @@ file, **U** resets a decision, and **C** opens its comment in the sidebar. **E/E
 to ordinary editing. Outside focus mode, **Ctrl+Alt+D/F** navigates highlighted edits.
 **Exit review** in the editor title turns off highlights and review shortcuts.
 
-**PDF beside source** in the sidebar opens the selected manuscript using the
-bundled LaTeX Workshop viewer. It follows the selected edit and retains zoom and search.
-The PDF shows your current selected wording, including rejections. While focused
-review is active, the same decision and navigation keys work there; **E/Escape**
-returns focus to source. An already open matching LaTeX Workshop PDF also follows
-saved source through SyncTeX. Compilation runs in the background; unavailable exact
-geometry falls back to the corresponding page.
+**PDF beside source** opens original and proposed PDFs in the bundled LaTeX Workshop
+viewer, side by side in wide panes and stacked in narrow panes. Original deletions
+use red; proposed additions use green. Both outline the selected edit and subdue text
+outside its passage. The proposed PDF shows selected wording, including rejections.
+The PDF setup follows the active source’s root hint or includes; choose a root when
+it cannot resolve the relationship. Zoom and search remain available. Focused review
+keys work in either PDF; **E/Escape** returns to source. An already open matching
+LaTeX Workshop PDF also follows saved source through SyncTeX. Compilation runs in
+the background. Unavailable word geometry uses a source-linked region or page.
 
 Native decisions update clean saved source through undoable edits. Decided changes
 become ordinary text and review advances to the next pending change. **Toggle reviewed

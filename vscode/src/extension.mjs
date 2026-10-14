@@ -8,6 +8,7 @@ import {createSourceDocuments,sourceScheme,snapshotVersion} from './source-docum
 import {createPDFPanel,followWorkshopPDF} from './pdf-panel.mjs';
 import {createNativeReview} from './native-review.mjs';
 import {createDecorations} from './decorations.mjs';
+import {createSourceReview} from './source-review.mjs';
 import {createAgentTools} from './agent.mjs';
 import {resolvePython} from './python.mjs';
 import {createViewer} from './viewer-server.mjs';
@@ -19,10 +20,10 @@ import {manuscriptReviews} from '../../manuscript_review/review_model.js';
 let disposeExtension;
 export function activate(context){
  const output=vscode.window.createOutputChannel('Manuscript Review');
- const decorations=createDecorations(vscode);
+ const decorations=createDecorations(vscode),sourceReview=createSourceReview(vscode);
  let runtime,pdf,sourceEdits,delivery,watcher,timer,opening,navigation,agentTools,viewer,starting,disposing,comparison,disposed=false,sending=false;
  let comparisonEpoch=0,inspection;
- function setComparison(value){comparison=value;comparisonEpoch++;if(value?.pending){decorations.clear();nativeReview.clear();}}
+ function setComparison(value){comparison=value;comparisonEpoch++;if(value?.pending){decorations.clear();nativeReview.clear();void sourceReview.hide().catch(fail);}}
  const commentsEnabled=()=>context.globalState.get('commentsEnabled',true);
  const highlightsEnabled=()=>context.workspaceState.get('highlightsEnabled',false);
  const editingIntent=()=>context.workspaceState.get('editingIntent','author');
@@ -31,18 +32,16 @@ export function activate(context){
  decorations.setReviewed(reviewedEnabled());
  decorations.setEnabled(highlightsEnabled());
  const nativeReview=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>highlightsEnabled()&&!comparison?.pending,
-  onOpen:openSource,isPDFActive:()=>pdf?.active,onComment:async selected=>{
+  onOpen:openSource,getEditor:()=>sourceReview.editor(),getColumn:editor=>sourceReview.column(editor),isPDFActive:()=>pdf?.active,onComment:async selected=>{
    await vscode.commands.executeCommand('editor.action.hideHover');
-   await vscode.window.showTextDocument(selected.editor.document,{viewColumn:selected.editor.viewColumn,preserveFocus:false});
    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
    return comments.discuss(selected);
   },
   onMode:value=>{void vscode.commands.executeCommand('setContext','manuscriptReview.focused',value);pdf?.setMode(value);if(!value)decorations.reveal();},
   onChange:refreshSource,onFocus:(file,edit,selected,focused)=>{
    if(focused)decorations.focus(file,edit);else decorations.reveal();
-   if(focused&&removalsEnabled()&&selected?.data.files.find(item=>item.path===file)?.edits.find(item=>item.id===edit)?.old)
-    void vscode.commands.executeCommand('editor.action.showHover',{focus:'noAutoFocus'}).catch(fail);
-   void pdf?.select(file,edit,selected?.data.revision,selected?.span.rejected,['accept','reject'].includes(selected?.data.decisions?.[edit])).catch(fail);
+
+   void pdf?.select(file,edit,selected?.data.revision).catch(fail);
    if(!pdf?.visible)void followWorkshopPDF(vscode,selected).catch(error=>output.appendLine(error.message));
   },onError:error=>void fail(error)});
  const canComment=document=>commentsEnabled()&&vscode.workspace.isTrusted&&(sourceDocument(document)||document?.uri.scheme===sourceScheme&&sourceFile(runtime?.review,document));
@@ -100,7 +99,7 @@ export function activate(context){
   await delivery.refresh();await refreshSource();
  }
  const sources=createSourceDocuments(vscode,async()=>{await start();return runtime;});
- const subscriptions=[output,sources,nativeReview];
+ const subscriptions=[sources,nativeReview,sourceReview];
  const comments=createComments(vscode,()=>runtime,{onSource:ensureCommentSource,canComment,
   onInput:async(thread,document)=>{if(thread){nativeReview.holdComment(thread,document);await sidebar.show();}await sidebar.refresh();},
   onInputComplete:(thread,complete)=>nativeReview.finishComment(thread,async owns=>{
@@ -110,11 +109,11 @@ export function activate(context){
   }),
   openDocument:sources.open,
   onChange:async()=>{await sidebar.refresh();},onReview:entry=>showReview(entry),
-  onProjection:(projection,data)=>{if(!comparison?.pending){decorations.update(projection,data);nativeReview.update(projection,data);}},onAgent:sendToAgent});comments.setEnabled(commentsEnabled());
+  onProjection:(projection,data)=>{if(!comparison?.pending){decorations.update(projection,data);sourceReview.update(projection,data);nativeReview.update(projection,data);}},onAgent:sendToAgent});comments.setEnabled(commentsEnabled());
  const sidebar=createSidebar(vscode,context,{load:loadSidebar,onAction:sidebarAction,onError:error=>output.appendLine(error.stack||error.message)});
  subscriptions.push(sidebar);
  function updateSourceContext(){
-  const document=vscode.window.activeTextEditor?.document;
+  const document=sourceReview.editor()?.document;
   const source=sourceDocument(document)||(document?.uri.scheme===sourceScheme&&sourceFile(runtime?.review,document));
   void vscode.commands.executeCommand('setContext','manuscriptReview.source',Boolean(vscode.workspace.isTrusted&&source));
   void vscode.commands.executeCommand('setContext','manuscriptReview.commentsEnabled',commentsEnabled());
@@ -122,20 +121,30 @@ export function activate(context){
  async function discardUnopenedRuntime(){if(runtime&&!runtime.review){sourceEdits?.dispose();pdf?.dispose();await runtime.dispose();await viewer?.dispose();runtime=pdf=sourceEdits=viewer=undefined;updateSourceContext();}}
  const fail=async error=>{if(disposed)return;if(!opening)await discardUnopenedRuntime();output.appendLine(error.stack||error.message);vscode.window.showErrorMessage(error.message);};
  async function refreshSource(options){await Promise.all([comments.refresh(options),sidebar.refresh()]);}
+ function currentSourceEditor(){
+  const active=sourceReview.editor();
+  return sourceFile(runtime?.review,active?.document)?active:vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime?.review,editor.document));
+ }
+ async function showSourceReview(preserveFocus=false){
+  if(!runtime?.review||!highlightsEnabled()||!removalsEnabled()||comparison?.pending)return;
+  const editor=currentSourceEditor();
+  if(editor)return sourceReview.show(editor,{preserveFocus});
+ }
  async function setHighlights(value){
   await context.workspaceState.update('highlightsEnabled',value);decorations.setEnabled(value);
+  if(!value){pdf?.setMode(false);await sourceReview.hide();}
   await vscode.commands.executeCommand('setContext','manuscriptReview.reviewVisible',value);
  }
  async function pdfAction(action,scope){
   const actions={accept:()=>nativeReview.decide('accept',scope),reject:()=>nativeReview.decide('reject',scope),
    reset:()=>nativeReview.decide('reset'),previous:()=>nativeReview.move(-1),next:()=>nativeReview.move(1),
-  edit:async()=>{const editor=nativeReview.edit();if(editor)await vscode.window.showTextDocument(editor.document,{preserveFocus:false});},
+  edit:async()=>{const editor=nativeReview.edit();if(!editor)return;if(highlightsEnabled()&&removalsEnabled())return sourceReview.show(editor);await vscode.window.showTextDocument(editor.document,{viewColumn:sourceReview.column(editor),preserveFocus:false});},
   comment:()=>nativeReview.comment(),focus:()=>highlightsEnabled()?nativeReview.begin():undefined};
   if(!Object.hasOwn(actions,action))throw new Error('Choose a manuscript review action.');
   return actions[action]();
  }
  async function showAgentHighlights(message){
-  await setHighlights(true);await refreshSource();
+  await setHighlights(true);await refreshSource();await showSourceReview(true);
   vscode.window.setStatusBarMessage(message,5000);
  }
  function refreshComments(options){clearTimeout(timer);timer=setTimeout(()=>refreshSource(options).catch(fail),40);}
@@ -152,7 +161,7 @@ export function activate(context){
    agentTools=createAgentTools({extensionPath:context.extensionPath,storagePath:context.globalStorageUri.fsPath,version:context.extension.packageJSON.version,python});
    runtime=createRuntime({extensionPath:path.join(context.extensionPath,'dist'),python,home:config.get('libraryDirectory',''),output});
    viewer=createViewer(path.join(context.extensionPath,'dist','viewer'));
-   pdf=createPDFPanel(vscode,context,runtime,{viewer,showReviewed:reviewedEnabled,onAction:pdfAction,onError:error=>output.appendLine(error.stack||error.message)});
+   pdf=createPDFPanel(vscode,context,runtime,{viewer,showReviewed:reviewedEnabled,enabled:()=>highlightsEnabled()&&!comparison?.pending,onAction:pdfAction,onError:error=>output.appendLine(error.stack||error.message)});
    sourceEdits=createSourceEdits(runtime,{state:context.workspaceState,intent:editingIntent,onChange:refreshSource,
     recoverDelivery:async({file})=>{
      const applied='Agent changes were applied',authored='They were not applied';
@@ -206,6 +215,7 @@ export function activate(context){
   return vscode.window.showQuickPick(info.entries,{title:'Choose the LaTeX document to render'});
  }
  async function selectRound(id,setup){
+  await sourceReview.hide();
   const review=await runtime.open(id,{beforeSelect:async()=>{await delivery.flush();await sourceEdits.flush();},canSelect:()=>!sourceEdits.pending&&!delivery.pending});
   pdf.reset();decorations.clear();nativeReview.clear();setComparison(setup);await sourceEdits.flush();watchRecord();
   if(!review.files.some(file=>file.edits.length)){await setHighlights(false);}
@@ -264,12 +274,14 @@ export function activate(context){
  async function showReview(entry){
   await context.workspaceState.update('editingIntent','proposal');
   await setHighlights(true);
-  const source=vscode.window.activeTextEditor?.document;
+  const source=sourceReview.editor()?.document;
   if(!sourceFile(runtime.review,source)&&runtime.review.workspace){
    const data=await runtime.request('/summary');
    if(data.entry)await openSource({file:data.entry});
   }
-  await delivery.refresh({force:true});await refreshSource();await nativeReview.begin(entry||nativeReview.selection());
+  await delivery.refresh({force:true});await refreshSource();
+  await showSourceReview();
+  await nativeReview.begin(entry||nativeReview.selection());
  }
  async function focusReview(){if(await ensureReview())await showReview();}
  async function sendToAgent(identifier,saveComment,sourceUri){
@@ -318,12 +330,12 @@ export function activate(context){
   if(runtime.review?.id!==id||document.version!==version)throw new Error('The source or review changed while opening this location. Try again.');
   const range=source.notes.find(note=>note.id===message.comment)||source.ranges.find(range=>range.id===message.edit);
   const start=source.position??range?.from??0,end=message.comment?range?.to??start:start;
-  const editor=await vscode.window.showTextDocument(document,{viewColumn:vscode.ViewColumn.One,preserveFocus:Boolean(pdf?.active)});
+  const editor=await vscode.window.showTextDocument(document,{viewColumn:sourceReview.column(currentSourceEditor())??vscode.ViewColumn.One,preserveFocus:Boolean(pdf?.active)});
   if(runtime.review?.id!==id||document.version!==version)throw new Error('The source or review changed while opening this location. Try again.');
   editor.selection=new vscode.Selection(document.positionAt(start),document.positionAt(end));
   editor.revealRange(editor.selection,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
   if(document.uri.scheme===sourceScheme)vscode.window.setStatusBarMessage('File removed from editing folder; showing saved review source.',5000);
-  await comments.refresh({file:message.file});return editor;
+  await comments.refresh({file:message.file});return highlightsEnabled()&&removalsEnabled()?sourceReview.show(editor,{preserveFocus:Boolean(pdf?.active)}):editor;
  }
  async function reviewSavedChanges(){
   if(!await ensureReview())return;
@@ -403,8 +415,8 @@ export function activate(context){
    commentClose:()=>comments.cancelInput(expected.input),
    commentResolve:()=>comments.resolveInput(expected.input),
    editing:chooseEditing,
-   removals:async()=>{const value=!removalsEnabled();await context.workspaceState.update('removalsEnabled',value);if(!value)await vscode.commands.executeCommand('editor.action.hideHover');},
-   highlights:async()=>{const enabled=!highlightsEnabled();await setHighlights(enabled);nativeReview.refresh();if(!enabled)nativeReview.edit();if(enabled)await comments.refresh();},
+   removals:async()=>{const value=!removalsEnabled();await context.workspaceState.update('removalsEnabled',value);if(!value){pdf?.setMode(false);await sourceReview.hide();}else if(highlightsEnabled()){await refreshSource();await showSourceReview(true);}},
+   highlights:async()=>{const enabled=!highlightsEnabled();await setHighlights(enabled);nativeReview.refresh();if(!enabled)nativeReview.edit();if(enabled){await comments.refresh();await showSourceReview(true);}},
    comments:async()=>{const enabled=!commentsEnabled();await context.globalState.update('commentsEnabled',enabled);comments.setEnabled(enabled);updateSourceContext();if(enabled)await restoreSourceReview(vscode.window.activeTextEditor?.document);},
    agent:chooseAgent,model:chooseModel,sessions:openAgentSession,agentChanges:showAgentChanges,previous:()=>comments.move(-1),next:()=>comments.move(1),
    repository:async()=>{await start();const info=await chooseComparisonRepository();if(info)setComparison({...comparisonState(vscode,info),pending:true});},
@@ -417,14 +429,18 @@ export function activate(context){
   if(!Object.hasOwn(actions,action))throw new Error('Choose a review control.');
   return actions[action]();
  }
- async function choosePDFEntry(open=false){
+ async function choosePDFEntry(open=false,file){
   const id=runtime.review.id,epoch=comparisonEpoch;
-  const data=await runtime.request('/pdf-entry');
+  const active=open?(file||sourceFile(runtime.review,vscode.window.activeTextEditor?.document)):undefined;
+  const source=active?.endsWith('.tex')?active:undefined;
+  const data=await runtime.request(source?'/pdf-entry?file='+encodeURIComponent(source):'/pdf-entry');
   if(runtime.review?.id!==id||epoch!==comparisonEpoch)throw new Error('The comparison changed. Open PDF setup again.');
-  if(open&&data.entries.includes(data.entry))return true;
-  if(open&&!data.entries.length)throw new Error('This selected version has no LaTeX document to render. Choose a version containing a documentclass declaration.');
-  const choice=open&&data.entries.length===1?data.entries[0]:await vscode.window.showQuickPick(
-   open?data.entries:[...data.entries,'Source only'],{title:'PDF document',placeHolder:'LaTeX root in the selected manuscript version'});
+  const matched=open&&source?data.matching:undefined;
+  const entries=matched?.length?matched:data.entries;
+  if(open&&(!matched||matched.length)&&entries.includes(data.entry))return true;
+  if(open&&!entries.length)throw new Error(source?'No LaTeX root in this version includes '+source+'. Choose its document in the PDF field.':'This selected version has no LaTeX document to render.');
+  const choice=open&&entries.length===1?entries[0]:await vscode.window.showQuickPick(
+   open?entries:[...entries,'Source only'],{title:'PDF document',placeHolder:'LaTeX root in the selected manuscript version'});
   if(choice===undefined)return false;
   if(runtime.review?.id!==id||epoch!==comparisonEpoch)throw new Error('The comparison changed. Open PDF setup again.');
   const entry=choice==='Source only'?'':choice;
@@ -443,11 +459,10 @@ export function activate(context){
   const id=runtime.review.id,epoch=comparisonEpoch;
   const check=()=>{if(runtime.review?.id!==id||comparisonEpoch!==epoch||comparison?.pending)throw new Error('The comparison changed. Open its PDF again.');};
   await sourceEdits.flush();check();
-  if(!await choosePDFEntry(true))return;check();
+  const editor=currentSourceEditor();
+  if(!await choosePDFEntry(true,sourceFile(runtime.review,editor?.document)))return;check();
   await refreshSource();check();
-  const active=vscode.window.activeTextEditor;
-  const editor=sourceFile(runtime.review,active?.document)?active:vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime.review,editor.document));
-  await pdf.show(editor?.viewColumn,check);
+  await pdf.show(editor?sourceReview.column(editor):undefined,check);
  }
  async function editComparison(field){
   const current=await currentComparison();if(!current)return;
@@ -567,7 +582,7 @@ export function activate(context){
   await starting?.catch(()=>{});
   delivery?.dispose();
   try{await delivery?.flush();await sourceEdits?.flush();}catch(error){output.appendLine('Saved source remains on disk; compare saved changes to recover its diff: '+error.message);}
-  clearTimeout(timer);watcher?.dispose();delivery?.dispose();sourceEdits?.dispose();comments?.dispose();pdf?.dispose();decorations.dispose();for(const subscription of subscriptions)subscription.dispose();await runtime?.dispose();await viewer?.dispose();
+  clearTimeout(timer);watcher?.dispose();delivery?.dispose();sourceEdits?.dispose();comments?.dispose();pdf?.dispose();decorations.dispose();for(const subscription of subscriptions)await subscription.dispose();await runtime?.dispose();await viewer?.dispose();output.dispose();
  })();
  context.subscriptions.push({dispose:()=>{void disposeExtension();}});
  updateSourceContext();void vscode.commands.executeCommand('setContext','manuscriptReview.reviewVisible',highlightsEnabled());void restoreSourceReview(vscode.window.activeTextEditor?.document).catch(error=>output.appendLine(error.message));

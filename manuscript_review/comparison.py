@@ -95,6 +95,24 @@ def git(repo, *args):
     return subprocess.check_output(['git', '-C', str(repo), *args])
 
 
+def read_blobs(repo, objects):
+    """Read a set of Git blobs with one process."""
+    objects = list(dict.fromkeys(objects))
+    blobs = {}
+    if objects:
+        output = subprocess.check_output(['git', '-C', str(repo), 'cat-file', '--batch'], input=('\n'.join(objects)+'\n').encode())
+        cursor = 0
+        for object_id in objects:
+            end = output.index(b'\n', cursor)
+            identifier, kind, size = output[cursor:end].decode().split()
+            if identifier != object_id or kind != 'blob':
+                raise ValueError('Git returned an invalid source blob.')
+            cursor = end + 1
+            blobs[object_id] = output[cursor:cursor+int(size)]
+            cursor += int(size) + 1
+    return blobs
+
+
 def read_blob(repo, revision, path):
     result = subprocess.run(['git', '-C', str(repo), 'show', f'{revision}:{path}'],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -183,18 +201,7 @@ def build_snapshot(repo, base, proposed, text_only=False):
             tree[path.decode()] = (mode, object_id)
         trees.append(tree)
     objects = list(dict.fromkeys(tree[path][1] for tree in trees for path in paths if path in tree and tree[path][0] == '100644'))
-    blobs = {}
-    if objects:
-        output = subprocess.check_output(['git', '-C', str(repo), 'cat-file', '--batch'], input=('\n'.join(objects)+'\n').encode())
-        cursor = 0
-        for object_id in objects:
-            end = output.index(b'\n', cursor)
-            identifier, kind, size = output[cursor:end].decode().split()
-            if identifier != object_id or kind != 'blob':
-                raise ValueError('Git returned an invalid source blob.')
-            cursor = end + 1
-            blobs[object_id] = output[cursor:cursor+int(size)]
-            cursor += int(size) + 1
+    blobs = read_blobs(repo, objects)
     files, skipped = [], excluded
     for path in paths:
         unsupported = False

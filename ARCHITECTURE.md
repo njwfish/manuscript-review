@@ -123,17 +123,24 @@ leaves keyboard review; delivery-owned changes are identified by their exact exp
 text while applying the WorkspaceEdit. Decisions retain their records but clear source
 and PDF markup by default; reviewed highlights are an independent display preference.
 
-`pdf-panel.mjs` owns an optional read-only PDF webview and delegates review keys to
-the native owner. It displays the selected result, including rejected wording, with
-round edit IDs projected onto that result. The selected preview cache is separate
-from the standalone before/after excerpt caches and skips page-to-SVG conversion.
-Selections update cached PDF marks without compiling or rereading source.
-The sidebar opens PDF beside the source and lets the author select a root from the
-selected source version. `/pdf-entry` changes only the rendering root; preview identities
-include it in every scope. Renamed or removed roots are replaced when PDF is opened,
-using the sole available root or a picker. The panel reuses its viewer beside the source
-and displays rendering errors. An already open matching Workshop PDF follows saved
-source through SyncTeX.
+`source-review.mjs` owns the native inline source diff. Its original document is a
+read-only display copy that reverses undecided edits in an exact current projection;
+the modified document is the real manuscript. Decisions make the corresponding
+original and modified text agree. View transitions are serialized and invalidated by
+ending review or changing comparisons. Native diff preferences are retained while
+these views are open and restored when review ends without replacing later author preferences.
+
+`pdf-panel.mjs` owns one optional webview with original and selected PDFs, stacked
+in narrow panes and side by side in wide panes. Both retain round edit IDs. Each side
+loads its PDF independently; selection repaints cached marks without compilation or
+asset reads. Deleted and added words use red and green, with an outline on the
+selected edit and subdued text outside its passage. Unmapped edits do not navigate
+to another edit. A failed viewer load invalidates that side’s bytes for retry.
+The selected preview cache compiles both immutable versions without page-to-SVG
+conversion. Root discovery reads the selected Git tree, follows explicit root hints
+and source includes, and falls back to a picker when inclusion cannot be resolved.
+`/pdf-entry` changes only the rendering root; preview identities include it in every
+scope. An already open matching Workshop PDF follows saved source through SyncTeX.
 
 Apply checks unsaved repository buffers immediately before sending its queued
 transaction; the engine retains source, revision and Git checks. Comparing saved
@@ -236,12 +243,11 @@ reads counts and comparison metadata; source projections read one file and its a
 Pinned Git sources have bounded session caches. Native typing reuses review data and
 unchanged document projections, coalescing overlapping refreshes. Document versions
 validate unchanged projections without rereading the buffer. `decorations.mjs` caches
-word highlights and hovers per exact projection; navigation updates only focus shading,
+word highlights per exact projection; navigation updates only focus shading,
 using at most two continuous ranges at each opacity. Split editors share those values.
-Original and proposed wording appear as exact monospace source in the native hover.
-Deleted prose is not injected into editor lines because native decoration content
-cannot wrap with the surrounding source. Focus, highlights and hovers share the same
-validated spans; empty deletions use an adjacent visible glyph only for display.
+Native inline diff renders deleted source without adding it to the manuscript buffer
+or Undo history. Focus and change marks use the same validated spans; empty deletions
+use an adjacent visible glyph only for display.
 A changed document version, review revision or loaded file invalidates the cache. Background reads wait
 for prior writes without joining the write queue; review epochs and monotonic revisions
 reject obsolete results. Record watchers read the small status endpoint rather than

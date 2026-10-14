@@ -10,7 +10,7 @@ const send = value => window.parent.postMessage(value, target);
 function configure(event) {
     if (event.detail?.source !== window) return;
     window.PDFViewerApplicationOptions.setAll({
-        defaultUrl: '', disablePreferences: true, disableHistory: true,
+        defaultUrl: '', defaultZoomValue: 'page-width', disablePreferences: true, disableHistory: true,
         enableScripting: false, annotationMode: 1, annotationEditorMode: -1, sidebarViewOnLoad: 0,
         enableComment: false, enableMerge: false, enableSplitMerge: false,
         workerSrc: new URL('./build/pdf.worker.mjs', import.meta.url).href,

@@ -11,7 +11,7 @@ import {build} from 'esbuild';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const bundle=build({entryPoints:[path.join(root,'src/extension.mjs')],bundle:true,write:false,platform:'node',format:'cjs',
   plugins:[{name:'test-adapters',setup(builder){
-    builder.onResolve({filter:/^\.\/(runtime|comments|pdf-panel|decorations|native-review|agent|python|viewer-server|dispatch|sidebar)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
+    builder.onResolve({filter:/^\.\/(runtime|comments|pdf-panel|decorations|source-review|native-review|agent|python|viewer-server|dispatch|sidebar)\.mjs$/},args=>({path:'test-'+args.path.slice(2,-4),external:true}));
   }}],external:['vscode']}).then(result=>result.outputFiles[0].text);
 const nativeRequire=createRequire(import.meta.url);
 const reviewId='a'.repeat(24);
@@ -62,14 +62,14 @@ async function fixture(t,options={}) {
       async showTextDocument(document,configuration){calls.push({kind:'show-source',document,configuration});this.activeTextEditor=editor;return editor;},
       onDidChangeVisibleTextEditors:event('visible-change'),onDidChangeActiveTextEditor:event('active-change'),onDidChangeTextEditorSelection:event('selection-change')},
     extensions:{getExtension(id){calls.push({kind:'extension',id});return options.workshop===false?undefined:{async activate(){calls.push({kind:'activate-workshop'});}};}}};
-  let selected,nativeCallbacks,commentsCallbacks,preparedRepo;
+  let selected,nativeCallbacks,commentsCallbacks,preparedRepo,pdfCallbacks;const sourceShows=[];
   const runtime={async start(){},get review(){return selected?{...selected}:undefined;},
     async library(route,body){await options.onLibrary?.(route,body);calls.push({kind:'library',route,body});if(route==='/import')return {review:reviewId};if(route==='/source')return {review:body.id,file:body.file,source:'b'.repeat(40),text:'Saved review source.'};return route==='/inspect'
       ?{repo,base:'1'.repeat(40),head:'2'.repeat(40),entries:options.entries||['main.tex'],...options.inspect}: {reviews:typeof options.reviews==='function'?options.reviews(repo):options.reviews||[]};},
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id,selectionOptions={}){await selectionOptions.beforeSelect?.();await options.onBeforeSelect?.();calls.push({kind:'open',id});calls.push({kind:'request',route:'/workspace',body:{}});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record,workspace:options.workspace||preparedRepo||repo,workspace_version:'2'.repeat(40)};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){await options.onData?.();return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:options.decisions||{},comments:options.comments||{},history:[],resolved:[],drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/pdf-entry')return body?{revision:++selected.revision,entry:body.entry}:{revision:selected.revision,entry:options.pdfEntry??'main.tex',entries:options.pdfEntries??['main.tex']};if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route.startsWith('/pdf-entry'))return body?{revision:++selected.revision,entry:body.entry}:{revision:selected.revision,entry:options.pdfEntry??'main.tex',entries:options.pdfEntries??['main.tex'],matching:options.pdfMatching??options.pdfEntries??['main.tex']};if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const pdf={active:false,visible:Boolean(options.pdfVisible),reset(){},select(){return Promise.resolve();},setMode(){},async show(column){calls.push({kind:'show-pdf',column});},async refresh(){calls.push({kind:'pdf-refresh'});},dispose(){calls.push({kind:'dispose-pdf'});}};
@@ -78,15 +78,16 @@ async function fixture(t,options={}) {
   const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
   let sidebarCallbacks;
   const adapters={
-    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},holdComment(){},finishComment(){calls.push({kind:'finish-comment'});},edit(){callbacks.onMode(false);},update(){},clear(){},refresh(){},dispose(){}};}},
+    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},holdComment(){},finishComment(){calls.push({kind:'finish-comment'});},edit(){callbacks.onMode(false);return editor;},update(){},clear(){},refresh(){},dispose(){}};}},
     'test-sidebar':{createSidebar(_vscode,_context,callbacks){sidebarCallbacks=callbacks;return {async refresh(){calls.push({kind:'sidebar-refresh'});},async show(){calls.push({kind:'sidebar-show'});},dispose(){}};},sidebarState:(...values)=>values},
     'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
     'test-python':{async resolvePython(configured){calls.push({kind:'resolve-python',configured});await options.onResolvePython?.(configured);return configured||'/automatic/python';}},
     'test-agent':{createAgentTools(configuration){calls.push({kind:'create-agent-tools',configuration});return {launcher:'/stored/skills/manuscript-review/scripts/review-agent',command:"'/stored/skills/manuscript-review/scripts/review-agent'",skill:'/stored/skills/manuscript-review',async setup(){await options.onToolsSetup?.(configuration);calls.push({kind:'prepare-tools',python:'/python'});return {python:'/python',git:true,preview_tools:{},agents:[{id:'codex',name:'Codex'}]};},async install(agent){calls.push({kind:'install-skill',agent});return {message:'Skill installed.'};}};}},
     'test-runtime':{createRuntime(configuration){calls.push({kind:'create-runtime',configuration});return runtime;}},
-    'test-pdf-panel':{createPDFPanel(){return pdf;},async followWorkshopPDF(){calls.push({kind:'follow-workshop'});}},
+    'test-pdf-panel':{createPDFPanel(_vscode,_context,_runtime,callbacks){pdfCallbacks=callbacks;return pdf;},async followWorkshopPDF(){calls.push({kind:'follow-workshop'});}},
     'test-comments':{sourceFile,sourceDocument,createComments(_vscode,_runtime,callbacks){commentsCallbacks=callbacks;return comments;}},
+    'test-source-review':{createSourceReview(){return {editor:()=>vscode.window.activeTextEditor,column:editor=>editor?.viewColumn,update(){},show:async(editor,options)=>{sourceShows.push({editor,options});return editor;},hide:async()=>{},dispose(){}};}},
     'test-decorations':{createDecorations(){return {setReviewed(){},setEnabled(enabled){calls.push({kind:'highlights-enabled',enabled});},update(){calls.push({kind:'decorate'});},focus(file,edit){calls.push({kind:'focus-source',file,edit});},reveal(){calls.push({kind:'reveal-source'});},clear(){calls.push({kind:'clear-decorations'});},dispose(){}};}}
   };
   const preferences=new Map([['commentAgent',options.agent],...(options.commentsEnabled===undefined?[]:[['commentsEnabled',options.commentsEnabled]])]);
@@ -96,7 +97,7 @@ async function fixture(t,options={}) {
   module.exports.activate(context);await new Promise(resolve=>setImmediate(resolve));t.after(()=>module.exports.deactivate());
   return {vscode,runtime,doc,editor,source,repo,calls,errors,contexts,events,watchers,deactivate:()=>module.exports.deactivate(),
     command:(name,...args)=>handlers.get('manuscriptReview.'+name)(...args),
-    get sidebarCallbacks(){return sidebarCallbacks;},get nativeCallbacks(){return nativeCallbacks;},get commentsCallbacks(){return commentsCallbacks;}};
+    get sidebarCallbacks(){return sidebarCallbacks;},get pdfCallbacks(){return pdfCallbacks;},sourceShows,get nativeCallbacks(){return nativeCallbacks;},get commentsCallbacks(){return commentsCallbacks;}};
 }
 
 test('activation is lazy and an untrusted workspace cannot start the backend',async t=>{
@@ -769,7 +770,7 @@ test('PDF beside source uses the active manuscript column',async t=>{
 
 test('missing PDF roots report a concrete error without opening an empty viewer',async t=>{
  const f=await fixture(t,{pdfEntry:'removed.tex',pdfEntries:[]});await f.command('open');
- await f.command('reviewPDF');assert.match(f.errors.at(-1),/no LaTeX document/);
+ await f.command('reviewPDF');assert.match(f.errors.at(-1),/No LaTeX root/);
  assert.equal(f.calls.some(call=>call.kind==='show-pdf'),false);
 });
 
@@ -803,4 +804,36 @@ test('an open paired PDF owns navigation without revealing a competing Workshop 
   f.nativeCallbacks.onFocus('main.tex','edit',{data:{revision:1},span:{}},false);
   assert.equal(f.calls.filter(call=>call.kind==='follow-workshop').length-before,visible?0:1);
  }
+});
+
+
+test('PDF follows the active source instead of a still-existing deprecated root',async t=>{
+ const f=await fixture(t,{pdfEntry:'deprecated.tex',pdfEntries:['main.tex','deprecated.tex'],pdfMatching:['main.tex']});
+ await f.command('open');await f.command('reviewPDF');assert.deepEqual(f.errors,[]);
+ assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/pdf-entry'&&call.body)?.body.entry,'main.tex');
+ assert.equal(f.calls.some(call=>call.kind==='pick'&&call.configuration.title==='PDF document'),false);
+});
+
+test('unresolved includes retain a PDF root picker instead of blocking the selected source',async t=>{
+ const f=await fixture(t,{pdfEntry:'deprecated.tex',pdfEntries:['main.tex','deprecated.tex'],pdfMatching:[],
+  pick:(items,configuration)=>configuration.title==='PDF document'?'main.tex':items.find(item=>item.revision==='working')});
+ await f.command('open');await f.command('reviewPDF');assert.deepEqual(f.errors,[]);
+ assert.equal(f.calls.some(call=>call.kind==='pick'&&call.configuration.title==='PDF document'),true);
+ assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/pdf-entry'&&call.body)?.body.entry,'main.tex');
+});
+
+
+test('editing from the PDF returns to the existing native source review',async t=>{
+ const f=await fixture(t);await f.command('open');
+ const plain=f.calls.filter(call=>call.kind==='show-source').length,views=f.sourceShows.length;
+ await f.pdfCallbacks.onAction('edit');
+ assert.equal(f.calls.filter(call=>call.kind==='show-source').length,plain);
+ assert.equal(f.sourceShows.length,views+1);assert.equal(f.sourceShows.at(-1).editor,f.editor);
+});
+
+
+test('source navigation stays in the manuscript editor column',async t=>{
+ const f=await fixture(t);await f.command('open');f.editor.viewColumn=2;
+ await f.nativeCallbacks.onOpen({file:'main.tex'});
+ assert.equal(f.calls.filter(call=>call.kind==='show-source').at(-1).configuration.viewColumn,2);
 });

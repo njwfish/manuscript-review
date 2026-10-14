@@ -47,7 +47,7 @@ function html(vscode,webview,extensionPath){
  <div class="section">
   <label class="toggle"><input id="highlights" type="checkbox" checked>Review highlights</label>
   <details class="preferences"><summary>Display options</summary>
-   <label class="toggle"><input id="removals" type="checkbox" checked>Original on focus</label>
+   <label class="toggle"><input id="removals" type="checkbox" checked>Deleted text</label>
    <label class="toggle"><input id="comments" type="checkbox" checked>Source comments</label>
   </details>
  </div>

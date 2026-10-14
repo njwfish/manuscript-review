@@ -17,7 +17,7 @@ from .history import add_explanations, add_responses, build_history, round_id, a
 from .previews import Previews, preview_assets, PREVIEW_SCOPES, preview_versions
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
-from .documents import document_file, manuscript_files, source_point, saved_source, review_payload, selected_snapshot, latex_entries
+from .documents import document_file, manuscript_files, source_point, saved_source, review_payload, selected_snapshot, latex_entries, latex_roots
 from .render_latex import RENDER_VERSION
 from .workspace import edit_checkout, working_directory, same_repository
 from .merging import merge_text
@@ -170,7 +170,7 @@ class ReviewSession:
             origins = {entry.get('origin_id') or entry['id'] for entry in record['history'] if entry['comment'].strip()}
             origins.update(metadata['id'] + ':' + key for key, text in record['comments'].items() if text.strip())
             return {**metadata, 'repo': snapshot['repo'], 'base': snapshot['base'], 'proposed': snapshot['proposed'], 'entry': snapshot['entry'],
-                    'revision': record['revision'], 'result': record['result'], 'baseline': record['baseline'],
+                    'revision': record['revision'], 'result': record['result'], 'baseline': record['baseline'], 'decisions': record['decisions'],
                     'progress': {'total': len(ids), 'done': done, 'complete': done == len(ids)},
                     'unresolved': len(origins - set(record['resolved'])), 'drafts': list(record['drafts']),
                     'applied': is_applied(record)}
@@ -201,11 +201,12 @@ class ReviewSession:
         return {'id': state['id'], 'revision': state['revision'], 'authoring': state.get('authoring', False),
                 **(self.review_context() if self.review_context else {})}
 
-    def pdf_entries(self):
+    def pdf_entries(self, file=None):
         with self.store.transaction():
             record = self.store.read()
+            entries = latex_entries(record)
             return {'revision': record['revision'], 'entry': record['snapshot']['entry'],
-                    'entries': latex_entries(record)}
+                    'entries': entries, 'matching': latex_roots(record, file, entries)}
 
     def set_pdf_entry(self, request):
         """Change the rendering root without changing source versions or review choices."""

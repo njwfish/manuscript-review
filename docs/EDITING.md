@@ -139,9 +139,12 @@ native document. Decisions use the existing session transaction and delivery own
 Queued actions retain their review identity and are cancelled when that review closes.
 Mouse editing, E/Escape and Undo leave focused mode; unrelated tabs keep normal typing.
 
-`pdf-panel.mjs` is an optional read-only view of the selected result. It retains PDF
-bytes and locations between selections and delegates actions to native review. A
-selection token prevents a decision on an obsolete displayed change. The selected PDF
-cache includes the result, raw proposal, entry file and renderer version, so locations
-retain the round's edit identities even when rejections restore earlier wording.
-PDF compilation never blocks native navigation or transfers Save ownership.
+`pdf-panel.mjs` is an optional read-only view of the round’s starting version and
+selected result. Each side retains its own PDF bytes and locations between selections
+and delegates actions to native review. A selection token prevents a decision on an
+obsolete displayed change. The paired cache includes the starting version, result,
+raw proposal, entry file and renderer version, so locations retain the round’s edit
+identities even when rejections restore earlier wording. A missing asset or failed
+viewer load can retry one side while the other remains available. Turning review
+highlights off clears marks and focus in both PDFs. Compilation never blocks native
+navigation or transfers Save ownership.
