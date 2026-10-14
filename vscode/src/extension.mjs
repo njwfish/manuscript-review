@@ -50,7 +50,7 @@ export function activate(context){
  async function chooseAgent(){
   const current=selectedAgent(),options=[current,...agents.filter(agent=>agent.id!==current.id)];
   const agent=await vscode.window.showQuickPick(options,{title:'Comment agent',placeHolder:'Enter sends to this agent'});
-  if(agent){await context.globalState.update('commentAgent',agent.id);comments.setAgent(agent.label);await sidebar.refresh();}
+  if(agent){await context.globalState.update('commentAgent',agent.id);await sidebar.refresh();}
   return selectedAgent().label;
  }
  async function chooseModel(){
@@ -102,16 +102,15 @@ export function activate(context){
  const sources=createSourceDocuments(vscode,async()=>{await start();return runtime;});
  const subscriptions=[output,sources,nativeReview];
  const comments=createComments(vscode,()=>runtime,{onSource:ensureCommentSource,canComment,
+  onInput:async(thread,document)=>{if(thread){nativeReview.holdComment(thread,document);await sidebar.show();}await sidebar.refresh();},
   onInputComplete:(thread,complete)=>nativeReview.finishComment(thread,async owns=>{
-   await comments.refresh();
    if(!complete()||!owns())return false;
    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
    return complete();
   }),
   openDocument:sources.open,
   onChange:async()=>{await sidebar.refresh();},onReview:entry=>showReview(entry),
-  onProjection:(projection,data)=>{if(!comparison?.pending){decorations.update(projection,data);nativeReview.update(projection,data);}},onAgent:sendToAgent});
- comments.setAgent(selectedAgent().label);comments.setEnabled(commentsEnabled());
+  onProjection:(projection,data)=>{if(!comparison?.pending){decorations.update(projection,data);nativeReview.update(projection,data);}},onAgent:sendToAgent});comments.setEnabled(commentsEnabled());
  const sidebar=createSidebar(vscode,context,{load:loadSidebar,onAction:sidebarAction,onError:error=>output.appendLine(error.stack||error.message)});
  subscriptions.push(sidebar);
  function updateSourceContext(){
@@ -383,7 +382,8 @@ export function activate(context){
    const data=runtime?.review&&runtime.review.repo===comparison?.info.repo?await runtime.request('/summary'):undefined;
    if(epoch!==comparisonEpoch)return loadSidebar();
    if(data&&!comparison.pending)comparison=reviewComparison(comparison,data);
-   return sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default',removalsEnabled(),editingIntent());
+   const state=sidebarState(comparison,data,commentsEnabled(),selectedAgent().label,highlightsEnabled(),selectedAgent().model||'CLI default',removalsEnabled(),editingIntent());
+   state.comment=comments.input();return state;
   }catch(error){if(!opening)await discardUnopenedRuntime();throw error;}
  }
  function checkSidebar(expected){
@@ -395,8 +395,13 @@ export function activate(context){
    if(expected?.review&&expected.review!==runtime?.review?.id)throw new Error('The review changed. Use the current sidebar controls.');
  }
  async function sidebarAction(action,expected){
-  if(!['comments','agent','model','sessions','agentChanges','repository','highlights','removals'].includes(action))checkSidebar(expected);
+  if(!['comments','agent','model','sessions','agentChanges','repository','highlights','removals','commentDraft','commentSave','commentSend','commentClose','commentResolve'].includes(action))checkSidebar(expected);
   const actions={
+   commentDraft:()=>comments.editInput(expected.input,expected.text),
+   commentSave:()=>comments.submitInput(expected.input,expected.text),
+   commentSend:()=>comments.submitInput(expected.input,expected.text,true),
+   commentClose:()=>comments.cancelInput(expected.input),
+   commentResolve:()=>comments.resolveInput(expected.input),
    editing:chooseEditing,
    removals:async()=>{const value=!removalsEnabled();await context.workspaceState.update('removalsEnabled',value);if(!value)await vscode.commands.executeCommand('editor.action.hideHover');},
    highlights:async()=>{const enabled=!highlightsEnabled();await setHighlights(enabled);nativeReview.refresh();if(!enabled)nativeReview.edit();if(enabled)await comments.refresh();},

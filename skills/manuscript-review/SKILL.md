@@ -75,9 +75,9 @@ If a feedback ledger exists, update its affected rows after the pass using the s
 Return the review ID and published source version. A VS Code link of the form
 `vscode://njwfish.manuscript-review/review/REVIEW_ID` selects that review and focuses
 its native source. Keep the configured library. **Review in editor** starts keyboard
-review in the source, with inline decisions and native discussion; there is no separate
-text review tab. An open manuscript PDF follows the selected edit. The sidebar keeps
-comparison endpoints visible and offers earlier selected drafts or Git versions for
+review in the source, with inline decisions and sidebar discussion; there is no separate
+text review tab. An open manuscript PDF follows the selected edit. The sidebar selects
+comparison endpoints and offers earlier selected drafts or Git versions for
 accumulated comparisons. Agent transcripts stay with the provider; the review retains
 comments and final responses.
 
@@ -93,7 +93,7 @@ To read and comment without requiring changes, use **Open manuscript review** in
 
 Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then dispatches a saved comment while continuing their work. Native saves retain unrelated choices and discussion. In source authoring, **Agent changes** compares the accumulating proposal to saved author wording; clean results join saved files and enable highlights. Overlaps remain for review; new or deleted files use explicit **Apply**.
 
-The sidebar selects **Agent** and **Model**; **Open agent session** resumes the provider's own transcript. **Open editing folder** opens its source checkout for normal Git and LaTeX work. **Review saved source changes** captures external revisions as a new round.
+The sidebar selects **Agent** and **Model**; **Agent sessions** resumes the provider's own transcript. **Open editing folder** opens its source checkout for normal Git and LaTeX work. **Review saved source changes** captures external revisions as a new round.
 
 **⌘/Ctrl+Alt+[ / ]** steps through unresolved native threads; **Manuscript Review: Comment navigation → All** in the Command Palette also includes resolved threads. **Resolve comment** and **Reopen comment** use the native thread toolbar. **View change** opens the attached diff.
 

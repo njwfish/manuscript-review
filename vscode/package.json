@@ -6,7 +6,7 @@
     "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -82,23 +82,8 @@
         "category": "Manuscript Review"
       },
       {
-        "command": "manuscriptReview.reply",
-        "title": "Add comment",
-        "category": "Manuscript Review"
-      },
-      {
         "command": "manuscriptReview.editComment",
         "title": "Edit comment",
-        "category": "Manuscript Review"
-      },
-      {
-        "command": "manuscriptReview.saveComment",
-        "title": "Save comment",
-        "category": "Manuscript Review"
-      },
-      {
-        "command": "manuscriptReview.cancelComment",
-        "title": "Cancel edit",
         "category": "Manuscript Review"
       },
       {
@@ -144,12 +129,6 @@
         "command": "manuscriptReview.sourceDrafts",
         "title": "Saved source drafts",
         "category": "Manuscript Review"
-      },
-      {
-        "command": "manuscriptReview.sendComment",
-        "title": "Send to agent",
-        "category": "Manuscript Review",
-        "icon": "$(send)"
       },
       {
         "command": "manuscriptReview.commentAgent",
@@ -265,9 +244,10 @@
         "category": "Manuscript Review"
       },
       {
-        "command": "manuscriptReview.sendDraft",
-        "title": "Send comment",
-        "category": "Manuscript Review"
+        "command": "manuscriptReview.openComment",
+        "title": "Open comment",
+        "category": "Manuscript Review",
+        "icon": "$(comment)"
       }
     ],
     "configuration": {
@@ -288,18 +268,6 @@
       }
     },
     "menus": {
-      "comments/commentThread/context": [
-        {
-          "command": "manuscriptReview.reply",
-          "when": "commentController == manuscript-review",
-          "group": "inline@1"
-        },
-        {
-          "command": "manuscriptReview.sendComment",
-          "when": "commentController == manuscript-review",
-          "group": "inline@0"
-        }
-      ],
       "comments/comment/title": [
         {
           "command": "manuscriptReview.editComment",
@@ -307,29 +275,12 @@
           "group": "inline"
         }
       ],
-      "comments/comment/context": [
-        {
-          "command": "manuscriptReview.saveComment",
-          "when": "comment == manuscriptReview.editing",
-          "group": "inline@0"
-        },
-        {
-          "command": "manuscriptReview.cancelComment",
-          "when": "comment == manuscriptReview.editing",
-          "group": "inline@1"
-        },
-        {
-          "command": "manuscriptReview.sendDraft",
-          "when": "comment == manuscriptReview.draft",
-          "group": "inline@0"
-        },
-        {
-          "command": "manuscriptReview.cancelComment",
-          "when": "comment == manuscriptReview.draft",
-          "group": "inline@1"
-        }
-      ],
       "comments/commentThread/title": [
+        {
+          "command": "manuscriptReview.openComment",
+          "when": "commentController == manuscript-review && (commentThread == manuscriptReview || commentThread == manuscriptReview.resolved || commentThread == manuscriptReview.pending)",
+          "group": "inline@0"
+        },
         {
           "command": "manuscriptReview.chooseAgent",
           "when": "commentController == manuscript-review",
@@ -370,27 +321,11 @@
       ],
       "commandPalette": [
         {
-          "command": "manuscriptReview.reply",
-          "when": "false"
-        },
-        {
           "command": "manuscriptReview.editComment",
           "when": "false"
         },
         {
-          "command": "manuscriptReview.saveComment",
-          "when": "false"
-        },
-        {
-          "command": "manuscriptReview.cancelComment",
-          "when": "false"
-        },
-        {
           "command": "manuscriptReview.viewCommentChange",
-          "when": "false"
-        },
-        {
-          "command": "manuscriptReview.sendComment",
           "when": "false"
         },
         {
@@ -406,7 +341,7 @@
           "when": "false"
         },
         {
-          "command": "manuscriptReview.sendDraft",
+          "command": "manuscriptReview.openComment",
           "when": "false"
         }
       ],
@@ -466,19 +401,6 @@
       ]
     },
     "keybindings": [
-      {
-        "command": "default:type",
-        "key": "shift+enter",
-        "args": {
-          "text": "\n"
-        },
-        "when": "commentEditorFocused && commentController == manuscript-review && !inComposition"
-      },
-      {
-        "command": "editor.action.submitComment",
-        "key": "enter",
-        "when": "commentEditorFocused && commentController == manuscript-review && !suggestWidgetVisible && !inComposition"
-      },
       {
         "command": "manuscriptReview.comment",
         "key": "ctrl+shift+m",

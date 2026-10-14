@@ -1,6 +1,6 @@
 # Manuscript Review for VS Code
 
-Review manuscripts in the normal VS Code source editor, with native comments,
+Review manuscripts in the normal VS Code source editor, with source comments,
 focused word comparisons, and highlighted PDF review. This is the primary interface
 and the target for production releases. The extension includes its review engine,
 LaTeX Workshop comparison viewer, and agent skill; the standalone app is optional.
@@ -128,7 +128,7 @@ and recovery behavior.
 
 In focused source review, **A/S** accepts or rejects and advances, **D/F** moves
 backward or forward, and **Shift+A/S** decides the passage. **Ctrl+A/S** decides the
-file, **U** resets a decision, and **C** opens an editable native comment. **E/Escape** returns
+file, **U** resets a decision, and **C** opens its comment in the sidebar. **E/Escape** returns
 to ordinary editing. Outside focus mode, **Ctrl+Alt+D/F** navigates highlighted edits.
 **Exit review** in the editor title turns off highlights and review shortcuts.
 
@@ -152,20 +152,21 @@ Accepting an edit or receiving a response leaves its thread status intact.
 
 ## Work with an agent
 
-Press **Enter** in a new comment to save it and dispatch it through the selected agent's
-CLI; **Shift+Enter** adds a newline. The sidebar chooses **Agent** (Codex or Claude
-Code) and **Model**; **CLI default** uses that provider's own settings. The arrow in
-a native comment toolbar also chooses the provider. Both choices are remembered. **Add comment**
-saves without dispatching; **Send to agent** also works on a saved comment.
-Editing a saved comment uses **Save comment**; Enter saves that correction. Completing
-a comment returns to the same focused review edit unless you moved or edited elsewhere.
+Comments open in the existing sidebar beside the manuscript. Earlier feedback and
+responses appear above a compact, growing input. Press **Enter** or **Send** to save
+and dispatch through the selected agent's CLI; **Shift+Enter** adds a newline.
+**Save** or **⌘/Ctrl+Enter** saves without dispatching. **Escape** closes the input.
+Choose **Agent** (Codex or Claude Code) and **Model** alongside Send; **CLI default**
+uses that provider's settings. Both choices are remembered. Saved source comments
+retain their margin markers; **Open comment** brings their discussion to the sidebar. Completing a comment returns to the same source location or focused
+review edit unless you moved or edited elsewhere.
 
 [Install and sign in to the CLI](../docs/INSTALL.md#agent-clis) first. No provider tab
 opens and focus stays in your manuscript. Several agents can work while you continue
 editing or reviewing. Each receives one saved discussion, earlier replies, and the
 bundled command launcher. Working transcripts stay with the provider; only the final
 response is appended to the discussion. Launch details are in the Manuscript Review
-Output channel and the library's `agent-output/` directory. **Open agent session…**
+Output channel and the library's `agent-output/` directory. **Agent sessions**
 in the sidebar reopens that conversation in its CLI or desktop app, or shows its launch log.
 
 For source changes, the agent starts a separate proposal checkout with

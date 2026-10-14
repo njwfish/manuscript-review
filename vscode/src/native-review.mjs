@@ -10,10 +10,9 @@ export function createNativeReview(vscode, {
   const changed = new vscode.EventEmitter();
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 60);
   status.command = 'manuscriptReview.focusedReview';
-  const commentEditor = editor => editor?.document.uri?.scheme === 'comment';
   const sameSource = (left, right) => left?.document === right?.document && left?.viewColumn === right?.viewColumn;
   const activeEditor = () =>
-    (!commentEditor(vscode.window.activeTextEditor) && vscode.window.activeTextEditor) || ((isPDFActive() || commentFocus)
+    vscode.window.activeTextEditor || ((isPDFActive() || commentFocus)
       && sourceEditor?.document && !sourceEditor.document.isClosed ? sourceEditor : undefined);
   const current = (nearest = false) => {
     if (disposed || !enabled()) return;
@@ -329,7 +328,7 @@ export function createNativeReview(vscode, {
             arguments: [selected.data.id, selected.data.revision, selected.source.file, selected.span.id, value]
           }));
           for (const [command, label, key] of [
-            ['previousChange', 'Previous', 'D'], ['nextChange', 'Next', 'F'], ['commentChange', 'Comment', 'C']
+            ['previousChange', 'Back', 'D'], ['nextChange', 'Next', 'F'], ['commentChange', 'Comment', 'C']
           ]) controls.push(new vscode.CodeLens(range, { title: shortcut(label, key), command: 'manuscriptReview.' + command }));
           controls.push(new vscode.CodeLens(range, {
             title: focusMode ? 'Edit E' : 'Review',
@@ -354,14 +353,8 @@ export function createNativeReview(vscode, {
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
       const editor = vscode.window.activeTextEditor;
-      if (commentFocus && commentEditor(editor)) {
-        if (commentFocus.input && commentFocus.input !== editor.document) edit();
-        else commentFocus.input = editor.document;
-      } else if (commentFocus && editor && !sameSource(editor, commentFocus.editor)) edit();
-      // Inline input temporarily replaces source focus; its save also advances the
-      // revision before the refreshed projection reaches this owner.
-      const commentInput = commentFocus && (!editor || commentEditor(editor) || editor.document === sourceEditor?.document);
-      if (!current(true) && !isPDFActive() && !openingSource && !commentInput) edit();
+      if (commentFocus && editor && !sameSource(editor, commentFocus.editor)) edit();
+      if (!current(true) && !isPDFActive() && !openingSource && !commentFocus) edit();
       refresh();
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
@@ -386,30 +379,47 @@ export function createNativeReview(vscode, {
     comment: async () => {
       const selected = current();
       if (!selected) throw new Error('Select a current change first.');
-      const resume = focusMode || commentFocus?.epoch === navigationEpoch;
+      const resume = focusMode || Boolean(commentFocus?.resume&&commentFocus.epoch === navigationEpoch);
       edit();
-      const pending = resume ? { review: selected.data.id, file: selected.source.file,
-        edit: selected.span.id, epoch: navigationEpoch, editor: selected.editor } : undefined;
+      const pending = { review: selected.data.id, file: selected.source.file,
+        edit: selected.span.id, epoch: navigationEpoch, editor: selected.editor, resume, version:selected.editor.document.version,
+        point:selected.editor.document.offsetAt(selected.editor.selection.active) };
       commentFocus = pending;
       const thread = await onComment(selected);
       if (pending === commentFocus && pending) {
         pending.thread = thread;
-        if (!pending.input && commentEditor(vscode.window.activeTextEditor))
-          pending.input = vscode.window.activeTextEditor.document;
       }
       return thread;
     },
+    holdComment(thread,document) {
+      if(commentFocus&&!commentFocus.thread){
+        commentFocus.thread=thread;
+        commentFocus.point=document.offsetAt(commentFocus.editor.selection.active);
+        commentFocus.version=document.version;
+        return;
+      }
+      const editor=vscode.window.visibleTextEditors.find(editor=>editor.document===document);
+      if(!editor)return;
+      const resume=commentFocus?.thread===thread&&commentFocus.epoch===navigationEpoch&&commentFocus.resume;
+      edit();sourceEditor=editor;
+      commentFocus={thread,review:runtime()?.review?.id,editor,epoch:navigationEpoch,resume,
+        version:document.version,point:document.offsetAt(editor.selection.active),file:focused?.file,edit:focused?.edit};
+    },
     async finishComment(thread, prepare) {
       const pending = commentFocus;
-      const owns = () => !disposed && enabled() && pending && pending === commentFocus
+      const owns = () => !disposed && pending && (!pending.resume||enabled()) && pending === commentFocus
         && pending.thread === thread && pending.epoch === navigationEpoch
-        && runtime()?.review?.id === pending.review && sameSource(activeEditor(), pending.editor)
-        && (!commentEditor(vscode.window.activeTextEditor)
-          || vscode.window.activeTextEditor.document === pending.input);
+        && runtime()?.review?.id === pending.review && sameSource(activeEditor(), pending.editor);
       const ready = () => {
         const selected = current();
         return owns() && selected?.source.file === pending.file && selected.span.id === pending.edit;
       };
+      if(!pending?.resume){
+        const unchanged=()=>owns()&&pending.editor.document.version===pending.version
+          &&pending.editor.document.offsetAt(pending.editor.selection.active)===pending.point;
+        if(!unchanged()||!await prepare(unchanged)||!unchanged())return false;
+        commentFocus=undefined;return true;
+      }
       if (!owns() || !await prepare(ready) || !ready()) return false;
       const selected = current();
       if (selected?.source.file !== pending.file || selected.span.id !== pending.edit) return false;

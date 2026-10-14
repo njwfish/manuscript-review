@@ -1,16 +1,9 @@
-Manuscript Review 0.18.4 includes VS Code extension 0.4.4 and the standalone macOS app.
+The VS Code sidebar now provides a compact comment composer with readable feedback and responses beside the manuscript. The source remains the only text review editor.
 
-The sidebar now offers **PDF beside source**. It opens the selected manuscript's PDF
-beside the native source editor, highlights the current change, and follows review
-navigation. Reopening reuses the viewer while keeping source visible.
+- Quieter comparison fields, fewer persistent controls, and a prominent Apply review action when decisions are complete.
+- One comment input for annotations, corrections, and follow-ups, with monospace text and automatic sizing.
+- Enter sends to the selected agent; Cmd/Ctrl+Enter saves; Shift+Enter adds a line; Escape returns to the source.
+- Drafts retain their identity and anchor through failed saves, review switches, and arriving responses. Stale actions cannot replace or submit a newer draft.
+- A successful save closes its input before background refresh, preventing duplicate comments if that refresh fails.
 
-The **PDF** field changes the rendering root without changing the comparison, decisions,
-or comments. A deleted or renamed root is replaced from the selected manuscript version
-when opening PDF. Preview caches track the root in every comparison scope. Rendering
-and service errors remain visible in the PDF panel.
-
-This release also includes 0.4.3's native review fixes: normal source wrapping, visible
-A/S/D/F/C/E controls, editable comments, active-word focus, and plain text after decisions.
-There is no separate text review tab. Review records and manuscript files are preserved.
-
-Save open edits and run **Developer: Reload Window** after installing to load the update.
+The update preserves saved reviews, decisions, comments, and source files. After updating the VS Code extension, save your work and run Developer: Reload Window.

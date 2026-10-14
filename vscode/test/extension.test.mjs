@@ -73,12 +73,12 @@ async function fixture(t,options={}) {
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
   const pdf={active:false,visible:Boolean(options.pdfVisible),reset(){},select(){return Promise.resolve();},setMode(){},async show(column){calls.push({kind:'show-pdf',column});},async refresh(){calls.push({kind:'pdf-refresh'});},dispose(){calls.push({kind:'dispose-pdf'});}};
-  const comments={setEnabled(enabled){calls.push({kind:'comments-enabled',enabled});},setAgent(label){calls.push({kind:'comment-agent',label});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){await commentsCallbacks.onSource(editor.document);calls.push({kind:'annotate',editor});},
+  const comments={input:()=>options.commentInput,editInput(){},submitInput(){},cancelInput(){},setEnabled(enabled){calls.push({kind:'comments-enabled',enabled});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){await commentsCallbacks.onSource(editor.document);calls.push({kind:'annotate',editor});},
     async discuss(selected){calls.push({kind:'discuss',selected});},async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
   const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
   let sidebarCallbacks;
   const adapters={
-    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},finishComment(){calls.push({kind:'finish-comment'});},edit(){callbacks.onMode(false);},update(){},clear(){},refresh(){},dispose(){}};}},
+    'test-native-review':{createNativeReview(_vscode,callbacks){nativeCallbacks=callbacks;return {selection:()=>options.sourceSelection,async begin(entry){calls.push({kind:'focus-review',entry});},async move(direction){calls.push({kind:'change-move',direction});},async decide(value,scope){calls.push({kind:'decide',value,scope});},async comment(){},holdComment(){},finishComment(){calls.push({kind:'finish-comment'});},edit(){callbacks.onMode(false);},update(){},clear(){},refresh(){},dispose(){}};}},
     'test-sidebar':{createSidebar(_vscode,_context,callbacks){sidebarCallbacks=callbacks;return {async refresh(){calls.push({kind:'sidebar-refresh'});},async show(){calls.push({kind:'sidebar-show'});},dispose(){}};},sidebarState:(...values)=>values},
     'test-dispatch':{agents:[{id:'codex',label:'Codex'},{id:'claude',label:'Claude Code'}],openAgent:async(_vscode,launch)=>{calls.push({kind:'open-agent',options:launch});options.onOpenAgent?.(_vscode,launch);return options.agentSent;}},
     'test-viewer-server':{createViewer(){return {start:async()=> 'http://127.0.0.1:23456',dispose:async()=>{calls.push({kind:'dispose-viewer'});}};}},
@@ -327,8 +327,9 @@ test('live source PDF navigation delegates to Workshop without starting the revi
 test('review shortcuts and the comment context menu require the active manuscript source',async()=>{
   const manifest=JSON.parse(await readFile(path.join(root,'package.json'),'utf8'));
   assert.equal(manifest.contributes.keybindings.filter(binding=>!binding.when.includes('commentEditorFocused')).every(binding=>binding.when.includes('manuscriptReview.source')),true);
-  const enter=manifest.contributes.keybindings.find(binding=>binding.key==='enter');assert.match(enter.when,/commentController == manuscript-review/);assert.match(enter.when,/!inComposition/);assert.doesNotMatch(enter.when,/commentIsEmpty/);
-  const actions=manifest.contributes.menus['comments/commentThread/context'];assert.equal(actions.find(item=>item.group==='inline@0').command,'manuscriptReview.sendComment');
+  assert.equal(manifest.contributes.keybindings.some(binding=>binding.key==='enter'),false);
+  assert.equal(manifest.contributes.menus['comments/commentThread/context'],undefined);
+  assert.ok(manifest.contributes.menus['comments/commentThread/title'].some(item=>item.command==='manuscriptReview.openComment'));
   const action=manifest.contributes.menus['editor/context'].find(action=>action.command==='manuscriptReview.comment');
   assert.match(action.when,/manuscriptReview\.source/);
   assert.match(manifest.contributes.keybindings.find(binding=>binding.command==='manuscriptReview.comment').when,/resourceScheme == file/);
