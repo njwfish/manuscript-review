@@ -43,7 +43,7 @@ export function activate(context){
    if(focused&&removalsEnabled()&&selected?.data.files.find(item=>item.path===file)?.edits.find(item=>item.id===edit)?.old)
     void vscode.commands.executeCommand('editor.action.showHover',{focus:'noAutoFocus'}).catch(fail);
    void pdf?.select(file,edit,selected?.data.revision,selected?.span.rejected,['accept','reject'].includes(selected?.data.decisions?.[edit])).catch(fail);
-   void followWorkshopPDF(vscode,selected).catch(error=>output.appendLine(error.message));
+   if(!pdf?.visible)void followWorkshopPDF(vscode,selected).catch(error=>output.appendLine(error.message));
   },onError:error=>void fail(error)});
  const canComment=document=>commentsEnabled()&&vscode.workspace.isTrusted&&(sourceDocument(document)||document?.uri.scheme===sourceScheme&&sourceFile(runtime?.review,document));
  const selectedAgent=()=>{const agent=agents.find(agent=>agent.id===context.globalState.get('commentAgent'))||agents[0];return {...agent,model:context.globalState.get('commentModels',{})[agent.id]};};

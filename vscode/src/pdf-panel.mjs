@@ -100,7 +100,7 @@ export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError,s
    selection=file?{file,edit,revision,removed,decided,review,token}:undefined;return updateSelection();
   },
   reset(){generation++;cached=selection=documentKey=displayed=undefined;clearTimeout(timer);post({type:'status',text:'Updating PDF…'});},
-  setMode(value){reviewing=value;void updateSelection()?.catch(onError);},get active(){return Boolean(panel?.active);},
+  setMode(value){reviewing=value;void updateSelection()?.catch(onError);},get active(){return Boolean(panel?.active);},get visible(){return Boolean(panel?.visible);},
   dispose(){disposed=true;generation++;clearTimeout(timer);panel?.dispose();}};
 }
 
