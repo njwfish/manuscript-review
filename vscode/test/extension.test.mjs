@@ -653,8 +653,8 @@ test('a comment sent while navigation waits cannot move silently into another ro
 });
 
 test('focused review dims context and entering the manuscript editor reveals it',async t=>{
- const f=await fixture(t);await f.command('open');f.nativeCallbacks.onFocus('main.tex','edit',{data:await f.runtime.data(),span:{}},true);
- assert.equal(f.calls.at(-1).kind,'focus-source');
+ const f=await fixture(t);await f.command('open');f.calls.length=0;f.nativeCallbacks.onFocus('main.tex','edit',{data:await f.runtime.data(),span:{}},true);
+ assert.equal(f.calls[0].kind,'focus-source');
  f.nativeCallbacks.onMode(false);assert.equal(f.calls.at(-1).kind,'reveal-source');
 });
 
