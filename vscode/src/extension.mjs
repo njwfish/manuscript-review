@@ -121,10 +121,13 @@ export function activate(context){
  async function discardUnopenedRuntime(){if(runtime&&!runtime.review){sourceEdits?.dispose();pdf?.dispose();await runtime.dispose();await viewer?.dispose();runtime=pdf=sourceEdits=viewer=undefined;updateSourceContext();}}
  const fail=async error=>{if(disposed)return;if(!opening)await discardUnopenedRuntime();output.appendLine(error.stack||error.message);vscode.window.showErrorMessage(error.message);};
  async function refreshSource(options){await Promise.all([comments.refresh(options),sidebar.refresh()]);}
+ function currentSourceEditor(){
+  const active=sourceReview.editor();
+  return sourceFile(runtime?.review,active?.document)?active:vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime?.review,editor.document));
+ }
  async function showSourceReview(preserveFocus=false){
   if(!runtime?.review||!highlightsEnabled()||!removalsEnabled()||comparison?.pending)return;
-  const active=sourceReview.editor();
-  const editor=sourceFile(runtime.review,active?.document)?active:vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime.review,editor.document));
+  const editor=currentSourceEditor();
   if(editor)return sourceReview.show(editor,{preserveFocus});
  }
  async function setHighlights(value){
@@ -327,7 +330,7 @@ export function activate(context){
   if(runtime.review?.id!==id||document.version!==version)throw new Error('The source or review changed while opening this location. Try again.');
   const range=source.notes.find(note=>note.id===message.comment)||source.ranges.find(range=>range.id===message.edit);
   const start=source.position??range?.from??0,end=message.comment?range?.to??start:start;
-  const editor=await vscode.window.showTextDocument(document,{viewColumn:vscode.ViewColumn.One,preserveFocus:Boolean(pdf?.active)});
+  const editor=await vscode.window.showTextDocument(document,{viewColumn:sourceReview.column(currentSourceEditor())??vscode.ViewColumn.One,preserveFocus:Boolean(pdf?.active)});
   if(runtime.review?.id!==id||document.version!==version)throw new Error('The source or review changed while opening this location. Try again.');
   editor.selection=new vscode.Selection(document.positionAt(start),document.positionAt(end));
   editor.revealRange(editor.selection,vscode.TextEditorRevealType.InCenterIfOutsideViewport);
@@ -456,8 +459,7 @@ export function activate(context){
   const id=runtime.review.id,epoch=comparisonEpoch;
   const check=()=>{if(runtime.review?.id!==id||comparisonEpoch!==epoch||comparison?.pending)throw new Error('The comparison changed. Open its PDF again.');};
   await sourceEdits.flush();check();
-  const active=sourceReview.editor();
-  const editor=sourceFile(runtime.review,active?.document)?active:vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime.review,editor.document));
+  const editor=currentSourceEditor();
   if(!await choosePDFEntry(true,sourceFile(runtime.review,editor?.document)))return;check();
   await refreshSource();check();
   await pdf.show(editor?sourceReview.column(editor):undefined,check);

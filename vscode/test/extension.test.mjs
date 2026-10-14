@@ -830,3 +830,10 @@ test('editing from the PDF returns to the existing native source review',async t
  assert.equal(f.calls.filter(call=>call.kind==='show-source').length,plain);
  assert.equal(f.sourceShows.length,views+1);assert.equal(f.sourceShows.at(-1).editor,f.editor);
 });
+
+
+test('source navigation stays in the manuscript editor column',async t=>{
+ const f=await fixture(t);await f.command('open');f.editor.viewColumn=2;
+ await f.nativeCallbacks.onOpen({file:'main.tex'});
+ assert.equal(f.calls.filter(call=>call.kind==='show-source').at(-1).configuration.viewColumn,2);
+});
