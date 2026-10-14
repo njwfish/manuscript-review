@@ -973,3 +973,16 @@ test('a save in flight cannot delete newer wording after the same input reopens'
  f.runtime.request=request;assert.equal(await f.comments.submitInput(draft.id,'New unfinished wording'),true);
  assert.equal(f.data.history[0].comment,'New unfinished wording');f.comments.dispose();
 });
+
+test('closing an input during a requested save completes its source return only once',async()=>{
+ const f=fixture();await f.comments.refresh();const root=f.created[0].comments[0];
+ await f.command('editComment',root);const draft=f.comments.input();
+ const request=f.runtime.request;let release,entered;
+ const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ f.runtime.request=async(...args)=>{if(args[0]==='/note'){entered();await gate;}return request(...args);};
+ const saving=f.comments.submitInput(draft.id,'Requested wording');await started;
+ await f.comments.cancelInput(draft.id);assert.equal(f.completed.length,1);
+ release();assert.equal(await saving,true);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.data.history[0].comment,'Requested wording');assert.equal(f.completed.length,1);
+ assert.equal(f.comments.input(),undefined);f.comments.dispose();
+});

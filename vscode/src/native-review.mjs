@@ -398,7 +398,8 @@ export function createNativeReview(vscode, {
         commentFocus.version=document.version;
         return;
       }
-      const editor=vscode.window.visibleTextEditors.find(editor=>editor.document===document);
+      const active=activeEditor();
+      const editor=active?.document===document?active:vscode.window.visibleTextEditors.find(editor=>editor.document===document);
       if(!editor)return;
       const resume=commentFocus?.thread===thread&&commentFocus.epoch===navigationEpoch&&commentFocus.resume;
       edit();sourceEditor=editor;

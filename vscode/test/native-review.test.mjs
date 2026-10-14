@@ -297,3 +297,12 @@ test('ordinary comment return captures the intentional edit-start caret without 
  assert.equal(await f.controls.finishComment(f.editor,async owns=>{prepared=owns();return prepared;}),true);
  assert.equal(prepared,true);assert.equal(f.lenses().at(-1).command.title,'Review');
 });
+
+test('generic sidebar comments return to the active column when a document is open twice',async()=>{
+ const f=fixture(),thread={};
+ const first={...f.editor,viewColumn:1},second={...f.editor,viewColumn:2};
+ f.vscode.window.visibleTextEditors=[first,second];f.vscode.window.activeTextEditor=second;
+ f.controls.holdComment(thread,f.editor.document);
+ assert.equal(await f.controls.finishComment(thread,async owns=>owns()),true);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
+});

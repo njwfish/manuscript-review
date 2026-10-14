@@ -355,7 +355,7 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       delete state.draft;
       if(activeInput===state)activeInput=undefined;
     }
-    const complete=()=>!disposed&&inputEpoch===ticket&&state.inputEpoch===ticket&&!state.draft
+    const complete=()=>owns&&!disposed&&inputEpoch===ticket&&state.inputEpoch===ticket&&!state.draft
       &&state.reviewId===getRuntime()?.review?.id;
     try{await onInput?.();await changed();}
     catch(error){if(!disposed)await vscode.window.showErrorMessage('Comment saved. Could not refresh: '+error.message);return;}
