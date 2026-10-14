@@ -8,7 +8,8 @@ async function editCommentInput(text){
 }
 exports.run=async()=>{
  const state=await vscode.extensions.getExtension('review-test.native-workflow').activate();
- const {fixture,document,editor}=state;
+ const {fixture,document}=state;let editor=state.editor;
+ const sourceColumn=editor.viewColumn;
  const engine=(script,...args)=>JSON.parse(execFileSync(fixture.python,['-c',script,fixture.home,fixture.review,...args],{cwd:fixture.package+'/dist/runtime',encoding:'utf8'}));
  const record=async()=>JSON.parse(await fs.readFile(fixture.home+'/reviews/'+fixture.review+'/review.json','utf8'));
  const inspect=async(stage)=>{
@@ -99,7 +100,7 @@ exports.run=async()=>{
  await editCommentInput('Additional');
  await until(()=>followupInput.getText()==='Additional');
  assert.equal(document.getText(),sourceBeforeComment,'C must put typing into the comment input');
- await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
  await vscode.commands.executeCommand('manuscriptReview.commentChange');
  await until(()=>vscode.window.activeTextEditor?.document===followupInput);
@@ -115,12 +116,12 @@ exports.run=async()=>{
  await until(async()=> (await vscode.commands.executeCommand('vscode.executeCodeLensProvider',document.uri))?.some(lens=>lens.command?.title==='Next F'));
  if(process.env.MR_NATIVE_VISUAL==='review'){
   discussion.collapsibleState=vscode.CommentThreadCollapsibleState.Collapsed;
-  await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+  editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
   await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
   await vscode.commands.executeCommand('manuscriptReview.focusedReview');
   await inspect('review');
  }
- await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
  let at=document.getText().indexOf('observed');
  await editor.edit(builder=>builder.replace(new vscode.Range(document.positionAt(at),document.positionAt(at+8)),'recorded'));
  await document.save();
@@ -135,7 +136,7 @@ exports.run=async()=>{
  await until(()=>document.getText()===authorText&&!document.isDirty);
  assert.equal((await record()).snapshot.base,authorBase);
  assert.equal((await record()).history.find(entry=>entry.id===root.id).comment,'Keep this surgical. Add context.');
- await vscode.window.showTextDocument(document,{viewColumn:editor.viewColumn,preserveFocus:false});
+ editor=await vscode.window.showTextDocument(document,{viewColumn:sourceColumn,preserveFocus:false});
  await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
  await vscode.commands.executeCommand('undo');
  await until(()=>document.getText()===authorText.replace('measured','recorded'));
