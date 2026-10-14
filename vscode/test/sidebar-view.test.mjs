@@ -62,3 +62,11 @@ test('failed Send and provider selection restore typing focus without changing a
  f.message({type:'busy',busy:true});f.state(null);f.message({type:'busy',busy:false});
  assert.equal(f.element('composer').hidden,true);
 });
+
+test('pending review decisions stay visible after agent wording has already reached source',()=>{
+ const f=fixture();
+ f.message({type:'state',state:{agent:'Codex',model:'CLI default',applied:true,progress:'0 of 2 reviewed'}});
+ assert.equal(f.element('progress').textContent,'0 of 2 reviewed');
+ f.message({type:'state',state:{agent:'Codex',model:'CLI default',applied:true}});
+ assert.equal(f.element('progress').textContent,'Applied');
+});

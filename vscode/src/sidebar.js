@@ -47,7 +47,7 @@ function render(){
  element('review').textContent=state.active&&!state.pending?'Review':'Compare';
  element('review').className=state.canApply&&!state.pending?'secondary':'primary';
  element('apply').hidden=!state.canApply||state.pending;
- element('progress').textContent=state.pending?'Ready to compare':state.applied?'Applied':state.progress||'';
+ element('progress').textContent=state.pending?'Ready to compare':state.progress||(state.applied?'Applied':'');
  element('progress').hidden=!element('progress').textContent;
  element('comments').checked=state.commentsEnabled!==false;
  element('highlights').checked=state.highlights!==false;
