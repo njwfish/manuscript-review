@@ -7,8 +7,8 @@ function fixture(options={}){
  const disposable=()=>({dispose(){}});
  const view={active:false,webview:{cspSource:'vscode-resource:',html:'',asWebviewUri:uri=>uri.fsPath,
   async postMessage(message){messages.push(message);},onDidReceiveMessage(fn){handlers.message=fn;return disposable();}},
-  reveal(){},onDidChangeViewState(fn){handlers.active=fn;return disposable();},onDidDispose(fn){handlers.dispose=fn;return disposable();},dispose(){handlers.dispose();}};
- const vscode={Uri:{file:fsPath=>({scheme:'file',fsPath}),parse:value=>({toString:()=>value})},env:{asExternalUri:async uri=>uri},ViewColumn:{Beside:2},window:{createWebviewPanel(type,title){calls.push({type,title});return view;}}};
+  viewColumn:2,reveal(column){this.viewColumn=column;calls.push({reveal:column});},onDidChangeViewState(fn){handlers.active=fn;return disposable();},onDidDispose(fn){handlers.dispose=fn;return disposable();},dispose(){handlers.dispose();}};
+ const vscode={Uri:{file:fsPath=>({scheme:'file',fsPath}),parse:value=>({toString:()=>value})},env:{asExternalUri:async uri=>uri},ViewColumn:{Beside:2},window:{createWebviewPanel(type,title,placement){calls.push({type,title,placement});view.viewColumn=placement.viewColumn;return view;}}};
  let data={id:'review',revision:1,result:'selected',proposed:'proposal',entry:'main.tex'};
  const preview=()=>({proposed:data.result,proposal:data.proposed,entry:data.entry,preview_status:'ready',documents:{after:{pdf:'after.pdf',pages:[{width:100,height:200}],edits:{edit:[{page:1,bounds:[10,20,30,40]}],next:[{page:1,bounds:null}]}}}});
  const runtime={review:{id:'review',repo:'/manuscript',revision:1},async request(route){calls.push(route);await handlers.request?.(route);return route==='/summary'?{...data}:preview();},async asset(route){calls.push(route);await handlers.asset?.();return {bytes:Buffer.from('%PDF-fixture')};}};
@@ -93,4 +93,30 @@ test('concurrent PDF opening creates one panel and disposal cancels pending star
   const owner=createPDFPanel(vscode,{extensionPath:'/extension'},{review:{id:'review',repo:'/paper'}},{viewer:{start:async()=>{entered();await gate;return 'http://127.0.0.1:1234';}},onAction:async()=>{},onError:()=>{}});
   const first=owner.show();await started;const second=owner.show();if(dispose)owner.dispose();release();await Promise.all([first,second]);assert.equal(views.length,dispose?0:1);owner.dispose();
  }
+});
+
+
+test('PDF placement stays beside the requested source and reopening reuses its group',async()=>{
+ const f=fixture();await f.panel.show(2);
+ assert.equal(f.calls[0].placement.viewColumn,3);
+ await f.panel.show(3);assert.equal(f.calls.at(-1).reveal,4);
+ await f.panel.show(1);assert.equal(f.calls.at(-1).reveal,2);
+ assert.equal(f.calls.filter(call=>call.type==='manuscriptReview.pdf').length,1);f.panel.dispose();
+});
+
+test('service failures are visible in the PDF panel',async()=>{
+ const f=fixture();await f.ready();f.handlers.request=async()=>{throw new Error('Cannot reach the manuscript service.');};
+ await assert.rejects(f.panel.refresh(),/Cannot reach/);
+ assert.equal(f.messages.at(-1).type,'status');assert.match(f.messages.at(-1).text,/Cannot reach/);f.panel.dispose();
+});
+
+
+test('a comparison changed during viewer startup cannot open the obsolete PDF',async()=>{
+ let release,entered,changed=false,created=0;
+ const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve);
+ const vscode={Uri:{file:fsPath=>({fsPath}),parse:value=>({toString:()=>value})},env:{asExternalUri:async uri=>uri},ViewColumn:{Beside:2},window:{createWebviewPanel(){created++;}}};
+ const panel=createPDFPanel(vscode,{extensionPath:'/extension'},{review:{id:'review',repo:'/paper'}},{viewer:{start:async()=>{entered();await gate;return 'http://127.0.0.1:1234';}},onAction:async()=>{},onError:()=>{}});
+ const opening=panel.show(1,()=>{if(changed)throw new Error('The comparison changed.');});
+ await started;changed=true;release();await assert.rejects(opening,/comparison changed/);
+ assert.equal(created,0);panel.dispose();
 });

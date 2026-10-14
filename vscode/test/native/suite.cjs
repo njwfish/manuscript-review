@@ -143,6 +143,8 @@ exports.run=async()=>{
  await document.save();
  await until(()=>document.getText().includes('recorded')&&!document.isDirty);
  await vscode.commands.executeCommand('manuscriptReview.focusedReview');
+ await vscode.commands.executeCommand('manuscriptReview.nextChange');
+ await state.runtime.request('/pdf-entry',{entry:'pdf.tex'});
  // Verify real webview transport and PDF.js rendering with a synthetic selected PDF.
  const selected=await record(),edit=selected.snapshot.files.find(file=>file.path==='main.tex').edits[0];
  const lines=document.getText().trim().split('\n').filter(Boolean),content='BT /F1 12 Tf 36 700 Td '+lines.map((line,index)=>(index?'0 -24 Td ':'')+'('+line.replace(/[\\()]/g,'\\$&')+') Tj').join(' ')+' ET';
@@ -150,9 +152,15 @@ exports.run=async()=>{
  let bytes='%PDF-1.4\n',offsets=[0];objects.forEach((value,index)=>{offsets.push(Buffer.byteLength(bytes));bytes+=(index+1)+' 0 obj\n'+value+'\nendobj\n';});
  const xref=Buffer.byteLength(bytes);bytes+='xref\n0 6\n0000000000 65535 f \n'+offsets.slice(1).map(value=>String(value).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
  const preview=fixture.home+'/reviews/'+fixture.review+'/selected-renders';await fs.mkdir(preview,{recursive:true});await fs.writeFile(preview+'/native-test.pdf',bytes);
- engine("import sys,json;from pathlib import Path;from manuscript_review.library import Library;from manuscript_review.storage import atomic_json;from manuscript_review.render_latex import RENDER_VERSION;from manuscript_review.session import ReviewSession;session=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));record=session.store.read();atomic_json(session.directory/'selected-renders/manifest.json',{'base':record['snapshot']['base'],'proposed':record['result'],'proposal':record['snapshot']['proposed'],'entry':record['snapshot']['entry'],'renderer':RENDER_VERSION,'documents':{'after':{'pdf':'native-test.pdf','pages':[{'width':612,'height':792}],'edits':{sys.argv[3]:[{'page':1,'bounds':[90,80,138,96]}]}}}});record['metadata']['selected_preview_status']='ready';session.store.patch({'metadata':record['metadata']});print(json.dumps({'ready':True}))",edit.id);
+ engine("import sys,json;from pathlib import Path;from manuscript_review.library import Library;from manuscript_review.storage import atomic_json;from manuscript_review.render_latex import RENDER_VERSION;from manuscript_review.session import ReviewSession;session=ReviewSession(Library(sys.argv[1]).directory(sys.argv[2]));record=session.store.read();atomic_json(session.directory/'selected-renders/manifest.json',{'base':record['snapshot']['base'],'proposed':record['result'],'proposal':record['snapshot']['proposed'],'entry':record['snapshot']['entry'],'renderer':RENDER_VERSION,'documents':{'after':{'pdf':'native-test.pdf','pages':[{'width':612,'height':792}],'edits':{edit['id']:[{'page':1,'bounds':[90,80,138,96]}] for file in record['snapshot']['files'] for edit in file['edits']}}}});record['metadata']['selected_preview_status']='ready';session.store.patch({'metadata':record['metadata']});print(json.dumps({'ready':True}))",edit.id);
+ const pairedSource=vscode.window.activeTextEditor.document.uri.fsPath,pairedColumn=vscode.window.activeTextEditor.viewColumn;
  await vscode.commands.executeCommand('manuscriptReview.reviewPDF');
  await until(()=>state.pdfMessages.some(message=>message.type==='rendered')).catch(async error=>{await fs.writeFile(fixture.root+'/pdf-messages.json',JSON.stringify(state.pdfMessages));throw error;});
+ const pdfGroup=vscode.window.tabGroups.all.find(group=>group.tabs.some(tab=>tab.label.startsWith('PDF: ')));
+ assert.equal(vscode.window.visibleTextEditors.some(editor=>editor.document.uri.fsPath===pairedSource&&editor.viewColumn===pairedColumn),true,'Paired PDF must keep source visible');
+ assert.equal(state.pdfMessages.filter(message=>message.direction==='out'&&message.type==='document').at(-1).marks.length,1,'Selected edit must be highlighted in PDF');
+ assert.equal(pdfGroup.viewColumn,pairedColumn+1,'PDF must sit beside source');
+ if(process.env.MR_NATIVE_VISUAL==='pdf')await inspect('pdf');
  assert.equal(state.pdfMessages.some(message=>message.type==='error'),false,'The real PDF webview must decode and render selected PDF bytes');
  assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false);
  assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:fixture.repo,encoding:'utf8'}).trim(),fixture.head);

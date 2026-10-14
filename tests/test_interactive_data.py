@@ -108,7 +108,7 @@ class InteractiveDataTests(ReviewFixture):
         record['metadata']['preview_status'] = 'ready'
         self.session.store.commit(record)
         atomic_json(self.directory / 'renders/manifest.json', {
-            'base': record['snapshot']['base'], 'proposed': record['snapshot']['proposed'],
+            'base': record['snapshot']['base'], 'proposed': record['snapshot']['proposed'], 'entry': record['snapshot']['entry'],
             'renderer': RENDER_VERSION, 'passages': {'one': {'after': {'asset': 'after-one.svg'}}}, 'documents': {}})
         self.assertEqual(self.session.status()['revision'], record['revision'])
         with patch.object(self.session.store, 'read', side_effect=AssertionError('Unchanged status should use its summary.')):

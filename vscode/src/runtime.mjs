@@ -6,7 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 
 const identifier = /^[a-f0-9]{24}$/;
 const libraryWrites = new Set(['/inspect', '/source', '/agent-models', '/prepare', '/manuscript', '/update', '/open', '/clone', '/fetch', '/import']);
-const reviewWrites = new Set(['/editor', '/capture', '/authoring', '/delivery', '/agents', '/note', '/thread', '/save', '/apply', '/draft', '/agent']);
+const reviewWrites = new Set(['/pdf-entry', '/editor', '/capture', '/authoring', '/delivery', '/agents', '/note', '/thread', '/save', '/apply', '/draft', '/agent']);
 const reviewReads = new Set(['/editor', '/delivery', '/agents']);
 const libraryReads = new Set(['/inspect', '/source', '/agent-models', '/open']);
 
@@ -21,7 +21,7 @@ function localURL(value) {
 
 function reviewRoute(path, writing) {
     if (writing) return reviewWrites.has(path);
-    return path === '/status' || path === '/summary' || path === '/previews?scope=selected'
+    return path === '/status' || path === '/summary' || path === '/pdf-entry' || path === '/previews?scope=selected'
         || /^\/data\?scope=round(?:&file=[^#]*)?$/.test(path);
 }
 

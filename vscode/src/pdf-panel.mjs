@@ -40,7 +40,7 @@ export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError,s
     const document=preview.documents.after;
     if(!document?.pdf){
      const pending=['queued','rendering'].includes(preview.preview_status);
-     post({type:'status',text:pending?'Updating PDF…':preview.preview_error||document?.error||'No PDF for this manuscript.'});
+     post({type:'status',text:pending?'Updating PDF…':preview.preview_error||document?.error||'Choose a PDF document in the Manuscript Review sidebar.'});
      if(pending)schedule();
      return;
     }
@@ -54,24 +54,27 @@ export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError,s
     documentKey=key;
     cached={data,document};
     await publish(data,document,key,bytes);
-    }catch(error){if(ticket===generation&&runtime.review?.id===review)throw error;again=Boolean(panel&&ready&&!disposed);}
+    }catch(error){if(ticket===generation&&runtime.review?.id===review){await post({type:'status',text:error.message});throw error;}again=Boolean(panel&&ready&&!disposed);}
    }while(again&&panel);
   })().finally(()=>{refreshing=undefined;});
   return refreshing;
  }
- async function show(){
+ async function show(sourceColumn,check=()=>{}){
   if(disposed)return;
-  if(panel){panel.reveal(vscode.ViewColumn.Beside,true);return refresh();}
+  check();
+  if(panel){panel.reveal(Number.isInteger(sourceColumn)&&sourceColumn>0?column(sourceColumn):panel.viewColumn??vscode.ViewColumn.Beside,true);return refresh();}
   if(opening)return opening;
-  opening=create().finally(()=>{opening=undefined;});return opening;
+  opening=create(sourceColumn,check).finally(()=>{opening=undefined;});return opening;
  }
- async function create(){
+ function column(sourceColumn){return Number.isInteger(sourceColumn)&&sourceColumn>0?sourceColumn+1:vscode.ViewColumn.Beside;}
+ async function create(sourceColumn,check){
   const id=randomUUID();instance=id;ready=false;generation++;
   const local=new URL('viewer.html',await viewer.start());
   const address=(await vscode.env.asExternalUri(vscode.Uri.parse(local.href))).toString(),origin=new URL(address).origin;
   if(disposed)return;
+  check();
   panel=vscode.window.createWebviewPanel('manuscriptReview.pdf','PDF: '+path.basename(runtime.review.repo),
-   {viewColumn:vscode.ViewColumn.Beside,preserveFocus:true},{enableScripts:true,retainContextWhenHidden:true,localResourceRoots:[vscode.Uri.file(path.join(context.extensionPath,'dist'))]});
+   {viewColumn:column(sourceColumn),preserveFocus:true},{enableScripts:true,retainContextWhenHidden:true,localResourceRoots:[vscode.Uri.file(path.join(context.extensionPath,'dist'))]});
   const current=panel,script=panel.webview.asWebviewUri(vscode.Uri.file(path.join(context.extensionPath,'dist/pdf-panel.js')));
   panel.webview.html='<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src '+panel.webview.cspSource+'; style-src \'unsafe-inline\'; frame-src '+origin+';"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--vscode-editor-background);color:var(--vscode-editor-foreground)}iframe{width:100%;height:100%;border:0}#status{padding:24px;font:var(--vscode-font-size)/1.5 var(--vscode-font-family)}[hidden]{display:none}</style></head><body data-instance="'+id+'"><p id="status">Updating PDF…</p><iframe id="pdf" title="Manuscript PDF" hidden></iframe><script src="'+script+'"></script></body></html>';
   const subscriptions=[
@@ -97,7 +100,7 @@ export function createPDFPanel(vscode,context,runtime,{viewer,onAction,onError,s
    selection=file?{file,edit,revision,removed,decided,review,token}:undefined;return updateSelection();
   },
   reset(){generation++;cached=selection=documentKey=displayed=undefined;clearTimeout(timer);post({type:'status',text:'Updating PDF…'});},
-  setMode(value){reviewing=value;void updateSelection()?.catch(onError);},get active(){return Boolean(panel?.active);},
+  setMode(value){reviewing=value;void updateSelection()?.catch(onError);},get active(){return Boolean(panel?.active);},get visible(){return Boolean(panel?.visible);},
   dispose(){disposed=true;generation++;clearTimeout(timer);panel?.dispose();}};
 }
 

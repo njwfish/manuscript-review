@@ -22,7 +22,7 @@ function render(){
  element('unresolved').textContent=`${state.unresolved||0} unresolved`;
  element('agent-label').textContent=state.agent||'Codex';element('agent').title='Choose the agent for comment requests';
  element('model').textContent=state.model||'CLI default';element('model').title='Choose the model for comment requests';
- document.querySelectorAll('button,input').forEach(control=>{control.disabled=busy;});
+ document.querySelectorAll('button,input').forEach(control=>{control.disabled=busy||control.id==='pdf'&&(!state.active||state.pending);});
 }
 const send=action=>api.postMessage({action,review:state.review,revision:state.revision,folder:state.folder,fromVersion:state.fromVersion,toVersion:state.toVersion,entry:state.entry});
 document.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('click',()=>send(button.dataset.action)));
