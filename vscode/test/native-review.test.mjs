@@ -31,13 +31,13 @@ function fixture(options={}){
  function update(){const file=files.find(file=>docs.get(file.path)===editor.document);controls.update({document:editor.document,reviewId:data.id,file:file.path,revision:data.revision,text:editor.document.text,ranges:file.edits.map(edit=>({id:edit.id,from:edit.from,to:edit.to}))},data);}
  controls=createNativeReview(vscode,{runtime:()=>runtime,sourceEdits:()=>sourceEdits,delivery:()=>delivery,enabled:()=>options.enabled!==false,
   async onOpen({file,edit}){calls.push({open:[file,edit]});editor.document=docs.get(file);callbacks.active();editor.selection.active=files.find(item=>item.path===file).edits.find(item=>item.id===edit)?.from??0;update();return editor;},
-  onChange:async()=>{calls.push('changed');update();},onComment:selected=>{calls.push({comment:selected.span.id});return options.thread||editor;},onFocus:(file,edit,_selected,mode)=>calls.push({focus:[file,edit],mode}),onMode:mode=>calls.push({mode}),onError:error=>errors.push(error.message)});
+  onChange:async()=>{calls.push('changed');update();},onComment:selected=>{calls.push({comment:selected.span.id});options.openComment?.(selected,controls);return options.thread||editor;},onFocus:(file,edit,_selected,mode)=>calls.push({focus:[file,edit],mode}),onMode:mode=>calls.push({mode}),onError:error=>errors.push(error.message)});
  update();calls.length=0;metrics.reads=metrics.scans=metrics.lenses=0;
  return {controls,update,metrics,doc:editor.document,editor,runtime,get data(){return data;},vscode,calls,errors,callbacks,status,decide:(...args)=>commands.get('manuscriptReview.decideSource')(...args),lenses:()=>callbacks.provider.provideCodeLenses(editor.document)};
 }
 
 test('native controls use the single source delivery owner and immediately advance',async()=>{
- const f=fixture(),lenses=f.lenses();assert.deepEqual(lenses.map(lens=>lens.command.title),['Accept','Reject','Previous','Next','Comment','Review']);
+ const f=fixture(),lenses=f.lenses();assert.deepEqual(lenses.map(lens=>lens.command.title),['Accept','Reject','Back','Next','Comment','Review']);
  await f.decide(...lenses[1].command.arguments);
  assert.deepEqual(f.calls.filter(call=>call.route||call.delivery||call==='changed'),[{route:'/save',body:{revision:1,decisions:{first:'reject'},comments:{thread:'Keep context.'}}},{delivery:{force:true}},'changed']);
  assert.equal(f.doc.text,'A old then clear sentence.');assert.equal(f.editor.selection.active,11);assert.deepEqual(f.errors,[]);
@@ -45,7 +45,7 @@ test('native controls use the single source delivery owner and immediately advan
 
 test('focused inline controls expose the keyboard workflow and clicking another edit retains it',async()=>{
  const f=fixture();await f.controls.begin();
- assert.deepEqual(f.lenses().map(lens=>lens.command.title),['Accept A','Reject S','Previous D','Next F','Comment C','Edit E']);
+ assert.deepEqual(f.lenses().map(lens=>lens.command.title),['Accept A','Reject S','Back D','Next F','Comment C','Edit E']);
  f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});
  assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses()[0].command.arguments[3],'second');
  f.controls.edit();assert.equal(f.status.text,'0/2');assert.equal(f.lenses().at(-1).command.title,'Review');
@@ -131,7 +131,7 @@ test('comment input pauses keyboard review and completing it restores the same e
  assert.equal(f.calls.findIndex(call=>call.mode===false)<f.calls.findIndex(call=>call.comment==='first'),true);
  assert.equal(f.status.text,'0/2');assert.equal(f.lenses().at(-1).command.title,'Review');
  await f.controls.comment();
- f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};f.callbacks.active();
+ f.vscode.window.activeTextEditor=undefined;f.callbacks.active();
  f.runtime.review.revision++;f.callbacks.active();f.data.revision++;f.update();
  f.vscode.window.activeTextEditor=f.editor;f.callbacks.active();await f.controls.finishComment(f.editor,async()=>true);
  assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses().at(-1).command.title,'Edit E');
@@ -251,7 +251,7 @@ test('source keyboard movement invalidates the comment return intent, including 
  const f=fixture();await f.controls.begin();await f.controls.comment();
  f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Keyboard});
  assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
- await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),true);
  assert.equal(f.lenses().at(-1).command.title,'Review');
 });
 
@@ -268,7 +268,7 @@ test('switching source editors cancels paused review before commenting there',as
  const f=fixture();await f.controls.begin();await f.controls.comment();
  f.vscode.window.activeTextEditor={...f.editor,viewColumn:2};f.callbacks.active();
  assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
- await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),false);
+ await f.controls.comment();assert.equal(await f.controls.finishComment(f.editor,async()=>true),true);
  assert.equal(f.lenses().at(-1).command.title,'Review');
 });
 
@@ -278,11 +278,31 @@ test('recreated source editor handles retain the same document and column return
  assert.equal(await f.controls.finishComment(f.editor,async ready=>ready()),true);
 });
 
-test('reopening an input captures its already active document without another focus event',async()=>{
+test('sidebar focus retains source ownership without a native comment document',async()=>{
  const f=fixture();await f.controls.begin();
  const opening=f.controls.comment();
- f.vscode.window.activeTextEditor={document:{uri:{scheme:'comment'}}};await opening;
+ f.vscode.window.activeTextEditor=undefined;await opening;
  assert.equal(await f.controls.finishComment(f.editor,async ready=>{
   assert.equal(ready(),true);f.vscode.window.activeTextEditor=f.editor;return true;
  }),true);
+});
+
+test('ordinary comment return captures the intentional edit-start caret without entering review mode',async()=>{
+ const f=fixture({openComment:(selected,controls)=>{
+  selected.editor.selection.active=selected.span.from;
+  controls.holdComment(selected.editor,selected.editor.document);
+ }});f.editor.selection.active=3;
+ await f.controls.comment();
+ let prepared=false;
+ assert.equal(await f.controls.finishComment(f.editor,async owns=>{prepared=owns();return prepared;}),true);
+ assert.equal(prepared,true);assert.equal(f.lenses().at(-1).command.title,'Review');
+});
+
+test('generic sidebar comments return to the active column when a document is open twice',async()=>{
+ const f=fixture(),thread={};
+ const first={...f.editor,viewColumn:1},second={...f.editor,viewColumn:2};
+ f.vscode.window.visibleTextEditors=[first,second];f.vscode.window.activeTextEditor=second;
+ f.controls.holdComment(thread,f.editor.document);
+ assert.equal(await f.controls.finishComment(thread,async owns=>owns()),true);
+ assert.equal(f.lenses().at(-1).command.title,'Review');
 });

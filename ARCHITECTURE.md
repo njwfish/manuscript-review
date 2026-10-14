@@ -92,10 +92,13 @@ caret at the original start without selecting the quoted passage. Native comment
 ranges stay empty to avoid a persistent stripe down the file; source annotation uses
 the selection action, keyboard shortcut, and context menu. Without an adjacent break,
 VS Code can still repeat its native glyph on wrapped rows.
-Opening a discussion creates or resumes one native comment editor. Its unsent input
-is local to that thread; submission uses the same discussion operation as a reply.
-If saving fails after VS Code closes its input, the controller restores an editable
-comment with the unsaved wording. Review letter shortcuts exclude comment editors.
+Opening a discussion creates or resumes its draft in the existing sidebar. Saved
+messages and margin markers remain native, read-only comment threads. `comments.mjs`
+owns draft text and identity; `sidebar.js` owns input sizing, focus and keyboard handling.
+Typing stays local and does not mutate saved messages. Submission uses the existing
+note operation; failed writes retain the same input and anchor. A successful write
+closes that input before background refresh, so a refresh failure cannot duplicate it.
+Stale input IDs and comments from another review cannot submit into the current draft.
 A focused review pauses for its comment input and resumes at the same edit on completion.
 The return is pinned to that thread and input generation; reopening input, moving the
 source cursor or editing cancels an older return before it can take focus.
@@ -166,7 +169,7 @@ review ID, file path, and exact Git version in the document URI. The library's
 `/source` operation reads that immutable text without changing the selected review
 or its record. Existing native buffers take precedence, preserving unsaved work.
 An open saved-source document retains its identity across decisions and file
-restoration, keeping native reply editors intact. Saved-source documents never
+restoration, keeping saved threads and sidebar drafts intact. Saved-source documents never
 recreate files or enter source-save capture. Historical projection and follow-up
 notes use the discussion's pinned context even when both current versions lack its file.
 
