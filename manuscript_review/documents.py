@@ -71,6 +71,24 @@ def manuscript_files(record):
     return sorted(files, key=lambda file: (file['path'] != entry, file['supporting'], file['path']))
 
 
+def latex_entries(record):
+    """Find regular LaTeX roots in the selected version, including renamed files."""
+    snapshot = record['snapshot']
+    entries = []
+    for item in filter(None, git(snapshot['repo'], 'ls-tree', '-rz', record['result']).split(b'\0')):
+        header, filename = item.split(b'\t', 1)
+        path = filename.decode()
+        if not header.startswith(b'100644 ') or not path.endswith('.tex'):
+            continue
+        try:
+            source = read_blob(snapshot['repo'], record['result'], path)
+        except UnicodeError:
+            continue
+        if source is not None and '\\documentclass' in source:
+            entries.append(path)
+    return sorted(entries, key=lambda path: (path not in ('main.tex', 'paper.tex', 'manuscript.tex'), len(path), path))
+
+
 def source_point(text, offset):
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
         raise ValueError('A comment needs a valid text selection.')

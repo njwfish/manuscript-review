@@ -57,6 +57,8 @@ class Handler(BaseHTTPRequestHandler):
                 job['pending'] -= 1
                 return self.reply({'status': 'preparing'})
             return self.reply(job['result'])
+        if self.path == '/pdf-entry':
+            return self.reply({'revision': revision, 'entry': 'main.tex', 'entries': ['main.tex']})
         if self.path == '/summary':
             return self.reply({'id': opened, 'revision': revision})
         if self.path.startswith('/data'):
@@ -390,4 +392,12 @@ test('selection drains late source input before committing and retries an intake
  const next='b'.repeat(24);
  await runtime.open(next,{beforeSelect:async()=>{if(pending){assert.equal(runtime.review.id,reviewId);await runtime.request('/note',{comment:'Late Save'});pending=false;captures++;}},canSelect:()=>!pending});
  assert.equal(captures,1);assert.equal(runtime.review.id,next);
+});
+
+
+test('PDF entry requests cross the validated read and write boundary',async t=>{
+ const {runtime}=await synthetic(t);await runtime.open(reviewId);
+ const data=await runtime.request('/pdf-entry');assert.deepEqual(data.entries,['main.tex']);
+ const changed=await runtime.request('/pdf-entry',{revision:data.revision,entry:'main.tex'});
+ assert.equal(changed.revision,runtime.review.revision);
 });

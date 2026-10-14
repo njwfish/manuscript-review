@@ -21,6 +21,7 @@ git('init','-q');git('config','user.name','Review Test');git('config','user.emai
 const text='We score measured leaves. '+
  'This synthetic paragraph provides enough surrounding prose to inspect wrapping and focused review in a narrow editor. '.repeat(5)+
  '\n\nWe retain the explanation.\n\n\\begin{equation}\nx = a + b\n\\end{equation}\n';
+await writeFile(path.join(repo,'pdf.tex'),'\\documentclass{article}\n\\begin{document}Synthetic PDF root.\\end{document}\n');
 await writeFile(path.join(repo,'main.tex'),text);await writeFile(path.join(repo,'second.tex'),'We retain additional context.\n');git('add','.');git('commit','-qm','Starting draft');
 const head=git('rev-parse','HEAD');
 const review=execFileSync(python,['-c',`import sys;from manuscript_review.library import Library
@@ -59,7 +60,7 @@ await build({entryPoints:[path.join(source,'extension.mjs')],bundle:true,platfor
         const post=panel.webview.postMessage.bind(panel.webview);
         Object.defineProperty(panel.webview,'postMessage',{value:async message=>{
           const delivered=await post(message);
-          globalThis.nativeReviewTest.pdfMessages.push({direction:'out',type:message.type,url:message.url,document:message.document,delivered});
+          globalThis.nativeReviewTest.pdfMessages.push({direction:'out',type:message.type,url:message.url,document:message.document,selection:message.selection,marks:message.marks,delivered});
           return delivered;
         }});
         return panel;

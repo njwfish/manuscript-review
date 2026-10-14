@@ -10,8 +10,8 @@ PREVIEW_SCOPES = {
     'selected': ('selected-renders', 'selected_preview_status', 'selected_preview_error'),
 }
 PREVIEW_VERSIONS = {
-    'round': {'base': 'base', 'proposed': 'proposed'},
-    'baseline': {'base': 'baseline', 'proposed': 'result'},
+    'round': {'base': 'base', 'proposed': 'proposed', 'entry': 'entry'},
+    'baseline': {'base': 'baseline', 'proposed': 'result', 'entry': 'entry'},
     'selected': {'base': 'base', 'proposed': 'result', 'proposal': 'proposed', 'entry': 'entry'},
 }
 

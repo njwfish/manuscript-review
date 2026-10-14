@@ -32,7 +32,7 @@ button,input{font:inherit}button{cursor:pointer;color:inherit;border:0;border-ra
  <span>From</span><button id="from" class="version" aria-label="From" data-action="base"></button>
  <span>To</span><button id="to" class="version" aria-label="To" data-action="proposed"></button>
  <span>PDF</span><button id="entry" class="version" aria-label="PDF" data-action="entry"></button>
-</div><div class="actions"><button id="review" class="primary" data-action="review">Compare</button><button class="secondary" data-action="agentChanges" title="Compare your saved draft to accumulated agent changes">Agent changes</button><button id="apply" class="secondary" data-action="apply" hidden>Apply review</button></div><p id="progress" class="progress" hidden></p></div>
+</div><div class="actions"><button id="review" class="primary" data-action="review">Compare</button><button class="secondary" data-action="agentChanges" title="Compare your saved draft to accumulated agent changes">Agent changes</button><button id="pdf" class="secondary" data-action="pdf">PDF beside source</button><button id="apply" class="secondary" data-action="apply" hidden>Apply review</button></div><p id="progress" class="progress" hidden></p></div>
 <div class="comments"><div id="editing-row" class="versions" hidden><span>Edit</span><button id="editing" class="version" data-action="editing"></button></div>
  <label class="toggle"><input id="highlights" type="checkbox" checked>Review highlights</label>
  <label class="toggle"><input id="removals" type="checkbox" checked>Original on focus</label>
@@ -45,7 +45,7 @@ button,input{font:inherit}button{cursor:pointer;color:inherit;border:0;border-ra
 
 export function createSidebar(vscode,context,{load,onAction,onError}){
  let view,generation=0,disposed=false,busy=false;
- const actions=new Set(['repository','base','proposed','entry','review','apply','previous','next','agent','model','sessions','agentChanges','comments','highlights','removals','editing']);
+ const actions=new Set(['repository','base','proposed','entry','review','apply','previous','next','agent','model','sessions','agentChanges','comments','highlights','removals','editing','pdf']);
  const subscriptions=[vscode.window.registerWebviewViewProvider('manuscriptReview.start',{
   resolveWebviewView(next){
    view=next;next.webview.options={enableScripts:true,localResourceRoots:[vscode.Uri.file(path.join(context.extensionPath,'dist'))]};

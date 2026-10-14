@@ -17,7 +17,7 @@ from .history import add_explanations, add_responses, build_history, round_id, a
 from .previews import Previews, preview_assets, PREVIEW_SCOPES, preview_versions
 from .storage import ReviewStore, read_json, FileLock, atomic_json, StaleReview
 from .versions import source_version, selected_version
-from .documents import document_file, manuscript_files, source_point, saved_source, review_payload, selected_snapshot
+from .documents import document_file, manuscript_files, source_point, saved_source, review_payload, selected_snapshot, latex_entries
 from .render_latex import RENDER_VERSION
 from .workspace import edit_checkout, working_directory, same_repository
 from .merging import merge_text
@@ -200,6 +200,31 @@ class ReviewSession:
         state = self._status()
         return {'id': state['id'], 'revision': state['revision'], 'authoring': state.get('authoring', False),
                 **(self.review_context() if self.review_context else {})}
+
+    def pdf_entries(self):
+        with self.store.transaction():
+            record = self.store.read()
+            return {'revision': record['revision'], 'entry': record['snapshot']['entry'],
+                    'entries': latex_entries(record)}
+
+    def set_pdf_entry(self, request):
+        """Change the rendering root without changing source versions or review choices."""
+        with self.store.transaction():
+            record = self.store.read()
+            self.check_revision(request, record)
+            entry = request['entry']
+            if not isinstance(entry, str):
+                raise ValueError('Choose a LaTeX document or Source only.')
+            if entry and entry not in latex_entries(record):
+                raise ValueError('Choose a LaTeX document present in the selected manuscript version.')
+            if entry != record['snapshot']['entry']:
+                record['snapshot']['entry'] = record['metadata']['entry'] = entry
+                for _, status_key, error_key in PREVIEW_SCOPES.values():
+                    record['metadata'][status_key] = 'queued' if entry else 'none'
+                    record['metadata'].pop(error_key, None)
+                record['revision'] += 1
+                self.store.commit(record)
+            return {'revision': record['revision'], 'entry': entry}
 
     def preview(self, scope='round'):
         scope = 'round' if scope == 'manuscript' else scope

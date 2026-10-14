@@ -125,7 +125,12 @@ the native owner. It displays the selected result, including rejected wording, w
 round edit IDs projected onto that result. The selected preview cache is separate
 from the standalone before/after excerpt caches and skips page-to-SVG conversion.
 Selections update cached PDF marks without compiling or rereading source.
-An already open matching Workshop PDF follows saved source through SyncTeX.
+The sidebar opens PDF beside the source and lets the author select a root from the
+selected source version. `/pdf-entry` changes only the rendering root; preview identities
+include it in every scope. Renamed or removed roots are replaced when PDF is opened,
+using the sole available root or a picker. The panel reuses its viewer beside the source
+and displays rendering errors. An already open matching Workshop PDF follows saved
+source through SyncTeX.
 
 Apply checks unsaved repository buffers immediately before sending its queued
 transaction; the engine retains source, revision and Git checks. Comparing saved

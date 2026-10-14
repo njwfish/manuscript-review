@@ -43,6 +43,8 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                         session.previews.queue('round' if scope == 'manuscript' else scope)
                 except ValueError as error:
                     self.response({'error': str(error)}, status=400)
+            elif self.path == '/pdf-entry':
+                self.response(session.pdf_entries())
             elif self.path == '/summary':
                 self.response(session.summary())
             elif self.path == '/status':
@@ -82,6 +84,8 @@ def create_server(directory, port=0, library_url=None, review_context=None, *, s
                     result = session.edit_workspace(request)
                 elif self.path == '/capture':
                     result = session.capture_file(request, interactive=True)
+                elif self.path == '/pdf-entry':
+                    result = session.set_pdf_entry(request)
                 elif self.path == '/authoring':
                     result = session.authoring(request, interactive=True)
                 elif self.path == '/delivery':

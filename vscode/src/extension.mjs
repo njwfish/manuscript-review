@@ -403,7 +403,7 @@ export function activate(context){
    comments:async()=>{const enabled=!commentsEnabled();await context.globalState.update('commentsEnabled',enabled);comments.setEnabled(enabled);updateSourceContext();if(enabled)await restoreSourceReview(vscode.window.activeTextEditor?.document);},
    agent:chooseAgent,model:chooseModel,sessions:openAgentSession,agentChanges:showAgentChanges,previous:()=>comments.move(-1),next:()=>comments.move(1),
    repository:async()=>{await start();const info=await chooseComparisonRepository();if(info)setComparison({...comparisonState(vscode,info),pending:true});},
-   base:()=>editComparison('base'),proposed:()=>editComparison('proposed'),entry:()=>editComparison('entry'),
+   base:()=>editComparison('base'),proposed:()=>editComparison('proposed'),entry:()=>runtime?.review&&!comparison?.pending?choosePDFEntry():editComparison('entry'),pdf:showPDF,
    review:()=>navigateReview(()=>openComparison(expected)),
    apply:async()=>{if(!await ensureReview())return;const review=runtime.review.id;await sourceEdits.flush();const data=await runtime.data();
     if(data.id!==review||expected?.review&&expected.review!==data.id||!comparisonMatches(comparison,data)||expected?.revision!==undefined&&expected.revision!==data.revision)throw new Error('The review changed. Check the current choices before applying.');
@@ -411,6 +411,38 @@ export function activate(context){
   };
   if(!Object.hasOwn(actions,action))throw new Error('Choose a review control.');
   return actions[action]();
+ }
+ async function choosePDFEntry(open=false){
+  const id=runtime.review.id,epoch=comparisonEpoch;
+  const data=await runtime.request('/pdf-entry');
+  if(runtime.review?.id!==id||epoch!==comparisonEpoch)throw new Error('The comparison changed. Open PDF setup again.');
+  if(open&&data.entries.includes(data.entry))return true;
+  if(open&&!data.entries.length)throw new Error('This selected version has no LaTeX document to render. Choose a version containing a documentclass declaration.');
+  const choice=open&&data.entries.length===1?data.entries[0]:await vscode.window.showQuickPick(
+   open?data.entries:[...data.entries,'Source only'],{title:'PDF document',placeHolder:'LaTeX root in the selected manuscript version'});
+  if(choice===undefined)return false;
+  if(runtime.review?.id!==id||epoch!==comparisonEpoch)throw new Error('The comparison changed. Open PDF setup again.');
+  const entry=choice==='Source only'?'':choice;
+  if(entry!==data.entry){
+   await runtime.request('/pdf-entry',{revision:data.revision,entry});
+   const summary=await runtime.request('/summary');
+   if(runtime.review?.id!==id||epoch!==comparisonEpoch)throw new Error('The comparison changed while setting its PDF document.');
+   comparison=reviewComparison(comparison,summary);
+   pdf.reset();await refreshSource();await pdf.refresh();
+  }
+  return Boolean(entry);
+ }
+ async function showPDF(){
+  if(!await ensureReview())return;
+  if(comparison?.pending)throw new Error('Compare the selected versions before opening their PDF.');
+  const id=runtime.review.id,epoch=comparisonEpoch;
+  const check=()=>{if(runtime.review?.id!==id||comparisonEpoch!==epoch||comparison?.pending)throw new Error('The comparison changed. Open its PDF again.');};
+  await sourceEdits.flush();check();
+  if(!await choosePDFEntry(true))return;check();
+  await refreshSource();check();
+  const active=vscode.window.activeTextEditor;
+  const editor=sourceFile(runtime.review,active?.document)?active:vscode.window.visibleTextEditors.find(editor=>sourceFile(runtime.review,editor.document));
+  await pdf.show(editor?.viewColumn,check);
  }
  async function editComparison(field){
   const current=await currentComparison();if(!current)return;
@@ -499,7 +531,7 @@ export function activate(context){
  command('toggleReviewedChanges',async()=>{const value=!reviewedEnabled();await context.workspaceState.update('reviewedEnabled',value);decorations.setReviewed(value);await pdf?.refresh();});
  command('editSource',()=>nativeReview.edit());
  command('exitReview',async()=>{nativeReview.edit();await setHighlights(false);await refreshSource();});
- command('reviewPDF',async()=>{if(await ensureReview()){await sourceEdits.flush();await pdf.show();}});
+ command('reviewPDF',showPDF);
  command('refresh',async()=>{if(!await ensureReview())return;await refreshSource();void pdf.refresh().catch(fail);});
  command('reviewSavedChanges',reviewSavedChanges);
  command('compare',()=>compareVersions());

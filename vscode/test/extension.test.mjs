@@ -69,10 +69,10 @@ async function fixture(t,options={}) {
     async prepare(route,body){calls.push({kind:'prepare',route,body});if(body.repo)preparedRepo=body.repo;return route==='/clone'?{repo:options.clonedRepo}:{review:reviewId};},
     async open(id,selectionOptions={}){await selectionOptions.beforeSelect?.();await options.onBeforeSelect?.();calls.push({kind:'open',id});calls.push({kind:'request',route:'/workspace',body:{}});selected={id,repo:preparedRepo||repo,revision:1,feedback_path:record,workspace:options.workspace||preparedRepo||repo,workspace_version:'2'.repeat(40)};return {files:options.files??[{edits:[{id:'edit'}]}]};},
     async data(){await options.onData?.();return {id:selected.id,repo:selected.repo,workspace:selected.workspace,workspace_version:selected.workspace_version,revision:selected.revision,base:'1'.repeat(40),proposed:'2'.repeat(40),base_label:'Starting draft',proposal_label:'Proposal',entry:'main.tex',files:options.files??[{edits:[{id:'edit'}]}],decisions:options.decisions||{},comments:options.comments||{},history:[],resolved:[],drafts:options.drafts||{}};},
-    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
+    async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route==='/pdf-entry')return body?{revision:++selected.revision,entry:body.entry}:{revision:selected.revision,entry:options.pdfEntry??'main.tex',entries:options.pdfEntries??['main.tex']};if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
-  const pdf={active:false,reset(){},select(){return Promise.resolve();},setMode(){},async show(){calls.push({kind:'show-pdf'});},async refresh(){calls.push({kind:'pdf-refresh'});},dispose(){calls.push({kind:'dispose-pdf'});}};
+  const pdf={active:false,reset(){},select(){return Promise.resolve();},setMode(){},async show(column){calls.push({kind:'show-pdf',column});},async refresh(){calls.push({kind:'pdf-refresh'});},dispose(){calls.push({kind:'dispose-pdf'});}};
   const comments={setEnabled(enabled){calls.push({kind:'comments-enabled',enabled});},setAgent(label){calls.push({kind:'comment-agent',label});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){await commentsCallbacks.onSource(editor.document);calls.push({kind:'annotate',editor});},
     async discuss(selected){calls.push({kind:'discuss',selected});},async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
   const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
@@ -747,4 +747,49 @@ test('Review changes rechecks its displayed round when queued navigation complet
  const pending=assert.rejects(f.sidebarCallbacks.onAction('review',{review:reviewId,folder:f.repo}),/(review|comparison) changed/i);
  release();await opening;await pending;
  assert.equal(f.runtime.review.id,'b'.repeat(24));
+});
+
+
+test('PDF beside source repairs a removed root without preparing another comparison',async t=>{
+ const f=await fixture(t,{pdfEntry:'removed.tex'});await f.command('open');
+ const preparations=f.calls.filter(call=>call.kind==='prepare').length;
+ await f.command('reviewPDF');
+ assert.equal(f.errors.length,0);
+ assert.equal(f.calls.filter(call=>call.kind==='prepare').length,preparations);
+ assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/pdf-entry'&&call.body)?.body.entry,'main.tex');
+ assert.equal(f.calls.find(call=>call.kind==='show-pdf').column,1);
+});
+
+test('PDF beside source uses the active manuscript column',async t=>{
+ const f=await fixture(t);await f.command('open');f.editor.viewColumn=2;
+ await f.command('reviewPDF');assert.equal(f.errors.length,0);
+ assert.equal(f.calls.find(call=>call.kind==='show-pdf').column,2);
+});
+
+test('missing PDF roots report a concrete error without opening an empty viewer',async t=>{
+ const f=await fixture(t,{pdfEntry:'removed.tex',pdfEntries:[]});await f.command('open');
+ await f.command('reviewPDF');assert.match(f.errors.at(-1),/no LaTeX document/);
+ assert.equal(f.calls.some(call=>call.kind==='show-pdf'),false);
+});
+
+
+test('changing only the PDF root preserves the comparison and refreshes its open panel',async t=>{
+ const f=await fixture(t,{pdfEntry:'removed.tex',pick:items=>items.find(item=>item==='main.tex')});await f.command('open');
+ await f.sidebarCallbacks.load();const before=f.calls.filter(call=>call.kind==='prepare').length;
+ await f.sidebarCallbacks.onAction('entry');
+ assert.equal(f.calls.filter(call=>call.kind==='prepare').length,before);
+ assert.equal(f.calls.some(call=>call.kind==='pdf-refresh'),true);
+ const state=await f.sidebarCallbacks.load();assert.equal(state[0].pending,undefined);
+});
+
+test('a PDF root write cannot overwrite a newer staged comparison',async t=>{
+ let entered,release,armed=false;
+ const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);
+ const f=await fixture(t,{pdfEntry:'removed.tex',pick:(items,config)=>config.title==='PDF document'?'main.tex':items.find(item=>item.revision==='working'),
+  onData:async()=>{if(armed){armed=false;entered();await gate;}}});
+ await f.command('open');await f.sidebarCallbacks.load();armed=true;
+ const changing=f.sidebarCallbacks.onAction('entry');await started;
+ await f.sidebarCallbacks.onAction('proposed');release();
+ await assert.rejects(changing,/comparison changed/);
+ const state=await f.sidebarCallbacks.load();assert.equal(state[0].proposed.revision,'working');assert.equal(state[0].pending,true);
 });

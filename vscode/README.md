@@ -45,8 +45,9 @@ button starts focused review in the source editor. No separate text review tab o
 saved rounds by manuscript. **Import saved review** imports a `review.json` through
 the shared record operations.
 
-**Compare versions** opens this sidebar. Click **From**, **To**, or **PDF** to change
-a field, then choose **Compare** to open that pair and its proposal source. The current review and its
+**Compare versions** opens this sidebar. Click **From** or **To** to change
+a version, then choose **Compare** to open that pair and its proposal source. **PDF** selects the LaTeX root for rendering; changing it in an open review preserves
+the comparison and all decisions. The current review and its
 decisions stay intact while you choose another comparison.
 Source highlights clear until you open the chosen comparison.
 Version pickers group review drafts, branches and tags, and commits; search by name,
@@ -131,7 +132,7 @@ file, **U** resets a decision, and **C** opens an editable native comment. **E/E
 to ordinary editing. Outside focus mode, **Ctrl+Alt+D/F** navigates highlighted edits.
 **Exit review** in the editor title turns off highlights and review shortcuts.
 
-**Open manuscript PDF** in the sidebar title opens the selected manuscript using the
+**PDF beside source** in the sidebar opens the selected manuscript using the
 bundled LaTeX Workshop viewer. It follows the selected edit and retains zoom and search.
 The PDF shows your current selected wording, including rejections. While focused
 review is active, the same decision and navigation keys work there; **E/Escape**
