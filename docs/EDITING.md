@@ -45,6 +45,9 @@ stays rejected. Editing across neighboring replacements carries their selected
 wording into the resulting conceptual edit. An older source that is no longer a
 projection of the current comparison is merged conservatively; an overlapping
 revision is refused, leaving the saved file and review intact.
+Equivalent alignments retain their decisions by their exact effect on the base.
+Every proposal replacement checks the selected result against the planned wording
+before committing, including native saves and parallel agent publications.
 Rebasing the author side must also preserve the selected manuscript exactly. If
 repeated wording changes how edits align, rejection choices are recovered from that
 selected text. An unrepresentable selection is refused atomically; the saved draft
