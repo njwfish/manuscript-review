@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from .application import apply_record, write_file_edit, is_applied, repository_lock, digest
 from .comparison import compare, enrich_snapshot, make_patch, validate_decisions, build_snapshot, read_blob, stable_id, git
 from .editing import selected_content, project_source
-from .file_editing import file_replacements, replace_ranges
+from .file_editing import file_replacements, replace_ranges, revised_decisions
 from .anchors import SourceSpan, SourceMap
 from .feedback import feedback_report, feedback_record, validate_comments
 from .history import add_explanations, add_responses, build_history, round_id, attach
@@ -596,16 +596,14 @@ class ReviewSession:
         if not isinstance(source, str) or not re.fullmatch(r'[a-f0-9]{40}', source):
             raise ValueError('The editor source changed. Your draft is retained; reload before saving.')
         text = merge_text(read_blob(old['repo'], source, path) or '', selected_content(file, record['decisions']) or '', text)
-        replacements, selected_replacements = file_replacements(file, record['decisions'], text)
+        replacements, selected_replacements, edited = file_replacements(file, record['decisions'], text)
         if not replacements:
             record['drafts'].pop(path, None)
             self.store.commit(record)
             return {'message': 'No source changes to save.'}
         after = replace_ranges(file['after'] or '', replacements)
         changed = [SourceSpan(start, end) for start, end, _ in replacements]
-        revised = self.replace_proposal_file(previous, record, file, after, changed)
-        if selected_content(revised, record['decisions']) != text:
-            raise ValueError('The revision could not preserve all selected wording. Your draft is retained; revise a smaller region.')
+        self.replace_proposal_file(previous, record, file, after, changed, text, edited)
         record['drafts'].pop(path, None)
         current = record['snapshot']
         record['metadata'].update(preview_status='queued' if current['entry'] else 'none',
@@ -724,7 +722,7 @@ class ReviewSession:
         intent = save['intent'] if metadata.get('authoring') else 'proposal'
         plan = saved_edits[intent](file, record['decisions'], origin, saved)
         if plan['changed']:
-            self.replace_proposal_file(copy.deepcopy(record), record, file, plan['proposal'], plan['changed'])
+            self.replace_proposal_file(copy.deepcopy(record), record, file, plan['proposal'], plan['changed'], plan['selected'], plan['edited'])
         if plan['conflict'] and path not in metadata.get('delivery_conflicts', []):
             metadata.setdefault('delivery_conflicts', []).append(path)
         if plan['author'] is not None:
@@ -841,11 +839,12 @@ class ReviewSession:
                     if incoming is None or file['after'] is None:
                         after = incoming
                         changed = [SourceSpan(0, len(file['after'] or ''))]
+                        edited = {group['id'] for group in file['edits']}
                     else:
-                        replacements, _ = file_replacements(file, record['decisions'], incoming)
+                        replacements, _, edited = file_replacements(file, record['decisions'], incoming)
                         after = replace_ranges(file['after'], replacements)
                         changed = [SourceSpan(start, end) for start, end, _ in replacements]
-                    self.replace_proposal_file(copy.deepcopy(record), record, file, after, changed, accept=False)
+                    self.replace_proposal_file(copy.deepcopy(record), record, file, after, changed, incoming, edited, accept=False)
                     if change['path'] not in record['applied']:
                         record['applied'][change['path']] = digest(read_blob(repo, old['proposed'], change['path']))
                 if not incorporated:
@@ -872,7 +871,7 @@ class ReviewSession:
             metadata['delivery_conflicts'] = [path for path in metadata['delivery_conflicts']
                 if read_blob(repo, metadata['workspace_version'], path) != read_blob(repo, record['result'], path)]
 
-    def replace_proposal_file(self, previous, record, file, after, changed, accept=True):
+    def replace_proposal_file(self, previous, record, file, after, changed, selected, edited, accept=True):
         path, old = file['path'], previous['snapshot']
         current = record['snapshot']
         revised = enrich_snapshot({'files': [compare(path, file['before'], after)]})['files'][0]
@@ -884,22 +883,21 @@ class ReviewSession:
         current['proposed'] = source_version(old['repo'], old['proposed'], {path: after},
                                             'refs/manuscript-review/' + record['metadata']['id'] + '/versions',
                                             'Manuscript Review file revision')
-        affected = {item['id'] for item in [*file['edits'], *file['hunks']]
+        affected = {item['id'] for item in file['hunks']
                     if any(span.overlaps(SourceSpan(*item['proposal_span'])) for span in changed)}
         valid = {g['id'] for f in current['files'] for g in f['edits']}
         valid_notes = valid | {h['id'] for f in current['files'] for h in f['hunks']}
-        if set(record['decisions']) - affected - valid:
+        choices, revised_affected = revised_decisions(file, revised, record['decisions'], changed, edited, accept)
+        affected.update(revised_affected)
+        if set(choices) - valid:
             raise ValueError('The revision changes another decision’s alignment. Your draft is retained; revise a smaller region.')
+        if selected_content(revised, choices) != selected:
+            raise ValueError('The revision could not preserve all selected wording. Your draft is retained.')
         archived = {key: value for key, value in record['comments'].items() if key in affected or key not in valid_notes}
         state = {**record, 'comments': archived}
         report = feedback_report(old, record['decisions'], archived, record['history'], record['metadata']['id'])
         record['history'] = build_history(old, current, state, report, record['history'], self.directory)
-        old_edits = {g['id'] for g in file['edits']} - affected
-        record['decisions'] = {key: value for key, value in record['decisions'].items() if key in valid and key not in affected}
-        for group in revised['edits']:
-            if group['id'] not in old_edits:
-                if accept:
-                    record['decisions'][group['id']] = 'accept'
+        record['decisions'] = choices
         record['comments'] = {key: value for key, value in record['comments'].items() if key not in archived}
         record['result'] = selected_version(record)
         return revised

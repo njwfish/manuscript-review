@@ -58,6 +58,15 @@ def projection_blocks(file, content):
     return matches.pop()
 
 
+def decision_blocks(file, decisions):
+    """Exact proposal-to-selected spans when the choices are already known."""
+    proposal = selected = 0
+    for identifier, old, new in source_segments(file):
+        text = old if decisions.get(identifier) == 'reject' else new
+        yield proposal, proposal + len(new), selected, selected + len(text), identifier
+        proposal, selected = proposal + len(new), selected + len(text)
+
+
 def mapped_range(blocks, span, included=()):
     """Map an interval; changed groups map as a whole and retained text exactly."""
     lo, hi = span
