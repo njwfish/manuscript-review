@@ -162,8 +162,13 @@ establish a new baseline. The focused view displays the actual pinned endpoints 
 its current comparison scope. Source drafts from the shared library can open as
 untitled editor copies or be explicitly discarded; opening a copy leaves its saved
 record and the working file intact. New editor drafts use VS Code's own buffer and
-recovery behavior. Native saves with Edit set to Proposal refine the proposal against its fixed base; ordinary
-drafting in authoring updates the author base. `source-edits.mjs` pins this intent
+recovery behavior. Write is the default window activity; Review explicitly enables its comparison surface.
+`extension.mjs` owns that activity and derives the save intent from it. Activity requests
+are pinned before setup starts; later requests cancel pending review navigation and PDF startup. Review refinements
+keep the base fixed; ordinary authoring in Write advances the author base. There is no
+separate intent picker. Returning to Write restores the source selection, closes the paired
+PDF, and retains comments and decisions. The sidebar lists open threads from the comments
+owner; both list selection and comment stepping use its existing source navigation. `source-edits.mjs` pins this intent
 on the first dirty change and persists ordered saved points. Capture cursors acknowledge each file’s prefix without replaying committed saves. `native-review.mjs`
 owns current-edit CodeLens controls and selection, while `delivery.mjs` owns every
 native WorkspaceEdit, provenance stage, Save and Undo boundary. Explicit decisions
@@ -263,8 +268,8 @@ without filtering by file extension. Existing snapshots remain intact. Preview s
 extraction and successful reference compilation are cached by exact source and renderer
 versions. A malformed excerpt is isolated from other excerpts; a preamble failure
 stops the batch without repeated compiler attempts. Native focus dims distant source; clicking source returns to typing. Standalone
-focus collapses surrounding context; clicking the passage expands it. The sidebar can independently disable review
-highlights while retaining comments.
+focus collapses surrounding context; clicking the passage expands it. Write retains comments while clearing review display; Review keeps its deleted-text
+and reviewed-change preferences.
 
 The extension discovers Python 3.12 or newer before importing the engine, skipping older
 environments on the path. An explicit interpreter setting is validated and respected.
@@ -321,8 +326,7 @@ Run `python3 -m unittest discover -s tests -v` from this directory. Tests cover 
 
 ## Source authoring
 
-Sending a native source comment with Edit set to Your draft, or selecting **Agent changes**,
-uses the existing review for one author-versus-agent comparison. `authoring.py` moves
+Sending a native source comment from Write uses the existing review for one author-versus-agent comparison. `authoring.py` moves
 the comparison base to captured author wording and carries ordinary drafting saves
 into that base. Review-mode refinements keep the base fixed. The original baseline and archived records retain earlier comparisons,
 choices and discussion. Proposals still merge through the same session operations.
@@ -339,7 +343,8 @@ receives the delivered source checkpoint, distinguishing agent delivery from sub
 author edits; VS Code workspace storage retains that checkpoint until capture succeeds.
 New results that arrive during delivery merge into the next update. Overlapping edits
 remain in their original source versions for reconciliation. Delivery does not decide
-edits or resolve comments. It enables source highlights without taking editor focus.
+edits or resolve comments. It refreshes comments and the pending-change count without changing the activity or editor focus.
+Review refreshes its existing diff in place; Write keeps the ordinary editor.
 
 The sidebar chooses provider and model independently. `dispatch.py` retains only launch
 receipts and logs outside the review record, with handles to provider-owned sessions.

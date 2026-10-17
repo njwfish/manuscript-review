@@ -403,7 +403,11 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
       }
     }
     next??=current<0?(direction<0?states.length-1:0):Math.max(0,Math.min(states.length-1,current+direction));
-    const state=states[next],{document,text}=state.projection,{id,revision}=runtime.review,version=document.version;
+    return visit(states[next],ticket);
+  }
+
+  async function visit(state,ticket) {
+    const runtime=getRuntime(),{document,text}=state.projection,{id,revision}=runtime.review,version=document.version;
     if(document.getText()!==text)return false;
     const editor=await vscode.window.showTextDocument(document,{preserveFocus:false});
     if(ticket!==inputEpoch||disposed||runtime.review?.id!==id||runtime.review.revision!==revision||document.version!==version||document.getText()!==text)return false;
@@ -412,6 +416,21 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     activeThread=state.key;
     await openInput(state,state.entry?.current?state.thread.comments.at(-1):undefined,ticket);
     return true;
+  }
+
+  function list() {
+    return [...threads.values()].filter(state=>state.reviewId===getRuntime()?.review?.id&&!state.entry.resolved)
+      .map(state=>({id:state.origin,file:state.entry.file,line:state.range?state.range.start.line+1:state.entry.line,
+        body:state.entry.comment,answered:Boolean(state.entry.replies.length)}))
+      .sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line);
+  }
+
+  async function open(origin) {
+    const ticket=++inputEpoch;
+    if(!await refresh()||ticket!==inputEpoch||disposed)return false;
+    const state=[...threads.values()].find(state=>state.reviewId===getRuntime()?.review?.id&&state.origin===origin);
+    if(!state)throw new Error('This comment changed. Open it from the current manuscript.');
+    return state.range?visit(state,ticket):openThread(state.thread);
   }
 
   // Source annotations use the selection action. Native commenting ranges draw a
@@ -459,5 +478,5 @@ export function createComments(vscode,getRuntime,{openDocument,onChange,onReview
     for(const subscription of subscriptions)subscription.dispose();
     threads.clear();pending.clear();
   }
-  return {refresh,annotate,discuss,move,dispose,setEnabled,input,editInput,submitInput,cancelInput,openThread,resolveInput};
+  return {refresh,annotate,discuss,move,open,list,dispose,setEnabled,input,editInput,submitInput,cancelInput,openThread,resolveInput};
 }

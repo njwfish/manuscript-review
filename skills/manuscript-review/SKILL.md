@@ -74,7 +74,7 @@ If a feedback ledger exists, update its affected rows after the pass using the s
 
 Return the review ID and published source version. A VS Code link of the form
 `vscode://njwfish.manuscript-review/review/REVIEW_ID` selects that review and focuses
-its native source. Keep the configured library. **Review in editor** starts keyboard
+its native source. Keep the configured library. **Review changes** starts keyboard
 review in the source, with inline decisions and sidebar discussion; there is no separate
 text review tab. An open manuscript PDF follows the selected edit. The sidebar selects
 comparison endpoints and offers earlier selected drafts or Git versions for
@@ -85,13 +85,13 @@ When the author uses the standalone interface, open **Manuscript Review.app** wi
 
 Both interfaces dispatch comments through an installed Codex or Claude Code CLI. Use the exact library and command launcher named in that request, and `feedback --review REVIEW_ID --thread THREAD_ID` to read only the assigned discussion and its file edits. The app launches no provider tabs. Source revisions accumulate in the current review through `begin --parallel` and `finish --workspace`; final responses use `respond`.
 
-To read and comment without requiring changes, use **Open manuscript review** in VS Code, **Library → Open manuscript** in the standalone app, or:
+To read and comment without requiring changes, use **Open manuscript** in VS Code, **Library → Open manuscript** in the standalone app, or:
 
 ```sh
 "/path/to/skill/scripts/review-agent" open --repo /absolute/path/to/manuscript
 ```
 
-Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then dispatches a saved comment while continuing their work. Native saves retain unrelated choices and discussion. In source authoring, **Agent changes** compares the accumulating proposal to saved author wording; clean results join saved files and enable highlights. Overlaps remain for review; new or deleted files use explicit **Apply**.
+Opening resumes the latest review for that repository; a new manuscript starts with matching comparison endpoints and a pinned baseline. In VS Code, the author edits native source documents, selects text and presses **⌘/Ctrl+Shift+M** to comment, then dispatches a saved comment while continuing their work. Native saves retain unrelated choices and discussion. VS Code starts in **Write** with comments and pending-change counts. Clean agent results join saved files without switching activities or opening a diff. **Review** enters the focused comparison; **Write** returns to ordinary editing at the same location. Overlaps remain for review; new or deleted files use explicit **Apply**.
 
 The sidebar selects **Agent** and **Model**; **Agent sessions** resumes the provider's own transcript. **Open editing folder** opens its source checkout for normal Git and LaTeX work. **Review saved source changes** captures external revisions as a new round.
 

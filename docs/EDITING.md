@@ -64,12 +64,18 @@ insertions at the same point contest each other. Source anchors may include shar
 endpoints when grouping one conceptual edit; concurrent content changes use these
 stricter overlap rules.
 
-In VS Code, **Edit** selects **Your draft** or **Proposal** in an agent comparison.
-Opening focused review selects Proposal. **Review highlights** controls display;
-automatic delivery can reveal changes without changing the editing intent. A fixed
-commit comparison always retains its base. Intent is pinned when manual typing starts.
-Focused review changes keyboard behavior and display; it does not pause clean source
-delivery or create another editable buffer.
+In VS Code, Write is the default activity. It uses ordinary native source, comments,
+and pending-change counts. Review explicitly enables comparison controls, inline
+changes, focused navigation, and the optional paired PDF. Returning to Write restores
+the ordinary editor and closes the paired PDF without changing the review record.
+Activity is local to the open window and starts in Write after reload.
+
+Write saves advance author wording in an agent comparison; Review saves refine the
+proposal. A fixed commit comparison always retains its base. `source-edits.mjs` pins
+this intent when manual typing starts, including across activity changes before Save.
+Agent delivery refreshes the active activity without entering Review or taking focus.
+Keyboard focus and activity are distinct: clicking source releases review shortcuts
+while retaining its comparison; E/Escape returns to Write.
 
 ## Save ownership and retries
 
@@ -148,6 +154,5 @@ and delegates actions to native review. A selection token prevents a decision on
 obsolete displayed change. The paired cache includes the starting version, result,
 raw proposal, entry file and renderer version, so locations retain the round’s edit
 identities even when rejections restore earlier wording. A missing asset or failed
-viewer load can retry one side while the other remains available. Turning review
-highlights off clears marks and focus in both PDFs. Compilation never blocks native
+viewer load can retry one side while the other remains available. Returning to Write closes the paired PDF; entering Review can reopen it. Compilation never blocks native
 navigation or transfers Save ownership.

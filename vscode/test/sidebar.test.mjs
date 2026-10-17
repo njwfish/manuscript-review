@@ -6,29 +6,30 @@ const setup={info:{repo:'/paper',workspace:'/proposal'},base:{label:'Initial dra
 const data={files:[{path:'main.tex',hunks:[],edits:[{id:'one'},{id:'two'}]}],decisions:{one:'accept'},comments:{},history:[],resolved:[],drafts:{}};
 
 test('the sidebar exposes exact endpoints and only offers Apply after all decisions',()=>{
- const state=sidebarState(setup,data,true,'Claude Code');
+ const state=sidebarState(setup,data,{agent:'Claude Code',reviewing:true});
  assert.equal(state.folder,'/proposal');assert.equal(state.from,'Initial draft');assert.equal(state.to,'Proposal + local edits');
  assert.equal(state.fromVersion,setup.base.revision);assert.equal(state.toVersion,setup.proposed.revision);
  assert.equal(state.progress,'1 of 2 reviewed');assert.equal(state.canApply,false);
- assert.equal(sidebarState(setup,{...data,decisions:{one:'accept',two:'reject'}},true,'Codex').canApply,true);
- assert.equal(sidebarState(setup,{...data,decisions:{one:'accept',two:'reject'},applied:true},true,'Codex').canApply,false);
+ assert.equal(sidebarState(setup,{...data,decisions:{one:'accept',two:'reject'}}).canApply,true);
+ assert.equal(sidebarState(setup,{...data,decisions:{one:'accept',two:'reject'},applied:true}).canApply,false);
 });
 
 test('pending comparison choices stay distinguishable from the open review',()=>{
- const state=sidebarState({...setup,pending:true},data,false,'Codex');
+ const state=sidebarState({...setup,pending:true},data,{commentsEnabled:false});
  assert.equal(state.pending,true);assert.equal(state.active,true);assert.equal(state.commentsEnabled,false);
- assert.equal(sidebarState(undefined,undefined,true,'Codex').folder,undefined);
+ assert.equal(sidebarState(undefined,undefined).folder,undefined);
 });
 
-test('editing policy is visible and independent of highlight visibility in agent comparisons',()=>{
- const draft=sidebarState(setup,{...data,authoring:true},true,'Codex',true,'CLI default',true,'author');
- assert.equal(draft.editing,'author');assert.equal(draft.highlights,true);assert.equal(draft.authoring,true);
- const proposal=sidebarState(setup,{...data,authoring:true},true,'Codex',false,'CLI default',true,'proposal');
- assert.equal(proposal.editing,'proposal');assert.equal(proposal.highlights,false);
- assert.equal(sidebarState(setup,data,true,'Codex',true,'CLI default',true,'author').editing,'proposal');
+test('writing is the default and review uses the same pending decisions',()=>{
+ const draft=sidebarState(setup,data);
+ assert.equal(draft.reviewing,false);assert.equal(draft.remaining,1);
+ const review=sidebarState(setup,data,{reviewing:true});
+ assert.equal(review.reviewing,true);assert.equal(review.remaining,1);
+ assert.equal(review.progress,draft.progress);
+ assert.equal('editing' in draft,false);assert.equal('highlights' in draft,false);
 });
 
-function fixture({load=async()=>sidebarState(setup,data,true,'Codex'),onAction=async()=>{}}={}){
+function fixture({load=async()=>sidebarState(setup,data),onAction=async()=>{}}={}){
  const handlers={},posts=[],actions=[],errors=[];let provider,disposed=false;
  const disposable=()=>({dispose(){}});
  const vscode={Uri:{file:fsPath=>({fsPath,toString:()=>`vscode-resource:${fsPath}`})},commands:{executeCommand:async command=>actions.push(command)},window:{

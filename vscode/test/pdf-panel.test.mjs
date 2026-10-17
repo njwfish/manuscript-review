@@ -86,12 +86,17 @@ test('review switching drains invalidated runtime request failures',async()=>{
  assert.equal(f.messages.at(-1).document,'other/other-result/main.tex');assert.deepEqual(f.errors,[]);f.panel.dispose();
 });
 
-test('concurrent PDF opening creates one panel and disposal cancels pending startup',async()=>{
- for(const dispose of [false,true]){
+test('PDF startup coalesces requests and activity changes cancel or replace pending startup',async()=>{
+ for(const action of ['open','dispose','hide','reopen']){
   let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve),views=[];
   const vscode={Uri:{file:fsPath=>({fsPath}),parse:value=>({toString:()=>value})},env:{asExternalUri:async uri=>uri},ViewColumn:{Beside:2},window:{createWebviewPanel(){const handlers={};const panel={webview:{asWebviewUri:()=>'',onDidReceiveMessage:()=>({dispose(){}})},onDidChangeViewState:()=>({dispose(){}}),onDidDispose(fn){handlers.dispose=fn;return {dispose(){}};},dispose(){handlers.dispose();}};views.push(panel);return panel;}}};
-  const owner=createPDFPanel(vscode,{extensionPath:'/extension'},{review:{id:'review',repo:'/paper'}},{viewer:{start:async()=>{entered();await gate;return 'http://127.0.0.1:1234';}},onAction:async()=>{},onError:()=>{}});
-  const first=owner.show();await started;const second=owner.show();if(dispose)owner.dispose();release();await Promise.all([first,second]);assert.equal(views.length,dispose?0:1);owner.dispose();
+  let starts=0;
+  const owner=createPDFPanel(vscode,{extensionPath:'/extension'},{review:{id:'review',repo:'/paper'}},{viewer:{start:async()=>{if(++starts===1){entered();await gate;}return 'http://127.0.0.1:1234';}},onAction:async()=>{},onError:()=>{}});
+  const first=owner.show();await started;const second=owner.show();
+  if(action==='dispose')owner.dispose();
+  if(['hide','reopen'].includes(action))owner.hide();
+  if(action==='reopen'){await owner.show();assert.equal(views.length,1);}
+  release();await Promise.all([first,second]);assert.equal(views.length,['dispose','hide'].includes(action)?0:1);owner.dispose();
  }
 });
 

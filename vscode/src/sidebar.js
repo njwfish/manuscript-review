@@ -1,8 +1,8 @@
 'use strict';
 const api=acquireVsCodeApi(),element=id=>document.getElementById(id);
-let state={},busy=false,inputId,historyKey,restoreInput;
-const send=action=>api.postMessage({action,review:state.review,revision:state.revision,folder:state.folder,
- fromVersion:state.fromVersion,toVersion:state.toVersion,entry:state.entry,input:state.comment?.id,text:element('comment-input').value});
+let state={},busy=false,inputId,historyKey,threadsKey,restoreInput;
+const send=(action,values={})=>api.postMessage({action,review:state.review,revision:state.revision,folder:state.folder,
+ fromVersion:state.fromVersion,toVersion:state.toVersion,entry:state.entry,input:state.comment?.id,text:element('comment-input').value,...values});
 function resizeInput(){
  const input=element('comment-input');input.style.height='auto';input.style.height=Math.min(280,input.scrollHeight+2)+'px';
 }
@@ -40,30 +40,46 @@ function renderComment(){
 function render(){
  element('folder').textContent=state.folder?state.folder.split(/[\\/]/).pop():'Choose manuscript folder';
  element('folder').title=state.folder||'';element('empty').hidden=Boolean(state.folder);element('comparison').hidden=!state.folder;
+ element('writing').hidden=Boolean(state.reviewing);element('reviewing').hidden=!state.reviewing;
+ element('write').setAttribute('aria-pressed',String(!state.reviewing));
+ element('review-activity').setAttribute('aria-pressed',String(Boolean(state.reviewing)));
+ element('open').hidden=!state.folder||state.active;
+ element('incoming').hidden=!state.active||!state.remaining;
+ element('incoming').textContent=`Review ${state.remaining||0} ${state.remaining===1?'change':'changes'}`;
  for(const [id,label,version] of [['from',state.from,state.fromVersion],['to',state.to,state.toVersion],['entry',state.entry,state.entry]]){
   element(id).textContent=label||'';element(id).title=version==='working'?'Snapshot of saved working files':version&&version!==label?`${label}\n${version}`:label||'';
   element(id).setAttribute('aria-label',`${{from:'From',to:'To',entry:'PDF'}[id]}: ${label||'Source only'}`);
  }
- element('review').textContent=state.active&&!state.pending?'Review':'Compare';
- element('review').className=state.canApply&&!state.pending?'secondary':'primary';
+ element('review').textContent=state.active&&!state.pending?'Review changes':'Compare';
  element('apply').hidden=!state.canApply||state.pending;
- element('progress').textContent=state.pending?'Ready to compare':state.progress||(state.applied?'Applied':'');
+ element('progress').textContent=state.pending?'Ready to compare':state.progress||'';
  element('progress').hidden=!element('progress').textContent;
  element('comments').checked=state.commentsEnabled!==false;
- element('highlights').checked=state.highlights!==false;
  element('removals').checked=state.removals!==false;
- element('editing-row').hidden=!state.active||!state.authoring;
- element('editing').textContent=state.editing==='author'?'Your draft':'Proposal';
- element('editing').title=state.editing==='author'?'Saves advance your draft and preserve pending agent changes':'Saves refine the proposal and keep From fixed';
+ element('reviewed').checked=Boolean(state.reviewed);
  element('discussion').hidden=!state.active;
  element('unresolved').textContent=`${state.unresolved||0} open`;
  element('agent-label').textContent=state.agent||'Codex';element('agent').title='Choose the agent for comment requests';
  element('model').textContent=state.model||'CLI default';element('model').title='Choose the model for comment requests';
+ const threads=state.threads||[],key=JSON.stringify([state.review,threads]);
+ if(key!==threadsKey){
+  threadsKey=key;
+  element('threads').replaceChildren(...threads.map(thread=>{
+   const button=document.createElement('button');button.className='thread';
+   const location=document.createElement('span');location.className='thread-location';location.textContent=thread.file.split('/').pop()+':'+thread.line;
+   const body=document.createElement('span');body.className='thread-body';body.textContent=thread.body;
+   button.append(location,body);button.title=thread.body;
+   if(thread.answered){const response=document.createElement('span');response.className='thread-response';response.textContent='Agent replied';button.append(response);}
+   button.addEventListener('click',()=>send('openComment',{thread:thread.id}));
+   return button;
+  }));
+ }
+ element('no-comments').hidden=!state.active||Boolean(threads.length);
  document.querySelectorAll('button,input,textarea').forEach(control=>{control.disabled=busy||control.id==='pdf'&&(!state.active||state.pending);});
  renderComment();
 }
 document.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('click',()=>send(button.dataset.action)));
-for(const id of ['comments','highlights','removals'])element(id).addEventListener('change',()=>send(id));
+for(const id of ['comments','removals','reviewed'])element(id).addEventListener('change',()=>send(id));
 element('comment-input').addEventListener('input',()=>{
  resizeInput();send('commentDraft');
  element('comment-save').disabled=busy||!state.comment.editing&&!element('comment-input').value.trim();

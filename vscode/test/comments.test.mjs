@@ -986,3 +986,19 @@ test('closing an input during a requested save completes its source return only 
  assert.equal(f.data.history[0].comment,'Requested wording');assert.equal(f.completed.length,1);
  assert.equal(f.comments.input(),undefined);f.comments.dispose();
 });
+
+test('the writing sidebar lists open threads and opens one without writing or selecting its quote',async()=>{
+ const f=fixture([source('first'),source('second','other.tex','Check the definition.',{replies:[{id:'reply',text:'Updated.'}]})]);
+ await f.comments.refresh();
+ const items=f.comments.list();
+ assert.deepEqual(items.map(item=>item.id),['first','second']);assert.equal(items[1].answered,true);
+ const before=f.documents.map(document=>document.getText());
+ assert.equal(await f.comments.open('second'),true);
+ assert.equal(f.comments.input().file,'other.tex');
+ assert.equal(f.vscode.window.activeTextEditor.selection.isEmpty,true);
+ assert.deepEqual(f.documents.map(document=>document.getText()),before);
+ assert.equal(f.requests.some(request=>request.route!=='/editor'),false);
+ const second=f.created.find(thread=>thread.uri.fsPath.endsWith('other.tex'));
+ await f.command('resolveComment',second);
+ assert.deepEqual(f.comments.list().map(item=>item.id),['first']);f.comments.dispose();
+});

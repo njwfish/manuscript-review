@@ -11,7 +11,7 @@ skill. Use VS Code 1.114 or later. Its workspace host needs macOS or Linux, Git,
 LaTeX and Poppler enable typeset previews, as described below.
 
 Run **Manuscript Review: Setup and agent skill** to check prerequisites and install
-the bundled skill for Codex or Claude Code. **Open manuscript review** opens a local
+the bundled skill for Codex or Claude Code. **Open manuscript** opens a local
 manuscript; **Clone manuscript from GitHub** clones into a chosen directory and opens
 that folder. **Compare manuscript versions** selects commits or saved checkpoints.
 The [VS Code guide](../vscode/README.md) covers editing, comments, review rounds, and

@@ -43,11 +43,11 @@ test('native controls use the single source delivery owner and immediately advan
  assert.equal(f.doc.text,'A old then clear sentence.');assert.equal(f.editor.selection.active,11);assert.deepEqual(f.errors,[]);
 });
 
-test('focused inline controls expose the keyboard workflow and clicking another edit retains it',async()=>{
+test('focused controls expose shortcuts and clicking source restores normal typing',async()=>{
  const f=fixture();await f.controls.begin();
- assert.deepEqual(f.lenses().map(lens=>lens.command.title),['Accept A','Reject S','Back D','Next F','Comment C','Edit E']);
+ assert.deepEqual(f.lenses().map(lens=>lens.command.title),['Accept A','Reject S','Back D','Next F','Comment C','Write E']);
  f.editor.selection.active=11;f.callbacks.selection({kind:f.vscode.TextEditorSelectionChangeKind.Mouse});
- assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses()[0].command.arguments[3],'second');
+ assert.equal(f.status.text,'0/2');assert.equal(f.lenses()[0].command.arguments[3],'second');
  f.controls.edit();assert.equal(f.status.text,'0/2');assert.equal(f.lenses().at(-1).command.title,'Review');
  assert.doesNotMatch(f.status.tooltip,/A accept/);
 });
@@ -134,7 +134,7 @@ test('comment input pauses keyboard review and completing it restores the same e
  f.vscode.window.activeTextEditor=undefined;f.callbacks.active();
  f.runtime.review.revision++;f.callbacks.active();f.data.revision++;f.update();
  f.vscode.window.activeTextEditor=f.editor;f.callbacks.active();await f.controls.finishComment(f.editor,async()=>true);
- assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses().at(-1).command.title,'Edit E');
+ assert.equal(f.status.text,'Review 0/2');assert.equal(f.lenses().at(-1).command.title,'Write E');
 });
 
 test('completing comment input cannot resume review after manual source movement or editing',async()=>{

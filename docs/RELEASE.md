@@ -1,8 +1,9 @@
-Manual edits no longer fail when a nearby change shifts the alignment of an earlier decision.
+VS Code now separates ordinary writing from focused review in the same manuscript editor.
 
-- Equivalent edits retain their accepted, rejected, or undecided status.
-- Edits that merge neighboring replacements carry their selected wording, preserving rejected text.
-- Native saves, standalone edits, and parallel agent proposals validate the exact selected result before committing.
-- Ordered saves and discussion survive retries without rewriting native source files.
+- Write is the default. The sidebar lists open comments and pending changes; agent results keep your editor in place.
+- Review exposes comparison endpoints, word changes, keyboard decisions, and the paired PDF.
+- Returning to Write restores the ordinary editor at the same location and closes the comparison PDF.
+- Save intent follows the activity automatically. The separate draft/proposal picker and highlight switch are removed.
+- Clicking source restores normal typing. Comments and decisions remain shared across both activities.
 
-Saved reviews retain their existing format. After updating, save your work and run Developer: Reload Window. Retained saves retry automatically.
+Review records retain their existing format. Save any open input and run Developer: Reload Window after updating.

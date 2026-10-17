@@ -31,171 +31,118 @@ The extension starts its local service on demand. Reviews live in a separate use
 library, shared with the standalone interface when installed. Set **Manuscript Review:
 Library Directory** to use another library. Updating the extension preserves reviews.
 
-## Open and compare
+## Write
 
-Click **Review manuscript** in the source editor's toolbar, beside the LaTeX Workshop
-buttons, or open **Manuscript Review** from the left activity bar. Its sidebar keeps **From**, **To**, and **PDF** visible, with review progress and
-**Apply review** when every edit has a decision. **Source comments** toggles the editor
-comment controls. Library is in the title bar; Setup and saved-source review are in its menu. With no folder open, choose a manuscript folder or clone from GitHub.
+Open **Manuscript Review** from the activity bar, or run **Open manuscript** from the
+Command Palette. The sidebar starts in **Write** and resumes the latest review for
+that editing folder. Your manuscript stays in its normal source editor, with native
+Save, Undo, syntax highlighting, and LaTeX Workshop compilation.
 
-Choose a saved round; a repository with no reviews opens for annotation. The toolbar
-button starts focused review in the source editor. No separate text review tab opens.
-**Open manuscript review** from the Command Palette selects the manuscript, and
-**Focus review in editor** starts keyboard review. **Browse review library** groups
-saved rounds by manuscript. **Import saved review** imports a `review.json` through
-the shared record operations.
+Select source text and press **⌘/Ctrl+Shift+M** to comment. With no selection, the
+comment covers the current line. The sidebar lists open comments; click one to visit
+its source and read its responses. The arrows or **⌘/Ctrl+Alt+[ / ]** step through
+unresolved comments. The native Comments view and **Comment navigation → All** also
+include resolved threads.
 
-**Compare versions** opens this sidebar. Click **From** or **To** to change
-a version, then choose **Compare** to open that pair and its proposal source. **PDF** selects the LaTeX root for rendering; changing it in an open review preserves
-the comparison and all decisions. The current review and its
-decisions stay intact while you choose another comparison.
-Source highlights clear until you open the chosen comparison.
-Version pickers group review drafts, branches and tags, and commits; search by name,
-message, date, or hash. Escape closes a picker without changing the other fields. The initial manuscript folder comes from the active source file.
-The folder name also lets you choose another workspace folder or local directory.
+Write a comment in the sidebar. **Enter** or **Send** dispatches it to the selected
+Codex or Claude Code CLI; **⌘/Ctrl+Enter** or **Save** saves it without dispatch.
+**Shift+Enter** adds a line. Choose the provider and model beside the input, or expand
+**Agent and comments**. [Install and sign in to the CLI](../docs/INSTALL.md#agent-clis)
+first. Agent transcripts stay with the provider; the comment receives its final response.
+**Agent sessions** reopens a provider session or its launch log.
 
-**From** is the starting wording; **To** is the proposed wording. **Working files**
-captures saved tracked files, including staged new files, as a fixed snapshot.
-Choosing a **selected draft** for **From** starts a new round with its decisions, original baseline,
-and discussion preserved. Choosing a Git version starts a fresh comparison whose
-baseline is that version. The sidebar shows both endpoints; hover to inspect their
-exact hashes, or click to choose another comparison. Select an earlier draft or the
-original Git baseline as **From** to inspect accumulated changes.
+Agents work in separate proposal checkouts while you continue writing. Clean results
+join saved source through native, undoable edits; dirty buffers wait for Save. The
+sidebar offers **Review N changes** when wording awaits a decision. Incoming results
+refresh comments and that count while keeping Write active and preserving editor focus.
+Overlapping changes retain both versions for review.
 
-**PDF document** selects the LaTeX entry file; choose **Source only** to skip compilation.
-**Fetch manuscript history** updates available history without changing your working
-files. For a GitHub manuscript, run **Clone manuscript from
-GitHub**, choose a parent directory, then open a review in the cloned folder.
-A manuscript repository needs at least one commit and tracked source files.
+Your saves in Write advance the author side of an agent comparison. Accepted and
+rejected choices, comments, and the original baseline remain available. Explicit Git
+comparisons retain their chosen starting version. The editing activity is pinned when
+typing starts, so changing activities before Save does not reclassify an unfinished edit.
 
-## Edit and discuss
+**Resolve comment** settles a discussion; **Reopen comment** returns it to the queue.
+Wording decisions and thread resolution are independent. **Source comments** in
+**Agent and comments** controls new-comment actions; saved threads remain available.
 
-Source comments are on by default for `.tex`, `.bib`, `.md`, `.txt`, `.typ`, and `.rst`
-files. You can comment before opening a comparison; the first comment opens its
-manuscript quietly in the background. Existing comments resume when their source
-folder is opened. Turn **Source comments** off in the sidebar to hide new-comment
-controls; saved threads and replies remain.
+## Review
 
-Select source text and run **Comment on selection** (⌘/Ctrl+Shift+M), or use the editor
-context menu or the comment button in the editor title. With no selection, the comment covers the current line. Responses and
-follow-ups stay together in VS Code's Comments view. **Resolve comment** closes a thread;
-**Reopen comment** returns it to the queue. Resolved threads collapse and retain their
-messages across revisions. **Previous comment** and **Next comment** (⌘/Ctrl+Alt+[ / ])
-visit unresolved threads across files; **Manuscript Review: Comment navigation → All** in the Command Palette includes resolved
-threads. The Comments view also provides its native resolved/unresolved filter. New-comment shortcuts require source comments to be on; navigation stays available
-for saved threads. These shortcuts require source editor focus and can be remapped in Keyboard Shortcuts.
+Choose **Review N changes**, the sidebar's **Review** activity, or **Review manuscript**
+in the source toolbar. Review uses the same manuscript and saved decisions. Its
+sidebar shows **From**, **To**, and **PDF**, with progress and comparison controls.
+**Review changes** resumes keyboard review at the change under the cursor or the next
+change in that file.
 
-The source editor drives the review. Focused review outlines the current change, dims surrounding
-text, and shows **Accept A**, **Reject S**, **Previous D**, **Next F**, **Comment C**,
-and **Edit E** above its source line. It starts at the change under your cursor, or
-the next change in that file. Clicking ordinary source or pressing **E/Escape**
-returns to typing. Clicking a highlighted change selects it. The review toolbar
-button resumes keyboard review.
+| Key | Action |
+| --- | --- |
+| A / S | Accept / reject and advance |
+| D / F | Previous / next change |
+| Shift+A / Shift+S | Accept / reject the passage |
+| Ctrl+A / Ctrl+S | Accept / reject the file |
+| C | Open the change's comment |
+| U | Reset its decision |
+| E / Escape | Return to Write |
 
-The modified side is the actual manuscript, with saving, undo, syntax highlighting,
-and LaTeX Workshop compilation. **Deleted text** uses VS Code’s native inline diff:
-word replacements show struck-out deletions beside additions, with native wrapping.
-Multiline replacements can use native removed blocks.
-The read-only original is built by reversing only undecided changes in the exact
-current buffer. Accepting or rejecting clears that edit’s markup. Turning review
-highlights off returns to the ordinary editor. Native inline-view and CodeLens
-preferences are restored when review ends; preferences you change yourself are retained.
+The focused change is outlined and surrounding source is subdued. Clicking source
+restores normal typing. **Deleted text** in **Display options** uses VS Code's native
+inline diff, with struck-out deletions beside additions and native line wrapping.
+The modified side is your actual manuscript. Your manual refinements are accepted;
+unaffected decisions and comments remain. Accepting or rejecting clears the decided
+change's markup and advances to the next pending change. **Reviewed changes** can
+show decided markup again.
 
-If a reviewed file has been removed or moved, its saved source opens in a read-only
-editor. Existing comments remain accessible there. Opening saved source never
-restores a deleted file; an already open source buffer retains your unsaved text.
+Choose **Write** or **Return to writing** in the source toolbar to restore the ordinary
+editor at the same location and close the comparison PDF. The comparison, decisions,
+and discussion remain saved. VS Code's inline diff preferences are restored without
+replacing preferences you changed yourself. Reopening the workspace starts in Write.
 
-Saving a native source edit refreshes the current comparison automatically. With
-**Edit: Proposal**, **From** stays at A and **To** becomes B plus your refinements.
-With **Edit: Your draft**, ordinary drafting becomes the author side of an agent comparison.
-The intent is pinned when typing starts, so changing that choice before Save cannot
-reclassify an edit. New manual edits are accepted;
-unaffected choices remain, and comments on revised edits move into discussion.
-The original baseline stays fixed. Parallel agent revisions join the current proposal
-through the bundled skill; **Review saved source changes** captures edits made outside this editor.
-
-Source editing uses B’s checkout. If the open folder contains another version or
-unrelated changes, the review creates a separate Git worktree containing its selected
-draft. **Manuscript Review: Open editing folder** in the Command Palette opens that source as a normal VS Code
-folder for Git, terminals, and LaTeX Workshop. Your original checkout stays intact;
-create a branch in the editing folder when you want to commit or publish its changes.
-
-**Saved source drafts** opens retained drafts from the shared library as untitled editor
-copies, or discards them explicitly. Opening a copy keeps the saved draft and working
-file intact. Keep the recovery copy open, discard the retained draft, then save the
-copy to the intended source file. New source edits use VS Code's normal unsaved buffers
-and recovery behavior.
-
-## Review and apply
-
-In focused source review, **A/S** accepts or rejects and advances, **D/F** moves
-backward or forward, and **Shift+A/S** decides the passage. **Ctrl+A/S** decides the
-file, **U** resets a decision, and **C** opens its comment in the sidebar. **E/Escape** returns
-to ordinary editing. Outside focus mode, **Ctrl+Alt+D/F** navigates highlighted edits.
-**Exit review** in the editor title turns off highlights and review shortcuts.
-
-**PDF beside source** opens original and proposed PDFs in the bundled LaTeX Workshop
-viewer, side by side in wide panes and stacked in narrow panes. Original deletions
-use red; proposed additions use green. Both outline the selected edit and subdue text
-outside its passage. The proposed PDF shows selected wording, including rejections.
-The PDF setup follows the active source’s root hint or includes; choose a root when
-it cannot resolve the relationship. Zoom and search remain available. Focused review
-keys work in either PDF; **E/Escape** returns to source. An already open matching
-LaTeX Workshop PDF also follows saved source through SyncTeX. Compilation runs in
-the background. Unavailable word geometry uses a source-linked region or page.
-
-Native decisions update clean saved source through undoable edits. Decided changes
-become ordinary text and review advances to the next pending change. **Toggle reviewed
-change highlights** in the Command Palette shows their markup again. **Apply review**
-appears in the sidebar when every edit has a decision and files still need applying,
+Native decisions update clean saved source immediately through Undo. **Apply remaining
+changes** appears only when every edit has a decision and files still need applying,
 including new or deleted files. Save or discard unsaved manuscript buffers first.
 Apply preserves Git HEAD and staging and refuses intervening source changes.
 
-Accept/reject selects wording. Resolve/reopen settles a discussion independently.
-Accepting an edit or receiving a response leaves its thread status intact.
+## Compare versions
 
-## Work with an agent
+**Compare manuscript versions** opens Review. Choose **From** and **To**, then
+**Compare** to prepare that pair. Pickers group selected drafts, proposal history,
+branches and tags, and commits; search by name, date, message, or hash. **Working files**
+captures saved tracked files, including staged new files, without changing HEAD or
+staging. The current review stays intact while another pair is staged. Returning to
+Write discards staged comparison choices.
 
-Comments open in the existing sidebar beside the manuscript. Earlier feedback and
-responses appear above a compact, growing input. Press **Enter** or **Send** to save
-and dispatch through the selected agent's CLI; **Shift+Enter** adds a newline.
-**Save** or **⌘/Ctrl+Enter** saves without dispatching. **Escape** closes the input.
-Choose **Agent** (Codex or Claude Code) and **Model** alongside Send; **CLI default**
-uses that provider's settings. Both choices are remembered. Saved source comments
-retain their margin markers; **Open comment** brings their discussion to the sidebar. Completing a comment returns to the same source location or focused
-review edit unless you moved or edited elsewhere.
+A selected draft used as **From** starts a follow-up round that preserves the original
+baseline and discussion. A Git starting version establishes a new baseline. Manual
+edits in a commit comparison refine B while A stays fixed. If B requires another
+checkout, the review uses a separate Git worktree. **Open editing folder** opens it
+for normal Git, terminals, and LaTeX work; the original checkout stays intact.
 
-[Install and sign in to the CLI](../docs/INSTALL.md#agent-clis) first. No provider tab
-opens and focus stays in your manuscript. Several agents can work while you continue
-editing or reviewing. Each receives one saved discussion, earlier replies, and the
-bundled command launcher. Working transcripts stay with the provider; only the final
-response is appended to the discussion. Launch details are in the Manuscript Review
-Output channel and the library's `agent-output/` directory. **Agent sessions**
-in the sidebar reopens that conversation in its CLI or desktop app, or shows its launch log.
+The folder name chooses another manuscript. **Browse review library** lists earlier
+rounds by manuscript; **Import saved review** imports a saved record through the shared
+engine. **Review saved source changes** captures external revisions as a new round.
+**Fetch manuscript history** fetches without merging. **Clone manuscript from GitHub**
+opens the cloned folder. A repository needs at least one commit and tracked source.
 
-For source changes, the agent starts a separate proposal checkout with
-`begin --parallel`, follows the manuscript's Git workflow and build checks, then
-publishes with `finish --workspace`. Clean changes join the current comparison as
-undecided edits, preserving your choices, drafts, discussion, and other agent results.
-Sending from native source starts one **Your saved draft →
-Agent changes** comparison. Clean results join saved source through native undoable
-edits. Dirty buffers wait for your next Save. Your own saves update the author side,
-so the diff contains agent changes; the original baseline and archived comparisons
-remain available. **Agent changes** in the sidebar also brings existing results into
-this workflow. Clean results can join source while focused review is active. Overlapping author and agent wording stays visible for review; neither
-version is lost. New or deleted files use explicit Apply. Pending decisions and unsaved source
-do not block agent revisions. The author reviews wording and resolves settled threads.
+**Saved source drafts** opens a retained draft as an untitled editor copy or discards
+it explicitly. Opening a copy retains both the saved draft and working file. New edits
+use VS Code's normal unsaved buffers and recovery.
 
-Returned changes and replies refresh native source and comments automatically.
-Unsaved source stays in its native buffer. An explicitly requested separate revision
-pass can still create a new round.
+## PDF review
 
-**Review highlights** in the sidebar turns diff highlighting and surrounding dimming
-off or on, independently of editing intent and **Source comments**. Automatic delivery
-reveals changes without changing **Edit**. Opening focused review selects **Proposal**.
-Existing comments remain available.
+**PDF beside source** opens original and selected PDFs in the bundled LaTeX Workshop
+viewer. Wide panes place them side by side; narrow panes stack them. Deletions use red,
+additions use green, and both PDFs outline the selected edit and subdue its surroundings.
+Review keys work in either PDF. **E/Escape** returns to writing.
 
-The source versions, Save transitions and recovery rules are documented in
+PDF setup follows the active source's root hint or includes, and offers a root picker
+when needed. **PDF** changes the rendering root without changing decisions. Compilation
+runs in the background; unavailable word geometry uses a source-linked region or page.
+An already open matching LaTeX Workshop PDF also follows saved source through SyncTeX.
+
+If a source file was removed, its saved text opens read-only. Existing comments remain
+accessible, and opening that text does not recreate the file.
+
+The source versions, Save transitions, and recovery rules are described in
 [Editing model](../docs/EDITING.md).
 
 ## Build

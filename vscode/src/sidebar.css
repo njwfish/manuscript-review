@@ -2,7 +2,7 @@
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  padding: 18px 18px 24px;
+  padding: 14px 16px 24px;
   color: var(--vscode-foreground);
   font: var(--vscode-font-size)/1.5 var(--vscode-font-family);
 }
@@ -25,13 +25,18 @@ button:disabled { opacity: .45; cursor: default; }
   display: block;
   max-width: 100%;
   padding: 0;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   font-weight: 600;
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.activity { display: flex; gap: 22px; border-bottom: 1px solid var(--vscode-panel-border); margin-bottom: 20px; }
+.activity button { padding: 0 0 9px; border-radius: 0; color: var(--vscode-descriptionForeground); border-bottom: 2px solid transparent; }
+.activity button[aria-pressed="true"] { color: var(--vscode-foreground); border-bottom-color: var(--vscode-focusBorder); }
+.activity button:hover { background: transparent; color: var(--vscode-foreground); }
+.changes { color: var(--vscode-textLink-foreground); padding: 0; text-align: left; }
 .versions {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
@@ -51,16 +56,18 @@ button:disabled { opacity: .45; cursor: default; }
 }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
 .primary {
+  white-space: nowrap;
   padding: 5px 12px;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
 }
 .primary:hover { background: var(--vscode-button-hoverBackground); }
-.secondary { padding: 5px 8px; }
+.secondary { padding: 5px 8px; white-space: nowrap; }
 .progress { color: var(--vscode-descriptionForeground); margin: 10px 0 0; font-size: 11px; }
-.section { margin-top: 26px; }
-.discussion { display: flex; align-items: center; gap: 8px; }
+.section { margin-top: 24px; }
+.discussion { display: flex; align-items: center; gap: 6px; }
 .discussion > span:first-child { flex: 1; }
+.discussion .icon { padding: 4px; }
 .icon { display: inline-flex; align-items: center; justify-content: center; padding: 5px; }
 .icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .preferences { margin-top: 14px; color: var(--vscode-descriptionForeground); }
@@ -69,6 +76,15 @@ button:disabled { opacity: .45; cursor: default; }
 .toggle { display: flex; gap: 8px; align-items: center; }
 .toggle input { margin: 0; accent-color: var(--vscode-button-background); }
 .agent { margin-top: 18px; }
+.agent-settings { margin-top: 28px; }
+.agent-settings .toggle { margin-top: 12px; }
+.threads { margin-top: 8px; }
+.thread { display: block; width: 100%; min-width: 0; padding: 10px 4px; text-align: left; }
+.thread + .thread { border-top: 1px solid var(--vscode-panel-border); border-radius: 0; }
+.thread-location, .thread-response { display: block; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.thread-body { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; margin-top: 3px; }
+.thread-response { margin-top: 4px; }
+#no-comments { margin: 14px 0 0; font-size: 12px; }
 .sessions { margin-top: 8px; padding: 4px 0; color: var(--vscode-descriptionForeground); }
 .error { color: var(--vscode-errorForeground); margin: 14px 0 0; }
 .empty { margin: 0 0 16px; color: var(--vscode-descriptionForeground); }
