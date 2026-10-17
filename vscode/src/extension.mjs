@@ -508,6 +508,7 @@ export function activate(context){
   if(ticket!==activityEpoch)return;
   check();if(comparisonMatches(current,data)){await showReview(undefined,ticket);return;}
   await prepareTools();
+  if(ticket!==activityEpoch)return;
   check();if([current.base.revision,current.proposed.revision].includes('working'))requireRepositorySaved(current.info.workspace||current.info.repo);
   const job=await prepareReview('/prepare',comparisonRequest(current),'Preparing comparison');
   if(ticket!==activityEpoch)return;
@@ -531,6 +532,7 @@ export function activate(context){
   const ticket=await setReviewing(true);
   await start();
   const data=await runtime.library('/library-data');
+  if(ticket!==activityEpoch)return;
   const choice=await vscode.window.showQuickPick(manuscriptReviews(data.reviews).map(rounds=>({label:path.basename(rounds[0].repo),description:rounds[0].repo,repo:rounds[0].repo})),{title:'Review library',matchOnDescription:true});
   if(!choice||ticket!==activityEpoch)return;
   const rounds=data.reviews.filter(review=>review.repo===choice.repo);
@@ -538,8 +540,10 @@ export function activate(context){
   if(selected&&ticket===activityEpoch)await navigateReview(async()=>{if(ticket!==activityEpoch)return;await selectRound(selected.review.id);await showReview(undefined,ticket);});
  }
  async function fetchRepository(){
-  if(!await ensureReview())return;
-  await prepareReview('/fetch',{repo:runtime.review.repo},'Fetching manuscript history');await compareVersions(runtime.review.workspace||runtime.review.repo);
+  const ticket=await setReviewing(true);
+  if(!await ensureReview()||ticket!==activityEpoch)return;
+  await prepareReview('/fetch',{repo:runtime.review.repo},'Fetching manuscript history');
+  if(ticket===activityEpoch)await compareVersions(runtime.review.workspace||runtime.review.repo);
  }
  async function importReview(){const ticket=await setReviewing(true);return navigateReview(async()=>{
   await start();await prepareTools();

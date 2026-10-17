@@ -898,6 +898,16 @@ test('an explicit Write cancels Review requests during initial manuscript setup'
  }
 });
 
+test('leaving Review during library loading does not open a late picker',async t=>{
+ const f=await fixture(t);await f.command('open');
+ let entered,release;const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve),library=f.runtime.library;
+ f.runtime.library=async(...args)=>{if(args[0]==='/library-data'){entered();await gate;}return library(...args);};
+ const opening=f.command('library');await started;await f.command('exitReview');
+ const calls=f.calls.length;release();await opening;
+ assert.equal(f.calls.slice(calls).some(call=>call.kind==='pick'),false);
+ assert.equal(f.contexts.get('manuscriptReview.reviewVisible'),false);assert.deepEqual(f.errors,[]);
+});
+
 test('the comment list stays usable independently of a staged comparison and rejects another manuscript',async t=>{
  const f=await fixture(t);await f.command('open');
  await f.sidebarCallbacks.onAction('openComment',{review:reviewId,thread:'root'});
