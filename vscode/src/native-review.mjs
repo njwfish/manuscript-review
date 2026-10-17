@@ -110,11 +110,9 @@ export function createNativeReview(vscode, {
     const progress = reviewIndex(selected.data).progress;
     status.text = (focusMode ? 'Review ' : '') + (progress.complete ? 'Reviewed' : progress.done + '/' + progress.total);
     status.tooltip = progress.complete
-      ? selected.data.applied
-        ? 'All changes reviewed and saved.'
-        : 'All changes reviewed. Apply review in the sidebar.'
+      ? 'All changes reviewed.'
       : focusMode
-        ? 'A accept, S reject, D previous, F next, C comment. E or Escape edits the source.'
+        ? 'A accept, S reject, D previous, F next, C comment. E or Escape returns to writing.'
         : 'Review manuscript changes';
     status.show();
   }
@@ -331,7 +329,7 @@ export function createNativeReview(vscode, {
             ['previousChange', 'Back', 'D'], ['nextChange', 'Next', 'F'], ['commentChange', 'Comment', 'C']
           ]) controls.push(new vscode.CodeLens(range, { title: shortcut(label, key), command: 'manuscriptReview.' + command }));
           controls.push(new vscode.CodeLens(range, {
-            title: focusMode ? 'Edit E' : 'Review',
+            title: focusMode ? 'Write E' : 'Review',
             command: focusMode ? 'manuscriptReview.editSource' : 'manuscriptReview.focusedReview'
           }));
           if (decision) controls.push(new vscode.CodeLens(range, {
@@ -343,7 +341,7 @@ export function createNativeReview(vscode, {
     ),
     vscode.window.onDidChangeTextEditorSelection((event) => {
       if (event.textEditor !== activeEditor()) return;
-      if (event?.kind === vscode.TextEditorSelectionChangeKind.Mouse && (!focusMode || !current())) {
+      if (event?.kind === vscode.TextEditorSelectionChangeKind.Mouse) {
         focused = undefined;
         edit();
       } else if ([vscode.TextEditorSelectionChangeKind.Keyboard, vscode.TextEditorSelectionChangeKind.Mouse].includes(event?.kind)) navigationEpoch++;

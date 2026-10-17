@@ -18,7 +18,7 @@ function fixture(){
    setAttribute(name,value){attributes[name]=value;},getAttribute:name=>attributes[name],
    addEventListener:(type,handler)=>listeners[type]=handler,
    fire(type,event={}){let prevented=false;listeners[type]?.({...event,preventDefault(){prevented=true;}});return prevented;},
-   append(...children){this.children=children;},replaceChildren(...children){this.children=children;this.replaced=(this.replaced||0)+1;},
+   append(...children){this.children=[...(this.children||[]),...children];},replaceChildren(...children){this.children=children;this.replaced=(this.replaced||0)+1;},
    focus(){document.activeElement=this;},dataset:{}};
  }
  for(const match of html.matchAll(/<(\w+)[^>]*\bid="([^"]+)"/g))elements.set(match[2],makeElement(match[1],match[2]));
@@ -68,5 +68,20 @@ test('pending review decisions stay visible after agent wording has already reac
  f.message({type:'state',state:{agent:'Codex',model:'CLI default',applied:true,progress:'0 of 2 reviewed'}});
  assert.equal(f.element('progress').textContent,'0 of 2 reviewed');
  f.message({type:'state',state:{agent:'Codex',model:'CLI default',applied:true}});
- assert.equal(f.element('progress').textContent,'Applied');
+ assert.equal(f.element('progress').hidden,true);
+});
+
+test('writing presents comments and pending changes while comparison controls belong to Review',()=>{
+ const f=fixture(),thread={id:'source-comment',file:'main.tex',line:9,body:'Explain this step.',answered:true};
+ f.message({type:'state',state:{active:true,review:'review-a',folder:'/paper',remaining:3,threads:[thread]}});
+ assert.equal(f.element('writing').hidden,false);assert.equal(f.element('reviewing').hidden,true);
+ assert.equal(f.element('incoming').textContent,'Review 3 changes');assert.equal(f.element('incoming').hidden,false);
+ const row=f.element('threads').children[0];assert.equal(row.children[1].textContent,thread.body);
+ assert.equal(row.children[2].textContent,'Agent replied');
+ row.fire('click');assert.equal(f.posts.at(-1).thread,thread.id);assert.equal(f.posts.at(-1).review,'review-a');
+ f.message({type:'state',state:{active:true,review:'review-a',folder:'/paper',reviewing:true,threads:[thread]}});
+ assert.equal(f.element('writing').hidden,true);assert.equal(f.element('reviewing').hidden,false);
+ assert.equal(f.element('write').getAttribute('aria-pressed'),'false');
+ assert.equal(f.element('review-activity').getAttribute('aria-pressed'),'true');
+ assert.equal(f.element('threads').replaced,1);
 });

@@ -6,7 +6,7 @@
     "onStartupFinished"
   ],
   "description": "Word-level manuscript review, source comments, and highlighted PDF comparisons.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "publisher": "njwfish",
   "license": "MIT",
   "repository": {
@@ -41,7 +41,7 @@
       },
       {
         "command": "manuscriptReview.open",
-        "title": "Open manuscript review",
+        "title": "Open manuscript",
         "category": "Manuscript Review"
       },
       {
@@ -172,11 +172,6 @@
         "category": "Manuscript Review"
       },
       {
-        "command": "manuscriptReview.toggleHighlights",
-        "title": "Toggle review highlights",
-        "category": "Manuscript Review"
-      },
-      {
         "command": "manuscriptReview.chooseModel",
         "title": "Choose comment model",
         "category": "Manuscript Review"
@@ -184,11 +179,6 @@
       {
         "command": "manuscriptReview.agentSessions",
         "title": "Open agent session",
-        "category": "Manuscript Review"
-      },
-      {
-        "command": "manuscriptReview.agentChanges",
-        "title": "Review agent changes",
         "category": "Manuscript Review"
       },
       {
@@ -228,9 +218,9 @@
       },
       {
         "command": "manuscriptReview.exitReview",
-        "title": "Exit review",
+        "title": "Return to writing",
         "category": "Manuscript Review",
-        "icon": "$(close)"
+        "icon": "$(edit)"
       },
       {
         "command": "manuscriptReview.reviewPDF",
@@ -353,7 +343,7 @@
         },
         {
           "command": "manuscriptReview.review",
-          "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(tex|bib|md|txt|typ|rst)$/ && !manuscriptReview.reviewVisible",
           "group": "navigation@3"
         },
         {
@@ -395,7 +385,7 @@
         },
         {
           "command": "manuscriptReview.reviewPDF",
-          "when": "view == manuscriptReview.start && manuscriptReview.active",
+          "when": "view == manuscriptReview.start && manuscriptReview.active && manuscriptReview.reviewVisible",
           "group": "navigation@3"
         }
       ]

@@ -48,6 +48,7 @@ exports.run=async()=>{
  assert.equal(document.getText(),authorText);assert.equal(document.isDirty,true);
  await document.save();
  await until(()=>document.getText().includes('observed')&&!document.isDirty);
+ assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.input instanceof vscode.TabInputTextDiff),false,'Agent results must leave normal writing in its native editor');
  editor=vscode.window.visibleTextEditors.find(editor=>editor.document===document);
  // Automatic highlights must not silently turn subsequent drafting into refinement.
  typing=document.getText().indexOf('the concise explanation');
@@ -145,8 +146,15 @@ exports.run=async()=>{
  if(['pdf','source','review'].includes(process.env.MR_NATIVE_VISUAL))await inspect('pdf');
  assert.equal(state.pdfMessages.some(message=>message.type==='error'),false,'The real PDF webview must decode and render selected PDF bytes');
  assert.equal(vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.label.startsWith('Review:')),false);
+ const beforeWriting=await record(),textBeforeWriting=document.getText();
+ await vscode.commands.executeCommand('manuscriptReview.exitReview');
+ await until(()=>!vscode.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.input instanceof vscode.TabInputTextDiff||tab.label.startsWith('PDF: ')));
+ assert.equal(document.getText(),textBeforeWriting);assert.equal(document.isDirty,false);
+ const afterWriting=await record();
+ assert.deepEqual(afterWriting.decisions,beforeWriting.decisions);assert.deepEqual(afterWriting.history,beforeWriting.history);
+ assert.equal(afterWriting.baseline,beforeWriting.baseline);assert.equal(afterWriting.result,beforeWriting.result);
  assert.equal(execFileSync('git',['rev-parse','HEAD'],{cwd:fixture.repo,encoding:'utf8'}).trim(),fixture.head);
  assert.equal(execFileSync('git',['diff','--cached','--name-only'],{cwd:fixture.repo,encoding:'utf8'}).trim(),'');
  await state.actual.deactivate();
- await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,singleNativeReviewEditor:true,selectedPDFRendered:true,realTeXCompiled:compiledPDF,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
+ await fs.writeFile(fixture.root+'/passed.json',JSON.stringify({nativeDispatchMs:dispatchMs,writingStaysNative:true,returnToWritingPreservesReview:true,manualRefinementKeepsBase:true,inlineDecisionAndUndo:true,singleNativeReviewEditor:true,selectedPDFRendered:true,realTeXCompiled:compiledPDF,dirtyFileDoesNotBlockCleanDelivery:true,typingDuringDeliveryRemainsAuthoring:true,deliveryPreservesEditingIntent:true,sourceAndGitPreserved:true}));
 };

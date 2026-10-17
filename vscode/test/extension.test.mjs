@@ -72,8 +72,8 @@ async function fixture(t,options={}) {
     async request(route,body,checkSource){await options.onRequestQueue?.(doc);if(route==='/apply')checkSource();calls.push({kind:'request',route,body});if(route==='/summary')return runtime.data();if(route.startsWith('/pdf-entry'))return body?{revision:++selected.revision,entry:body.entry}:{revision:selected.revision,entry:options.pdfEntry??'main.tex',entries:options.pdfEntries??['main.tex'],matching:options.pdfMatching??options.pdfEntries??['main.tex']};if(route==='/delivery')return {files:[],conflicts:[]};if(route==='/status')return {id:selected.id,revision:selected.revision};if(route==='/workspace'){selected.workspace=options.workspace||selected.repo;selected.workspace_version='2'.repeat(40);return {revision:1,workspace:selected.workspace,workspace_version:selected.workspace_version};}if(route==='/capture')return {revision:2,captured:body.saves.at(-1).id,cursor:body.saves.at(-1).id,workspace_version:selected.workspace_version};if(route==='/authoring')return {revision:2};if(route==='/agent')return {message:'Sent in the background',discussion:body.id};if(route==='/apply')return {applied:true,revision:2};if(route==='/draft')return {revision:2};assert.equal(route,'/editor');
       await options.onProjectionRequest?.(doc,runtime);return {position:12,ranges:[],notes:[]};},
     async dispose(){calls.push({kind:'dispose-runtime'});}};
-  const pdf={active:false,visible:Boolean(options.pdfVisible),reset(){},select(){return Promise.resolve();},setMode(){},async show(column){calls.push({kind:'show-pdf',column});},async refresh(){calls.push({kind:'pdf-refresh'});},dispose(){calls.push({kind:'dispose-pdf'});}};
-  const comments={input:()=>options.commentInput,editInput(){},submitInput(){},cancelInput(){},setEnabled(enabled){calls.push({kind:'comments-enabled',enabled});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){await commentsCallbacks.onSource(editor.document);calls.push({kind:'annotate',editor});},
+  const pdf={active:false,visible:Boolean(options.pdfVisible),reset(){},select(){return Promise.resolve();},setMode(){},hide(){calls.push({kind:'hide-pdf'});},async show(column){calls.push({kind:'show-pdf',column});},async refresh(){calls.push({kind:'pdf-refresh'});},dispose(){calls.push({kind:'dispose-pdf'});}};
+  const comments={list:()=>options.threads||[],async open(thread){calls.push({kind:'open-comment',thread});},input:()=>options.commentInput,editInput(){},submitInput(){},cancelInput(){},setEnabled(enabled){calls.push({kind:'comments-enabled',enabled});},async refresh(){calls.push({kind:'comments-refresh'});},async annotate(editor){await commentsCallbacks.onSource(editor.document);calls.push({kind:'annotate',editor});},
     async discuss(selected){calls.push({kind:'discuss',selected});},async move(direction){calls.push({kind:'move',direction});},dispose(){calls.push({kind:'dispose-comments'});}};
   const {sourceFile,sourceDocument}=await import('../src/comments.mjs');
   let sidebarCallbacks;
@@ -135,7 +135,9 @@ test('opening a new manuscript uses its active root and leaves source unchanged'
   assert.equal(f.calls.find(call=>call.kind==='create-runtime').configuration.extensionPath,path.join('/test/extension','dist'));
   assert.equal(f.contexts.get('manuscriptReview.active'),true);
   assert.equal(await readFile(f.source,'utf8'),'A manuscript sentence.\n');
-  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace','/summary','/delivery']);
+  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace']);
+  assert.equal(f.calls.some(call=>call.kind==='focus-review'),false);
+  assert.equal(f.contexts.get('manuscriptReview.reviewVisible'),false);
 });
 
 test('choosing among multiple root documents forwards the selected entry',async t=>{
@@ -159,22 +161,23 @@ test('opening an unchanged manuscript keeps annotation in the native editor',asy
   assert.equal(f.calls.filter(call=>call.kind==='focus-review').length,1);
 });
 
-test('cancelling the round picker quietly stops dependent commands',async t=>{
+test('focused review resumes the current manuscript without a round picker',async t=>{
   const f=await fixture(t,{reviews:[{id:reviewId,repo:'placeholder'}]});
   f.runtime.library=async route=>route==='/inspect'?{repo:f.repo,entries:['main.tex']}:
     {reviews:[{id:reviewId,repo:f.repo,base_label:'Base',proposal_label:'Proposal'}]};
   await f.command('focusedReview');
   assert.deepEqual(f.errors,[]);
-  assert.equal(f.calls.some(call=>call.kind==='focus-review'||call.kind==='open'),false);
+  assert.equal(f.calls.some(call=>call.kind==='focus-review'),true);
+  assert.equal(f.calls.some(call=>call.kind==='pick'),false);
 });
 
 test('the picker names rounds consistently and avoids a duplicate manuscript entry',async t=>{
   const f=await fixture(t,{pick:items=>items[0]});
   f.runtime.library=async route=>route==='/inspect'?{repo:f.repo,entries:['main.tex']}:
-    {reviews:[{id:reviewId,repo:f.repo,base_label:'B',proposal_label:'P'},
-      {id:'b'.repeat(24),repo:f.repo,base_label:'B',proposal_label:'First'}]};
-  await f.command('open');
-  const items=f.calls.find(call=>call.kind==='pick').items;
+    {reviews:[{id:reviewId,repo:f.repo,base_label:'B',proposal_label:'P',created:'2026-01-02'},
+      {id:'b'.repeat(24),repo:f.repo,base_label:'B',proposal_label:'First',created:'2026-01-01'}]};
+  await f.command('library');
+  const items=f.calls.filter(call=>call.kind==='pick').at(-1).items;
   assert.deepEqual(Array.from(items,item=>item.label),['Round 2','Round 1']);
   assert.equal(items.length,2);
 });
@@ -184,7 +187,7 @@ test('the focused round picker remains tied to the displayed manuscript',async t
   f.runtime.library=async route=>route==='/library-data'?{reviews:[{id:reviewId,repo:f.repo}]}:{repo:f.repo,entries:['main.tex']};
   f.vscode.window.activeTextEditor={document:{...f.doc,uri:uri('/elsewhere/other.tex')}};
   await f.command('library');
-  assert.equal(f.calls.filter(call=>call.kind==='library'&&call.route==='/inspect').at(-1).body.repo,f.repo);
+  assert.equal(f.calls.filter(call=>call.kind==='open').at(-1).id,reviewId);
   assert.equal(f.calls.some(call=>call.kind==='show-pdf'),false);
 });
 
@@ -236,7 +239,7 @@ test('a native Save captures the same review and refreshes without revealing sou
  await f.events['document-save'](f.doc);
  const request=f.calls.find(call=>call.kind==='request'&&call.route==='/capture');
  const id=request.body.saves[0].id;
- assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,source:'2'.repeat(40),cursor:null,saves:[{id,text:f.doc.text,intent:'proposal'}]});
+ assert.deepEqual(JSON.parse(JSON.stringify(request.body)),{file:'main.tex',text:f.doc.text,source:'2'.repeat(40),cursor:null,saves:[{id,text:f.doc.text,intent:'author'}]});
  assert.equal(f.calls.filter(call=>call.kind==='show-source'||call.kind==='focus-review').length,shown);
  assert.equal(f.calls.some(call=>call.kind==='prepare'&&call.route==='/update'),false);
  assert.equal(f.runtime.review.id,reviewId);assert.deepEqual(f.errors,[]);
@@ -300,7 +303,9 @@ test('source navigation refuses symlinks leaving the manuscript repository',asyn
   const external=path.join(path.dirname(f.repo),'outside.tex');await writeFile(external,'Outside text.');
   await symlink(external,path.join(f.repo,'escape.tex'));
   await assert.rejects(f.nativeCallbacks.onOpen({file:'escape.tex'}),/outside this manuscript/);
-  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace','/summary','/delivery']);
+  assert.deepEqual(f.calls.filter(call=>call.kind==='request').map(call=>call.route),['/workspace']);
+  assert.equal(f.calls.some(call=>call.kind==='focus-review'),false);
+  assert.equal(f.contexts.get('manuscriptReview.reviewVisible'),false);
 });
 
 test('reviewing saved changes refuses unsaved manuscript buffers',async t=>{
@@ -487,22 +492,22 @@ test('the toolbar follows its source resource in another editor group and reuses
   const f=await fixture(t);await f.command('open');
   f.vscode.window.activeTextEditor=undefined;await f.command('review',uri(f.source));
   assert.equal(f.calls.filter(call=>call.kind==='open').length,1);
-  assert.equal(f.calls.filter(call=>call.kind==='focus-review').length,2);
+  assert.equal(f.calls.filter(call=>call.kind==='focus-review').length,1);
   const other=path.join(f.repo,'../another/main.tex');await f.command('review',uri(other));
   assert.equal(f.calls.filter(call=>call.kind==='library'&&call.route==='/inspect').at(-1).body.repo,path.dirname(other));
 });
 
 test('opening focused review follows the displayed source selection',async t=>{
  const selection={file:'main.tex',target:{id:'cursor-edit',kind:'edit'},source:true};
- const f=await fixture(t,{sourceSelection:selection});await f.command('open');
+ const f=await fixture(t,{sourceSelection:selection});await f.command('open');await f.command('focusedReview');
  assert.deepEqual(f.calls.find(call=>call.kind==='focus-review').entry,selection);
 });
 
-test('cancelling the toolbar round picker preserves the existing review without opening it for another manuscript',async t=>{
+test('cancelling review history preserves the open manuscript',async t=>{
   const f=await fixture(t);await f.command('open');const shown=f.calls.filter(call=>call.kind==='focus-review').length;
   const other=path.join(f.repo,'../another'),library=f.runtime.library;
   f.runtime.library=(route,body)=>route==='/inspect'?{repo:other,entries:['main.tex']}:route==='/library-data'?{reviews:[{id:'b'.repeat(24),repo:other}]}:library(route,body);
-  await f.command('review',uri(path.join(other,'main.tex')));
+  await f.command('library');
   assert.equal(f.runtime.review.id,reviewId);
   assert.equal(f.calls.filter(call=>call.kind==='focus-review').length,shown);
   assert.equal(f.calls.filter(call=>call.kind==='open').length,1);
@@ -533,7 +538,7 @@ test('concurrent startup shares one interpreter discovery and the same executabl
 
 
 test('source comment dispatch preserves the comparison when Review changes is enabled',async t=>{
- const f=await fixture(t,{agent:'claude'});await f.command('open');f.doc.isDirty=true;
+ const f=await fixture(t,{agent:'claude'});await f.command('open');await f.command('focusedReview');f.doc.isDirty=true;
  const before=f.vscode.window.activeTextEditor;
  assert.equal(await f.commentsCallbacks.onAgent('saved-comment',undefined,f.doc.uri),true);
  const request=f.calls.find(call=>call.kind==='request'&&call.route==='/agent');
@@ -604,12 +609,12 @@ test('a delayed initial sidebar summary cannot replace a newly staged comparison
  assert.equal(current[0].pending,true);assert.equal(current[0].base.revision,'working');
 });
 
-test('Agent changes cannot convert a different review while native saves are capturing',async t=>{
+test('entering review stays pinned while native saves are capturing',async t=>{
  const f=await fixture(t);await f.command('open');
  let release,entered;const gate=new Promise(resolve=>release=resolve),started=new Promise(resolve=>entered=resolve),request=f.runtime.request;
  f.runtime.request=async(route,...args)=>{if(route==='/capture'){entered();await gate;await f.runtime.open('b'.repeat(24));}return request(route,...args);};
  f.doc.text='Saved refinement';const saved=f.events['document-save'](f.doc);await started;
- const changing=f.command('agentChanges');release();await saved;await changing;
+ const changing=f.command('focusedReview');release();await saved;await changing;
  assert.equal(f.calls.some(call=>call.route==='/authoring'),false);assert.match(f.errors.at(-1),/review changed/i);
 });
 
@@ -628,17 +633,17 @@ test('dispatch retains its comment source when the author moves to another edito
  assert.equal(f.vscode.window.activeTextEditor.document,other);
 });
 
-test('review highlights switch off independently of comments and remain off across source refreshes',async t=>{
- const f=await fixture(t);await f.command('open');await f.command('toggleHighlights');
+test('returning to writing clears review and preserves comments across refreshes',async t=>{
+ const f=await fixture(t);await f.command('open');await f.command('focusedReview');await f.command('exitReview');
  assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,false);
  assert.equal(f.calls.filter(call=>call.kind==='comments-enabled').at(-1).enabled,true);
  await f.command('refresh');assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,false);
- await f.command('toggleHighlights');assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,true);
+ await f.command('focusedReview');assert.equal(f.calls.filter(call=>call.kind==='highlights-enabled').at(-1).enabled,true);
 });
 
-test('showing highlights does not convert subsequent drafting into proposal refinement',async t=>{
+test('leaving review restores author drafting for subsequent saves',async t=>{
  const f=await fixture(t,{files:[]});await f.command('open');
- await f.command('toggleHighlights');
+ await f.command('focusedReview');await f.command('exitReview');
  f.doc.isDirty=true;f.doc.text='New author wording.';f.events['document-change']({document:f.doc});
  f.doc.isDirty=false;await f.events['document-save'](f.doc);
  assert.equal(f.calls.find(call=>call.kind==='request'&&call.route==='/capture').body.saves[0].intent,'author');
@@ -823,12 +828,15 @@ test('unresolved includes retain a PDF root picker instead of blocking the selec
 });
 
 
-test('editing from the PDF returns to the existing native source review',async t=>{
- const f=await fixture(t);await f.command('open');
+test('editing from the PDF returns to ordinary writing in the same source',async t=>{
+ const f=await fixture(t,{sourceSelection:{file:'main.tex'}});await f.command('open');
+ f.vscode.window.activeTextEditor=undefined;
+ f.vscode.window.visibleTextEditors.unshift({...f.editor,document:{...f.doc,uri:uri(path.join(f.repo,'supplement.tex'))}});
  const plain=f.calls.filter(call=>call.kind==='show-source').length,views=f.sourceShows.length;
  await f.pdfCallbacks.onAction('edit');
- assert.equal(f.calls.filter(call=>call.kind==='show-source').length,plain);
- assert.equal(f.sourceShows.length,views+1);assert.equal(f.sourceShows.at(-1).editor,f.editor);
+ assert.equal(f.calls.filter(call=>call.kind==='show-source').length,plain+1);
+ assert.equal(f.calls.filter(call=>call.kind==='show-source').at(-1).document,f.doc);
+ assert.equal(f.sourceShows.length,views);assert.equal(f.contexts.get('manuscriptReview.reviewVisible'),false);
 });
 
 
@@ -836,4 +844,64 @@ test('source navigation stays in the manuscript editor column',async t=>{
  const f=await fixture(t);await f.command('open');f.editor.viewColumn=2;
  await f.nativeCallbacks.onOpen({file:'main.tex'});
  assert.equal(f.calls.filter(call=>call.kind==='show-source').at(-1).configuration.viewColumn,2);
+});
+
+test('Write and Review share the document and record while selecting the save policy automatically',async t=>{
+ const f=await fixture(t);await f.command('open');
+ const original=f.doc.text;
+ assert.equal((await f.sidebarCallbacks.load())[2].reviewing,false);
+ await f.command('focusedReview');
+ assert.equal((await f.sidebarCallbacks.load())[2].reviewing,true);
+ f.doc.isDirty=true;f.doc.text='Refined proposed wording.';f.doc.version++;f.events['document-change']({document:f.doc});
+ f.doc.isDirty=false;await f.events['document-save'](f.doc);
+ await f.command('exitReview');
+ f.doc.isDirty=true;f.doc.text='Author wording after review.';f.doc.version++;f.events['document-change']({document:f.doc});
+ f.doc.isDirty=false;await f.events['document-save'](f.doc);
+ assert.deepEqual(f.calls.filter(call=>call.route==='/capture').map(call=>call.body.saves[0].intent),['proposal','author']);
+ assert.equal(f.calls.filter(call=>call.kind==='open').length,1);
+ assert.equal(f.calls.some(call=>['/save','/apply','/authoring'].includes(call.route)),false);
+ assert.equal(f.runtime.review.id,reviewId);assert.equal(await readFile(f.source,'utf8'),original);
+});
+
+test('a draft comment dispatches in the background without entering review',async t=>{
+ const f=await fixture(t);await f.command('open');
+ const shown=f.sourceShows.length;
+ await f.commentsCallbacks.onAgent('writing-comment',undefined,f.doc.uri);
+ assert.equal(f.calls.find(call=>call.route==='/agent').body.authoring,true);
+ assert.equal(f.contexts.get('manuscriptReview.reviewVisible'),false);
+ assert.equal(f.sourceShows.length,shown);
+});
+
+test('returning to Write cancels delayed source and PDF review entry without warnings',async t=>{
+ for(const [command,route,options] of [['focusedReview','/delivery',{}],['reviewPDF','/pdf-entry',{pdfEntries:['paper.tex','supplement.tex'],pdfEntry:'retired.tex',pdfMatching:[]}],['reviewPDF','/pdf-entry',{pdfEntries:[]}]]){
+  const f=await fixture(t,options);await f.command('open');
+  let entered,release;const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);
+  const request=f.runtime.request;let delayed=false;
+  f.runtime.request=async(...args)=>{if(args[0].startsWith(route)&&!delayed){delayed=true;entered();await gate;}return request(...args);};
+  const opening=f.command(command);await started;await f.command('exitReview');
+  const calls=f.calls.length;release();await opening;
+  assert.equal(f.contexts.get('manuscriptReview.reviewVisible'),false);
+  assert.equal(f.calls.slice(calls).some(call=>call.kind==='focus-review'||call.kind==='show-pdf'),false);
+  assert.equal(f.calls.slice(calls).some(call=>call.kind==='pick'),false);
+  assert.deepEqual(f.errors,[]);
+ }
+});
+
+test('an explicit Write cancels Review requests during initial manuscript setup',async t=>{
+ for(const command of ['focusedReview','reviewPDF']){
+  let entered,release;const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);
+  const f=await fixture(t,{onToolsSetup:async()=>{entered();await gate;}});
+  const opening=f.command(command);await started;await f.command('exitReview');release();await opening;
+  assert.equal(f.contexts.get('manuscriptReview.reviewVisible'),false);
+  assert.equal(f.calls.some(call=>call.kind==='focus-review'||call.kind==='show-pdf'),false);
+  assert.deepEqual(f.errors,[]);
+ }
+});
+
+test('the comment list stays usable independently of a staged comparison and rejects another manuscript',async t=>{
+ const f=await fixture(t);await f.command('open');
+ await f.sidebarCallbacks.onAction('openComment',{review:reviewId,thread:'root'});
+ assert.equal(f.calls.find(call=>call.kind==='open-comment').thread,'root');
+ await assert.rejects(f.sidebarCallbacks.onAction('openComment',{review:'other',thread:'root'}),/current manuscript/);
+ assert.equal(f.calls.filter(call=>call.kind==='open-comment').length,1);
 });

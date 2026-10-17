@@ -128,8 +128,10 @@ export function createSourceReview(vscode) {
     });
   }
 
-  function hide() {
+  function hide(preferred = editor()) {
     const ticket = ++generation;
+    const location = preferred && {document: preferred.document, column: column(preferred),
+      selection: preferred.selection, version: preferred.document.version};
     documents = new WeakMap();
     // Clear stale markup immediately, including during a pending view transition.
     for (const entry of entries.values()) {
@@ -140,12 +142,29 @@ export function createSourceReview(vscode) {
       if (disposed || ticket !== generation) return;
       const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs.filter(owned)
         .map(tab => ({tab, viewColumn: group.viewColumn})));
+      const selected = item => location?.document.uri.toString() === item.tab.input.modified.toString()
+        && location.column === item.viewColumn;
+      // Reopen the current source last so tab conversion retains its location.
+      tabs.sort((a, b) => Number(selected(a)) - Number(selected(b)));
       for (const {tab, viewColumn} of tabs) {
         if (disposed || ticket !== generation) return;
+        const source = vscode.window.visibleTextEditors.find(editor => editor.document.uri.toString() === tab.input.modified.toString()
+          && (editor.viewColumn === viewColumn || editor.viewColumn === undefined));
+        const current = selected({tab, viewColumn}) ? location : undefined;
+        const selection = current?.selection || source?.selection, version = current?.version ?? source?.document.version;
         const document = await vscode.workspace.openTextDocument(tab.input.modified);
         if (disposed || ticket !== generation) return;
-        await vscode.window.showTextDocument(document, {viewColumn, preserveFocus: true});
+        const editor = await vscode.window.showTextDocument(document, {viewColumn, preserveFocus: true});
+        if (disposed || ticket !== generation) return;
+        if (selection && document.version === version) {
+          editor.selection = selection;
+          editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+        }
         await vscode.window.tabGroups.close(tab, true);
+      }
+      if (location && tabs.length && !tabs.some(selected) && ticket === generation && !disposed) {
+        const current = await vscode.window.showTextDocument(location.document, {viewColumn: location.column, preserveFocus: true});
+        if (ticket === generation && location.document.version === location.version) current.selection = location.selection;
       }
       if (ticket === generation) {
         entries.clear();

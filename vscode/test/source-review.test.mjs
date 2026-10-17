@@ -27,12 +27,19 @@ function host(overrides={}){
  class TabInputTextDiff{constructor(original,modified){Object.assign(this,{original,modified});}}
  class EventEmitter{event=()=>({dispose(){}});fire(){}dispose(){}}
  const document={uri:uri('file','/main.tex'),version:1,languageId:'latex',getText:()=> 'New word.\n'};
- const editor={document,viewColumn:1,selection:{}};
+ const editor={document,viewColumn:1,selection:{},revealRange(range){this.revealed=range;}};
  const plain={input:new TabInputText(document.uri)},group={viewColumn:1,tabs:[plain],activeTab:plain};
+ const editors=[editor];
  const values={},writes=[],commands=[];let provider,gate;
  const window={activeTextEditor:editor,visibleTextEditors:[editor],tabGroups:{all:[group],activeTabGroup:group,
-  async close(tabs){for(const tab of [].concat(tabs))group.tabs=group.tabs.filter(item=>item!==tab);}},
-  async showTextDocument(){if(!group.tabs.includes(plain))group.tabs.push(plain);group.activeTab=plain;return editor;}};
+  async close(tabs){for(const tab of [].concat(tabs))for(const group of this.all)group.tabs=group.tabs.filter(item=>item!==tab);}},
+  async showTextDocument(document,{viewColumn=1}={}){
+   const group=this.tabGroups.all.find(group=>group.viewColumn===viewColumn),editor=editors.find(editor=>editor.document===document&&editor.viewColumn===viewColumn);
+   let plain=group.tabs.find(tab=>tab.input instanceof TabInputText&&tab.input.uri===document.uri);
+   if(!plain){plain={input:new TabInputText(document.uri)};group.tabs.push(plain);}
+   group.activeTab=plain;if(this.tabGroups.activeTabGroup===group)this.activeTextEditor=editor;
+   this.visibleTextEditors=this.visibleTextEditors.filter(item=>item.viewColumn!==viewColumn).concat(editor);return editor;
+  }};
  let failure;
  const fields=['workspaceFolderLanguageValue','workspaceLanguageValue','globalLanguageValue','workspaceFolderValue','workspaceValue'];
  const config={get:key=>fields.map(field=>overrides[key]?.[field]).find(value=>value!==undefined)??values[key],
@@ -43,15 +50,15 @@ function host(overrides={}){
    else{const field=({1:'global',2:'workspace',3:'workspaceFolder'})[target]+(language?'LanguageValue':'Value');
     (overrides[key]??={})[field]=value;}
   }};
- const vscode={window,EventEmitter,TabInputText,TabInputTextDiff,ConfigurationTarget:{Global:1,Workspace:2,WorkspaceFolder:3},Uri:{from:({scheme,path})=>uri(scheme,path)},
-  workspace:{getConfiguration:()=>config,getWorkspaceFolder:()=>({uri:uri('file','/paper')}),registerTextDocumentContentProvider(scheme,value){assert.equal(scheme,originalScheme);provider=value;return {dispose(){}};},async openTextDocument(){return document;}},
+ const vscode={window,EventEmitter,TabInputText,TabInputTextDiff,TextEditorRevealType:{InCenterIfOutsideViewport:2},ConfigurationTarget:{Global:1,Workspace:2,WorkspaceFolder:3},Uri:{from:({scheme,path})=>uri(scheme,path)},
+  workspace:{getConfiguration:()=>config,getWorkspaceFolder:()=>({uri:uri('file','/paper')}),registerTextDocumentContentProvider(scheme,value){assert.equal(scheme,originalScheme);provider=value;return {dispose(){}};},async openTextDocument(uri){return editors.find(editor=>editor.document.uri.toString()===uri.toString()).document;}},
   commands:{async executeCommand(name,original,modified){commands.push(name);if(name==='vscode.diff'){
    await gate?.();const tab={input:new TabInputTextDiff(original,modified)};group.tabs.push(tab);group.activeTab=tab;
   }}}};
  const owner=createSourceReview(vscode),data={id:'review',revision:1,decisions:{},files:[{path:'main.tex',edits:[{id:'edit',old:'Old',new:'New'}]}]};
  const projection={document,documentVersion:1,file:'main.tex',revision:1,text:document.getText(),ranges:[{id:'edit',from:0,to:3}]};
  owner.update(projection,data);
- return {owner,editor,document,data,projection,group,values,writes,commands,get provider(){return provider;},defer(fn){gate=fn;},fail(fn){failure=fn;}};
+ return {owner,editor,document,data,projection,group,values,writes,commands,window,editors,uri,TabInputTextDiff,get provider(){return provider;},defer(fn){gate=fn;},fail(fn){failure=fn;}};
 }
 
 test('native source review keeps one editable file, clears decided markup, and restores native settings',async()=>{
@@ -74,6 +81,23 @@ test('ending review during native diff opening cannot leave a late diff or take 
  await Promise.all([opening,closing]);assert.equal(f.group.tabs.length,1);
  assert.equal(f.group.activeTab.input.uri,f.document.uri);
  assert.equal(f.commands.includes('workbench.action.compareEditor.focusSecondarySide'),false);await f.owner.dispose();
+});
+
+test('returning to Write retains the active file and selection across multiple review tabs and groups',async()=>{
+ for(const column of [1,2]){
+  const f=host();await f.owner.show(f.editor);
+  const selection={start:{line:0,character:4},end:{line:0,character:4}};f.editor.selection=selection;
+  const document={...f.document,uri:f.uri('file','/supplement.tex')},editor={...f.editor,document,viewColumn:column,selection:{}};
+  const tab={input:new f.TabInputTextDiff(f.uri(originalScheme,'/supplement.tex'),document.uri)};
+  const group=column===1?f.group:{viewColumn:column,tabs:[],activeTab:tab};group.tabs.push(tab);
+  if(column!==1)f.window.tabGroups.all.push(group);
+  f.editors.push(editor);if(column!==1)f.window.visibleTextEditors.push(editor);
+  await f.owner.hide();
+  assert.equal(f.window.activeTextEditor.document,f.document);assert.equal(f.window.activeTextEditor.selection,selection);
+  assert.equal(f.group.activeTab.input.uri,f.document.uri);
+  assert.equal(f.window.tabGroups.all.flatMap(group=>group.tabs).some(tab=>tab.input instanceof f.TabInputTextDiff),false);
+  await f.owner.dispose();
+ }
 });
 
 test('opening source from PDF preserves its focus',async()=>{
